@@ -1,3 +1,8 @@
+'''
+Codes created by: Ikenna Oluigbo 
+Email: ikenna.oluigbo@gmail.com
+'''
+
 import argparse
 from gensim.models import Word2Vec 
 import identity2vec
