@@ -1,4 +1,4 @@
-## identity2vec
+# identity2vec
 
-# Description 
+## Description 
 Learning mesoscopic structural identity representations via Poisson probability metric
