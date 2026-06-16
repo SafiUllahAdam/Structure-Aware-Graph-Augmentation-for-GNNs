@@ -1,3 +1,6 @@
+'''decides which node should come next in a walk.'''
+# identity2vec.py is needed because it produces the “sentences” of nodes. Without it, train.py has nothing to train on.
+
 import numpy as np 
 import networkx as nx
 from tqdm import tqdm
@@ -10,7 +13,7 @@ class Graph():
         self.G = nx_Graph
         self.e = e
    
-    
+    # Returns each node’s degree
     def degree_node(self):
         G = self.G
         deg_dict = {}
@@ -18,13 +21,14 @@ class Graph():
             deg_dict[node] = deg
         return deg_dict 
     
-    
+    # Computes eigenvector centrality for every node.
+    # In our future ViRGo version, this should be cached because it is recomputed many times although the graph does not change. The checklist also marks this as the first important fix.
     def eigenvector_centrality(self):
         G = self.G
         ev = nx.eigenvector_centrality(G, max_iter=1000)
         return ev
     
-        
+    # Creates a dictionary: each node → list of its neighbors. This is used again and again during walking.
     def node_neighbors(self):
         G = self.G
         node_neigh = {}
@@ -32,7 +36,7 @@ class Graph():
             node_neigh[node] = list(G.neighbors(node))
         return node_neigh
 
-
+    # For the first step of a walk, it randomly picks one neighbor of the starting node.
     def test_source(self, s):
         mnn = self.node_neighbors()[s] 
         arr_new_nn = np.array(mnn)
@@ -40,7 +44,7 @@ class Graph():
         next_node = np.random.choice(arr_new_nn)
         return next_node
     
-    
+    # This function is used to skip the last visited node in the list of neighbors. It is called recursively until the last visited node is not in the list of neighbors.
     def skip_visited(self, snn, visited):
         if len(snn) != 1:
             if len(visited) > 1:
@@ -50,7 +54,8 @@ class Graph():
                     self.skip_visited(snn, visited)
         return snn
     
-    
+    # This function performs a random walk starting from a given node. It uses the Poisson distribution to decide which neighbor to visit next, while avoiding revisiting the last visited node. 
+    # The walk continues until the specified walk length is reached or there are no more neighbors to visit.
     def identity_walker(self, node, walk_length):
         walk = [node]
         visited = [node]
@@ -73,7 +78,8 @@ class Graph():
                 
         return walk
     
-    
+    # This function computes the shortest path and its length between two nodes in the graph. If there is no path, it returns an empty list and a length of zero. 
+    # This is used as a distance penalty d in similarity score calculation.
     def s_path(self, source, destination): 
         G = self.G
         if nx.has_path(G, source, destination):
@@ -84,7 +90,8 @@ class Graph():
             path_length = len(path)
         return path, path_length
     
-       
+    # This function calculates the probability distributions p and q for a given node n and the current node curr.
+    # p is based on the degree and eigenvector centrality of the neighbors of n, while q is based on the shortest path lengths from curr to each neighbor of n. 
     def get_prob(self, n, curr):
         G = self.G
         neigh = list(G.neighbors(n))
@@ -99,7 +106,9 @@ class Graph():
             q.append(path_length)
         return p, q
         
-    
+    # This function computes the Poisson distribution for a given set of neighbors (mnn) and the current node (bounded_curr).
+    # It calculates the Kullback-Leibler divergence between the probability distributions p and q for each neighbor, and then uses this divergence to compute the Poisson distribution value for each neighbor.
+    # This is the mathematical heart of the code. It computes a KL-style divergence and then converts it into a Poisson-style score. The next node is selected using this score.
     def poisson_dist(self, mnn, bounded_curr):
         #k = Number of adjacent neighbors
         #λ = Divergence rate
@@ -120,7 +129,9 @@ class Graph():
             pdn[node] = poiss
         return pdn
     
-    
+    # This function performs multiple random walks starting from each node in the graph. It generates a corpus of walks, where each walk is a sequence of nodes visited during the random walk. 
+    # The number of walks and the length of each walk can be specified as parameters.
+    # This creates the full training corpus. It starts walks from every node, repeats this num_walk times, and returns all walks. This output is later given to Word2Vec/SkipGram
     def identity2vec_walk(self, num_walk, walk_length):
         
         G = self.G

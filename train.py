@@ -1,6 +1,6 @@
 '''
-Codes created by: Ikenna Oluigbo 
-Email: ikenna.oluigbo@gmail.com
+Codes created by: Muhammad Safi Ullah ADAM
+Email: muhammadsafi2299@gmail.com
 '''
 
 import argparse
@@ -8,7 +8,11 @@ from gensim.models import Word2Vec
 import identity2vec
 import networkx as nx
 
+'''This is the run file. It is the file you execute from terminal.
 
+Its job is: load graph → call Identity2Vec walks → train Skipgram → save embeddings. '''
+
+# Defines all command-line options (which graph to read, where to save, walk settings) and their default values.
 def parse_args():
     '''
     Parses arguments.
@@ -50,16 +54,19 @@ def parse_args():
     
     return parser.parse_args()
 
+# Reads the input edgelist file into a networkx graph and gives every edge a weight of 1.
 def build_graph():
-    '''Read input network''' 
+    '''Read input network'''
     
     G = nx.read_edgelist(args.input, nodetype=int, create_using=nx.Graph())
     for e in G.edges:
         G.edges[e]['weight'] = 1 
         
     return G
-    
+# NetworkX is a Python library for working with graphs. We need it because raw text like 10, 25 is not useful directly. NetworkX converts it into a graph object, to ask Eigenvector centrality, shortest path, neighbours etc
 
+
+# Feeds the random walks into Word2Vec/SkipGram to learn one vector (embedding) per node, then saves them to the output file.
 def learn_embeddings(walks):
     '''
     Learn embeddings by optimizing the Skipgram objective using SGD.
@@ -75,6 +82,7 @@ def learn_embeddings(walks):
     return model
 
         
+# Runs the whole pipeline in order: build graph -> generate identity walks -> train and save embeddings.
 def main(args):
     nx_Graph = build_graph()
     G = identity2vec.Graph(nx_Graph, args.e)
