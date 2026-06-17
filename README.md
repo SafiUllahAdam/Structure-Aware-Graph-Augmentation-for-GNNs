@@ -1,2 +1,176 @@
-# identity2vec
-Learning mesoscopic structural identity representations via Poisson probability metric
+# ViRGo — Virtual Role-Graph Embedding for Structural Identity
+
+> A research project that extends **Identity2Vec (I2V)** by Oluigbo et al. toward a publishable paper.
+> Built on top of the original I2V code (`identity2vec.py`), kept faithful and reproducible.
+
+---
+
+## 📌 About Project?
+
+A **graph** is just **dots joined by lines** — dots are *nodes* (e.g. papers, people), lines are *edges* (e.g. a citation, a friendship).
+
+Two nodes can play the **same role** even if they sit far apart — both might be *hubs* (many connections) or *bridges* (connecting two groups). This "role" is called **structural identity**.
+
+**Identity2Vec** turns each node into a short list of 64 numbers (an **embedding**, or "fingerprint") that captures its role. Nodes with similar roles get similar fingerprints.
+
+**ViRGo** (this project) asks a research question on top of that:
+
+> Instead of passing messages only along the real edges, can we build a **virtual graph** that connects *role-similar* nodes, and does a modern **GNN** over that virtual graph beat the original walk-based method?
+
+
+---
+
+## ✅ What works today
+
+| Task | Dataset | Metric | Result | Status |
+|------|---------|--------|--------|--------|
+| Node classification | Cora | weighted F1 | **0.6992** | ✅ reproduced (author's embedding) |
+| Cached I2V (speedup) | webkb | walk time | **207× faster, byte-identical** | ✅ done (Deliverable #1) |
+
+*"Reproduced" = our number is within **±0.03** of the paper, with a fixed seed.*
+
+---
+
+## 📁 Repository structure
+
+You normally only touch the **notebook** (`notebooks/reproduce_i2v.ipynb`) or **one command** (`scripts/main.py`). Everything else is here for completeness.
+
+```
+identity2vec/
+├── README.md                 # this file
+├── CLAUDE.md                 # instructions for agentic coding
+│
+├── input/                    # original graphs (.edgelist) — ⚠️ NEVER edit these
+├── output/                   # trained embeddings (.emb): cora.emb (author), webkb.emb (trained)
+├── labels/                   # node categories for classification (cora.labels)
+├── splits/                   # 70/30 edge splits for link prediction (no leakage)
+├── results/                  # scores (numbered .csv) + plots (.png)
+├── logs/                     # training run logs
+├── docs/                     # papers (PDFs) + notes.md (the lab notebook)
+│
+├── identity2vec.py           # CORE: the original I2V walk algorithm (baseline, untouched)
+├── identity2vec_cached.py    # same algorithm, cached → identical output, ~200× faster
+├── train.py                  # ▶ makes embeddings:  graph → walks → Word2Vec → .emb
+├── plot_emb.py               # draws embeddings as a 2D picture (hubs vs leaves)
+│
+├── make_labels.py            # downloads + builds label files (cora)
+├── prepare_linkpred.py       # builds the 70/30 edge split
+├── eval_nodeclass.py         # scores node classification (weighted F1)
+├── eval_linkpred.py          # scores link prediction (AUC)
+│
+├── notebooks/
+│   └── reproduce_i2v.ipynb   # ⭐ START HERE — click-through reproduction
+│
+├── scripts/                  # one tidy CLI for every task
+│   ├── main.py               #   the single entry point
+│   ├── benchmark_config.py   #   all settings in one place (datasets, seed, params)
+│   ├── runner.py             #   runs a task end-to-end
+│   ├── results_io.py         #   saves scores to results/
+│   └── utils.py              #   small shared helpers
+│
+└── configs/                  # saved run settings (.json)
+```
+
+---
+
+## ⚙️ Setup
+
+This project uses the **conda environment `i2v`** (Python 3.12).
+
+```bash
+conda activate i2v
+```
+OCREATE YOUR OWN CONDA OR VIRTUAL ENV 
+The core libraries are already installed there: `numpy 1.26.4`, `networkx`, `gensim 4.3.3`, `scipy 1.12.0`, `scikit-learn 1.9.0`, `matplotlib`, `jupyter`.
+
+Starting from scratch instead?
+
+```bash
+pip install numpy==1.26.4 networkx gensim==4.3.3 scipy==1.12.0 scikit-learn matplotlib jupyter ipykernel
+```
+
+---
+
+## 🚀 Quick start — the notebook (easiest)
+
+1. `conda activate i2v`
+2. Open `notebooks/reproduce_i2v.ipynb` (in VS Code, or run `jupyter lab`).
+3. Pick the kernel **"Python (i2v)"**.
+4. Run the cells top to bottom (**Shift + Enter**).
+
+You don't type any code — each cell just calls a project function. It reproduces **Cora node classification, weighted F1 = 0.6992**.
+
+---
+
+## 💻 Quick start — command line
+
+```bash
+conda activate i2v
+
+# 1. See the available datasets
+python scripts/main.py --list
+
+# 2. Build the label file (needs internet, one-time)
+python make_labels.py
+
+# 3. Node classification → weighted F1
+python scripts/main.py --task nodeclass --dataset cora
+
+# 4. Link prediction → AUC (retrains on the 70% graph, leakage-free, uses the cache)
+python scripts/main.py --task linkpred --dataset cora --retrain
+```
+
+Make your own embedding from a graph (the **fast cached** path):
+
+```bash
+python train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42
+```
+
+Results are saved to `results/NNN.<dataset>.<task>.csv` with a settings header.
+
+---
+
+## 🔬 How the pipeline works
+
+```
+graph            structural signal           guided          embedding          evaluation
+(dots + lines) → (degree + centrality,   →   walks      →   (64 numbers   →    (F1 / AUC)
+                  computed once & cached)     + Word2Vec     per node)
+```
+
+1. **Structural signal** — each node's *degree* and *eigenvector centrality*. The original I2V recomputed these inside the walk loop (very slow); `identity2vec_cached.py` computes them **once** → identical results, ~200× faster.
+2. **Guided walks** — random walks steered by a Poisson/KL similarity score (the heart of I2V).
+3. **Word2Vec (Skipgram)** — turns the walks into one embedding per node.
+4. **Evaluation** — a simple model uses the embeddings to classify nodes (F1) or predict missing edges (AUC).
+
+---
+
+## 🔁 Reproducibility
+
+Non-negotiables for this project:
+
+- **Fixed seed `42`** everywhere (splits, initialisation, sampling).
+- **Walk-length pinned to `40`** (the repo default; the paper text says 80, recorded as a known deviation but not used).
+- **Never edit anything in `input/`** — write derived files alongside, outputs to `output/`.
+- Every run and decision is logged in **`docs/notes.md`** (the lab notebook).
+- A result counts as "reproduced" only when it lands **within ±0.03** of the paper's number.
+
+---
+
+## 🗺️ Roadmap
+
+- [x] **Deliverable #1** — cached I2V variant (identical output, 207× faster).
+- [ ] Link-prediction AUC vs the paper's Table 4.
+- [ ] Compare F1 = 0.6992 to the paper's Figure 5 (add a train-ratio sweep).
+- [ ] **Deliverable #2** — `virtual_graph.py`: top-K Poisson/KL virtual-graph builder.
+- [ ] **Deliverable #3** — GNN encoder over the virtual graph (GraphSAGE / GIN / GAT).
+- [ ] **Deliverable #4** — graph anomaly detection.
+- [ ] **Deliverable #5** — LLM-Context-Window Bottleneck.
+- [ ] Reproducible package + paper draft.
+
+---
+
+## 📚 Credits
+
+- **Identity2Vec** — *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. The original algorithm lives in `identity2vec.py`.
+- **ViRGo** extends it with a cached walker, a virtual-graph study, and a GNN encoder.

@@ -16,10 +16,16 @@ Non-Euclidean / hyperbolic latent space for the virtual graph is **out of scope*
 
 ## Research Contributions
 
-**Main (research) contribution — Virtual-graph study.**
+**1st (research) contribution — Virtual-graph study.**
 - *What:* Study which virtual graph is best for different data and tasks. A virtual graph connects nodes by structural similarity, not only by original edges.
 - *Why:* Normal GNNs pass messages only through physical neighbors, but two far-apart nodes may share a role (both hubs, both bridges). The virtual graph lets role-similar nodes communicate.
 - *How:* Build virtual graphs from I2V's Poisson/KL structural similarity; test their effect on node classification, link prediction, and anomaly detection. Compare against simpler virtual graphs (degree-only, centrality-only) to answer "which graph is best for given data?".
+
+**2nd contribution — Structural embeddings as graph summaries for LLMs.**
+- *What:* Explore whether ViRGo's compact role-aware embeddings can serve as a summary of a large graph's structure, so that structural information fits within an LLM's limited context window.
+- *Why:* An LLM cannot ingest a massive graph directly; a compact structural summary could let it reason over large-graph structure without exceeding the context limit.
+- *How:* Reuse the trained ViRGo embeddings as a graph-summarization signal feeding large-graph structure to an LLM. **a stretch goal; do not implement until the main virtual-graph study is complete.**
+
 
 **Technical contribution — GNN encoder over the virtual graph.**
 - *What:* Replace I2V's guided walk + Skipgram with a modern GNN encoder (GraphSAGE / GIN; GAT as ablation).

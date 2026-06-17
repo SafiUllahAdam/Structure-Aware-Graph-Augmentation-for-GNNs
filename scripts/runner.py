@@ -16,16 +16,20 @@ from utils import set_seed
 
 
 # Runs Identity2Vec (train.py) as a subprocess to learn an embedding — this is the slow step.
-def embed(input_path, output_path, params=None):
-    """Train an I2V embedding on a given edgelist."""
+def embed(input_path, output_path, params=None, cached=True, seed=None):
+    """Train an I2V embedding on a given edgelist (cached fast path + fixed seed by default)."""
     params = params or I2V_PARAMS
+    seed = REPRO["seed"] if seed is None else seed
     cmd = [sys.executable, str(PROJECT_ROOT / "train.py"),
            "--input", str(input_path), "--output", str(output_path),
            "--dimensions", str(params["dimensions"]),
            "--walk-length", str(params["walk_length"]),
            "--num-walks", str(params["num_walks"]),
            "--window-size", str(params["window_size"]),
-           "--epochs", str(params["epochs"]), "--sg", str(params["sg"])]
+           "--epochs", str(params["epochs"]), "--sg", str(params["sg"]),
+           "--seed", str(seed)]
+    if cached:
+        cmd.append("--cached")
     print("  $", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(PROJECT_ROOT))
     return Path(output_path)

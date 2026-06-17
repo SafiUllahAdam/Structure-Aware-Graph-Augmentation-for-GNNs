@@ -6,7 +6,9 @@ Email: muhammadsafi2299@gmail.com
 import argparse
 from gensim.models import Word2Vec 
 import identity2vec
+import identity2vec_cached
 import networkx as nx
+import numpy as np
 
 '''This is the run file. It is the file you execute from terminal.
 
@@ -29,7 +31,7 @@ def parse_args():
                         help='Number of dimensions. Default is 64.')
 
     parser.add_argument('--walk-length', type=int, default=40,
-                        help='Length of walk per source. Default is 80.')
+                        help='Length of walk per source. Default is 40.')
 
     parser.add_argument('--num-walks', type=int, default=10,
                         help='Number of walks per source. Default is 10.')
@@ -41,7 +43,7 @@ def parse_args():
                       help='Number of epochs in SGD')
 
     parser.add_argument('--workers', type=int, default=1,
-                        help='Number of parallel workers. Default is 8.')
+                        help='Number of parallel workers. Default is 1.')
 
     parser.add_argument('--min-count', type=int, default=0,
                         help='Minimum count of Training words. Default is 0.')
@@ -51,6 +53,12 @@ def parse_args():
     
     parser.add_argument('--e', type=int, default=2.7182,
                         help='Euler Constant')
+
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed for reproducibility. Default 42.')
+
+    parser.add_argument('--cached', action='store_true',
+                        help='Use cached structural signals (identical output, much faster).')
     
     return parser.parse_args()
 
@@ -75,7 +83,7 @@ def learn_embeddings(walks):
     print("Training Node Corpus...")
     model = Word2Vec(identitywalks, vector_size=args.dimensions, window=args.window_size, 
                      min_count=args.min_count, sg=args.sg, workers=args.workers, epochs=args.epochs,  
-                    sample=1e-5, alpha=0.25, min_alpha=0.01, negative=5)
+                    sample=1e-5, alpha=0.25, min_alpha=0.01, negative=5, seed=args.seed)
     print("Saving Embeddings...")
     model.wv.save_word2vec_format(args.output)
     
@@ -84,8 +92,10 @@ def learn_embeddings(walks):
         
 # Runs the whole pipeline in order: build graph -> generate identity walks -> train and save embeddings.
 def main(args):
+    np.random.seed(args.seed)                     # seed global np.random so identity2vec's walks are reproducible
     nx_Graph = build_graph()
-    G = identity2vec.Graph(nx_Graph, args.e)
+    Graph = identity2vec_cached.Graph if args.cached else identity2vec.Graph
+    G = Graph(nx_Graph, args.e)
     walks = G.identity2vec_walk(args.num_walks, args.walk_length)
     learn_embeddings(walks) 
 
