@@ -19,8 +19,9 @@ def parse_args():
 
 # Reads an edgelist into an undirected graph (largest connected component only, so connectivity holds).
 def build_graph(path):
-    '''Read input network and keep its largest connected component.'''
+    '''Read input network, drop self-loops, keep its largest connected component.'''
     G = nx.read_edgelist(path, nodetype=int, create_using=nx.Graph())
+    G.remove_edges_from(nx.selfloop_edges(G))   # a self-loop is not a valid link-pred pair and collapses to a 1-node "edge"
     largest = max(nx.connected_components(G), key=len)
     return G.subgraph(largest).copy()
 
@@ -35,7 +36,7 @@ def split_edges(G, test_frac, seed):
     n_test = min(int(round(test_frac * G.number_of_edges())), len(removable))
     test_pos = removable[:n_test]
     train_pos = list(tree) + removable[n_test:]
-    return [tuple(e) for e in train_pos], [tuple(e) for e in test_pos]
+    return [tuple(sorted(e)) for e in train_pos], [tuple(sorted(e)) for e in test_pos]   # clean sorted 2-tuples
 
 
 # Samples k node pairs that are not real edges and not already used (the fake/negative pairs).
@@ -49,7 +50,7 @@ def sample_non_edges(G, k, seed, exclude):
         e = frozenset((u, v))
         if u != v and not G.has_edge(u, v) and e not in exclude and e not in neg:
             neg.add(e)
-    return [tuple(e) for e in neg]
+    return [tuple(sorted(e)) for e in neg]   # clean sorted 2-tuples
 
 
 # Writes node-pair lines "u v" to a file.

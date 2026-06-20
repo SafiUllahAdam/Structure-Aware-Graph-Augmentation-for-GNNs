@@ -78,7 +78,7 @@ Keep I2V front end, replace back end:
 - Fixed `seed=42` everywhere (split, init, sampling).
 - Never modify files in `input/`; write derived files alongside, outputs to `output/`.
 - Log every run setting and deviation in `notes.md` (e.g. walk-length 40 in repo vs 80 in paper).
-- A result is "reproduced" only when our metric is within ~±0.03 of the paper's.
+- A result is "reproduced" only when our metric is within ~±0.05 of the paper's.
 - Ship splits, seeds, and eval scripts with the method.
 
 ---

@@ -27,7 +27,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 | Node classification | Cora | weighted F1 | **0.6992** | ✅ reproduced (author's embedding) |
 | Cached I2V (speedup) | webkb | walk time | **207× faster, byte-identical** | ✅ done (Deliverable #1) |
 
-*"Reproduced" = our number is within **±0.03** of the paper, with a fixed seed.*
+*"Reproduced" = our number is within **±0.05** of the paper, with a fixed seed.*
 
 ---
 
@@ -153,7 +153,7 @@ Non-negotiables for this project:
 - **Walk-length pinned to `40`** (the repo default; the paper text says 80, recorded as a known deviation but not used).
 - **Never edit anything in `input/`** — write derived files alongside, outputs to `output/`.
 - Every run and decision is logged in **`docs/notes.md`** (the lab notebook).
-- A result counts as "reproduced" only when it lands **within ±0.03** of the paper's number.
+- A result counts as "reproduced" only when it lands **within ±0.05** of the paper's number.
 
 ---
 

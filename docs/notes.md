@@ -76,7 +76,7 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 
 ## 2026-06-17
 
-- DECISION: **walk-length pinned = 40** for all reproductions. Rationale: repo default + `benchmark_config.I2V_PARAMS` + the author's `output/cora.emb` (which gave F1=0.6992) all use 40; the paper text's 80 is kept as a recorded deviation but NOT used. Resolves the 06-15 walk-length DEVIATION.
+- DECISION: **walk-length = 40 (active).** Flipped 40 -> 80 -> 40 today: set to 80 for paper-fidelity, then reverted to 40 per request. `train.py` default and `benchmark_config.I2V_PARAMS` are back to 40. The paper text says 80 (kept as a recorded deviation). 40 matches the repo default and the author's `output/cora.emb` (F1=0.6992). NOTE: on-disk `output/cora_lp.emb` is currently an **80-walk** embedding (AUC 0.7972); retrain at 40 to refresh a 40 link-pred number.
 
 - AUDIT (read-only, full repo vs CLAUDE.md / proposal): seed=42 consistent across `train` / `prepare_linkpred` / `eval_*` / `utils` / `REPRO`; `input/` untouched; cached overrides verified safe (`s_path` returns length only, `node_neighbors` returns fresh copies); split filenames match between `prepare` (writer) and `eval_linkpred` (reader). Env: `python` -> conda **i2v** (`sklearn 1.9.0`, `gensim 4.3.3`, `numpy 1.26.4`) — all deps present; the bash `libtinfo` warning is the interactive shell sourcing `cobench`, cosmetic only. Dataset sizes: cora 2708/5278, citeseer 3264/4536, webkb 265/479, politics 18470, enzymes 19474, dhfr 32075, nci 101924. NOTE: `input/proteins.edgelist` and `input/firstmmedges.edgelist` read as 0 nodes (empty/malformed) — not in the dataset registry, harmless for now.
 
@@ -87,6 +87,23 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 
 - FIX1 DONE — **cache wired + speedup proven** (Deliverable #1). `scripts/runner.embed` now passes `--cached` (default on) + `--seed`, so every pipeline retrain uses the fast path. Benchmark on webkb (265n/479e, num-walks=2 walk-length=10, seed=42): baseline **916.6s → cached 4.4s = 207.7×** (≈646× minus `train.py`'s fixed 3s sleep); both `.emb` md5 `e458fa5e2a360ac388803ee990afb312` → **BYTE-IDENTICAL**. Confirms the cache changes no computed value and removes the dominant cost.
   - `python train.py --input input/webkb.edgelist --output <out> --num-walks 2 --walk-length 10 --seed 42 [--cached]`
+
+## 2026-06-18
+
+- WebKB labels resolved. Paper ref **[16] = Network Repository**; webkb appears ONLY in the paper's Figure 2 t-SNE viz (NOT in Table 1 stats nor eval Tables 2/3/4) — so I2V never ran a labelled task on it. Source found: the author's own repo `github.com/ikenna-oluigbo/webkb-dataset` (4 universities). The **Wisconsin** subset = our `input/webkb.edgelist` (265n/479e, **proven isomorphic**, 479/479 edges).
+  - PROBLEM: author renumbered nodes between his two repos, so labels do NOT transfer to `input/webkb.edgelist` by id. Isomorphism recovery is ambiguous: 252/265 nodes uniquely labelled, **13 structurally ambiguous** (automorphisms cross class). So `input/webkb.edgelist` labels are unrecoverable.
+  - DECISION: shipped the author's **consistent pair** instead (100% correct, zero ambiguity): `input/webkb_wisc.edgelist` + `labels/webkb_wisc.labels` (node id = `wisconsin.content` line order, label = last field). 5 classes — student 122, course 76, faculty 35, project 22, staff 10. Reproducible via `make_labels.make_webkb()`. Registered `webkb_wisc` in `benchmark_config`; `webkb` stays labels=None (the I2V-numbered graph, used for the cache benchmark).
+
+## 2026-06-19
+
+- Dataset **resolver + aligned Citeseer + micro/macro/weighted F1** (implements the "one version per dataset, auto-align" design).
+  - `make_labels.py`: added `make_citeseer_linqs()` — builds `input/citeseer_linqs.edgelist` + `labels/citeseer_linqs.labels` from ONE LINQS source so ids align by construction (3312 papers, 4536 cites edges, 6 classes; largest content graph = 3264 connected nodes, 0 self-loops). Added `resolve_dataset()` — author `citeseer` prints the mismatch reason then auto-switches to `citeseer_linqs`; cora/webkb_wisc pass through. `ensure_labels` routes `citeseer_linqs`.
+  - `scripts/benchmark_config.py`: `citeseer` labels=None (author graph has no aligned labels); added `citeseer_linqs`; `nodeclass_train_frac` 0.80 -> **0.70**.
+  - `eval_nodeclass.evaluate` now returns **{micro,macro,weighted}** F1 dict (default train_frac 0.7); updated `main`, `runner.run_nodeclass`, notebook Steps 1/4/5.
+  - Notebook Step 1 calls `resolve_dataset(DATASET)` so `citeseer` auto-aligns to `citeseer_linqs` for the WHOLE run (node-class + link-pred), printing why; author files untouched.
+  - VERIFIED: cora node-class @0.7 = micro **0.7036** / macro 0.6710 / weighted **0.7009** (still reproduced). resolve passthrough OK. citeseer_linqs builds; node-class + link-pred plumbing runs (checked with a throwaway walk-10 emb).
+  - NOTE: citeseer_linqs embedding is slow even cached (3264 nodes); the 207x cache win was on tiny webkb/walk-10. First build is minutes — run once in the background.
+- WALK-LENGTH UNIFIED at **40** everywhere: notebook config 80 -> 40 (`train.py` + `benchmark_config` already 40). Paper's 80 = recorded deviation, not used. Existing walk-80 `.emb` files (`cora_lp`, `citeseer`, `citeseer_lp`, `webkb_wisc`, `webkb_wisc_lp`) are now **stale** vs the 40 setting -> rebuild (FORCE_EMBED / delete) for a clean 40 set. `cora.emb` = author reference, keep.
 
 ---
 
@@ -108,5 +125,6 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 - [ ] Document `citeseer.edgelist` derivation from `citeseer.txt`.
 - [ ] Finish/confirm citeseer embedding.
 - [x] Build cached I2V variant; verify embeddings identical + measure speedup (Deliverable #1) — done 2026-06-17: webkb 207.7× faster, byte-identical; pipeline uses `--cached`.
-- [x] Pin walk-length: **40** (decided 2026-06-17; paper's 80 recorded as deviation, not used).
+- [x] walk-length = **40** (active; flipped 40 -> 80 -> 40 on 2026-06-17). `train.py` + `benchmark_config` = 40. Paper's 80 = recorded deviation.
+- [ ] On-disk `output/cora_lp.emb` is an 80-walk embedding (AUC 0.7972); retrain at 40 to refresh a 40 link-pred number if wanted.
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).

@@ -14,7 +14,8 @@ def save_result(results_dir, dataset, task, metrics, settings):
     results_dir = Path(results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
     rid = next_run_id(results_dir)
-    path = results_dir / f"{rid:03d}.{dataset}.{task}.csv"
+    stamp = datetime.now().strftime("%d.%m")
+    path = results_dir / f"{rid:03d}.{stamp}.{dataset}.{task}.csv"
 
     meta = {"run_id": rid, "dataset": dataset, "task": task,
             "timestamp": datetime.now().isoformat(), **settings}
