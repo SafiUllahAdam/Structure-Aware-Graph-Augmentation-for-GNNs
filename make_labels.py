@@ -116,6 +116,70 @@ def make_citeseer_linqs():
     print("WROTE input/citeseer_linqs.edgelist + labels/citeseer_linqs.labels")
 
 
+# Downloads a networkrepository .zip and returns the text of its edges + node_labels members.
+def _fetch_nr(url, edges_member, labels_member, timeout=60):
+    """Get (edges_text, node_labels_text) from a networkrepository zip via urllib."""
+    z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(url, timeout=timeout).read()))
+    return z.read(edges_member).decode(), z.read(labels_member).decode()
+
+
+# Parses "u,v" or "u v" edge text into a set of undirected int edges (skips % comment lines).
+def _parse_edges(text):
+    edges = set()
+    for ln in text.splitlines():
+        ln = ln.strip().replace(",", " ")
+        if ln and not ln.startswith("%"):
+            a, b = map(int, ln.split()[:2])
+            edges.add(tuple(sorted((a, b))))
+    return edges
+
+
+# Writes labels/<name>.labels if networkrepository ids match input/<name>.edgelist; else an aligned <name>_nr pair. Returns the version used.
+def _make_nr_labels(name, url, edges_member, labels_member):
+    """Verify source ids align with input/<name>.edgelist; write aligned labels, else build a self-aligned <name>_nr graph+labels."""
+    edges_txt, labels_txt = _fetch_nr(url, edges_member, labels_member)
+    labels = [ln.strip() for ln in labels_txt.splitlines() if ln.strip() and not ln.startswith("%")]
+    src_edges = _parse_edges(edges_txt)
+    local = read_edgelist(f"input/{name}.edgelist")
+    overlap = len(src_edges & local) / len(local)
+    print(f"{name}: source_nodes={len(labels)} classes={len(set(labels))} edge_overlap={overlap:.4f}")
+    Path("labels").mkdir(exist_ok=True)
+    if overlap >= 0.90:                                          # ids already align -> label by line number = node id
+        with open(f"labels/{name}.labels", "w") as f:
+            for node_id, lab in enumerate(labels, start=1):
+                f.write(f"{node_id} {lab}\n")
+        print("WROTE", f"labels/{name}.labels", f"({len(labels)} nodes)")
+        return name
+    Path("input").mkdir(exist_ok=True)                          # misaligned -> rebuild graph+labels from one source (ids align by construction)
+    with open(f"input/{name}_nr.edgelist", "w") as f:
+        for u, v in sorted(src_edges):
+            f.write(f"{u} {v}\n")
+    with open(f"labels/{name}_nr.labels", "w") as f:
+        for node_id, lab in enumerate(labels, start=1):
+            f.write(f"{node_id} {lab}\n")
+    print(f"MISALIGNED (overlap {overlap:.4f}) -> WROTE input/{name}_nr.edgelist + labels/{name}_nr.labels (use '{name}_nr')")
+    return f"{name}_nr"
+
+
+# Builds Enzymes node labels (TU ENZYMES.node_labels, one per line = node id) aligned to input/enzymes.edgelist.
+def make_enzymes():
+    """Build/verify Enzymes node-class labels from networkrepository (paper ref [16])."""
+    return _make_nr_labels("enzymes",
+        "https://nrvis.com/download/data/labeled/ENZYMES.zip", "ENZYMES.edges", "ENZYMES.node_labels")
+
+
+# Politics node-class labels are unavailable for input/politics.edgelist (rt-pol): no verifiable same-dataset source. STOPs (LP-only).
+def make_politics():
+    """rt-pol ships no labels; the original Conover retweet source is offline/unmappable -> NO fabrication. NC unavailable, LP still works."""
+    raise RuntimeError(
+        "Politics NODE classification is unavailable. input/politics.edgelist is networkrepository 'rt-pol' "
+        "(https://nrvis.com/download/data/rt/rt-pol.zip), which ships the graph only (no node_labels). The original "
+        "left/right labels (Conover et al. 2011, ICWSM) are hosted at cnets.indiana.edu, which is offline, and rt-pol's "
+        "node renumbering cannot be mapped back, so labels CANNOT be verified against this graph. Per policy we do not "
+        "fabricate labels. LINK PREDICTION needs no labels and runs fine on politics. To enable NC, drop in a manually "
+        "verified labels/politics.labels (node id = our edgelist numbering).")
+
+
 # Maps a requested dataset to the version actually used; auto-aligns Citeseer (author graph has no matching labels).
 def resolve_dataset(name):
     """Return the dataset version to use. Author 'citeseer' -> aligned 'citeseer_linqs', with a clear reason printed."""
@@ -139,6 +203,11 @@ def ensure_labels(dataset):
     if os.path.exists(path):
         print("Label file already exists:", path)
         return path
+
+    if dataset in ("enzymes", "politics"):                       # networkrepository: verify-or-fall-back to <name>_nr
+        return f"labels/{_ensure_nr(dataset)}.labels"
+    if dataset in ("enzymes_nr", "politics_nr"):
+        return f"labels/{_ensure_nr(dataset[:-3])}.labels"
 
     if dataset in {"cora", "citeseer"}:
         print("Creating Planetoid labels:", dataset)
@@ -166,7 +235,20 @@ _VERSIONS = {
     "citeseer":       ("citeseer", "linqs", "citeseer_linqs"),   # author graph mismatches LINQS labels -> aligned
     "citeseer_linqs": ("citeseer", "linqs", "citeseer_linqs"),
     "webkb_wisc":     ("webkb", "wisc", "webkb_wisc"),
+    "enzymes":        ("enzymes", "orig", "enzymes"),            # networkrepository ids expected to align
+    "enzymes_nr":     ("enzymes", "nr", "enzymes_nr"),           # self-aligned fallback if they don't
+    "politics":       ("politics", "orig", "politics"),          # rt-pol; no verifiable labels -> link-pred only
 }
+
+
+# Ensures networkrepository labels exist; returns the version actually aligned ('<name>' or '<name>_nr').
+def _ensure_nr(name):
+    """Build/verify enzymes|politics labels; return the safe version name."""
+    if os.path.exists(f"labels/{name}.labels"):
+        return name
+    if os.path.exists(f"labels/{name}_nr.labels"):
+        return f"{name}_nr"
+    return {"enzymes": make_enzymes, "politics": make_politics}[name]()   # builds + returns the aligned version
 
 
 # One call to resolve + build a dataset: returns base/version/safe + edge/label paths. Author files stay untouched.
@@ -179,7 +261,11 @@ def prepare_dataset(name):
     if name == "citeseer":
         print("NOTE: author 'citeseer' graph and LINQS labels use different node ids (edge overlap ~0.00) ->")
         print("      using aligned 'citeseer_linqs' (graph + labels from one source). Author files untouched.")
-    ensure_labels(safe)                                         # builds the aligned graph+labels if missing
+    if name in ("enzymes", "politics"):                         # may resolve to the self-aligned <name>_nr version
+        safe = _ensure_nr(name)
+        base, version, _ = _VERSIONS[safe]
+    else:
+        ensure_labels(safe)                                     # builds the aligned graph+labels if missing
     info = {"base": base, "version": version, "safe": safe,
             "edge_path": f"input/{safe}.edgelist", "label_path": f"labels/{safe}.labels"}
     print(f"dataset ready -> base={base} version={version} safe={safe}")

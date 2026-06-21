@@ -23,7 +23,9 @@ def parse_args():
     parser.add_argument('--emb', required=True, help='Embedding trained on the TRAIN graph (no leakage)')
     parser.add_argument('--splits', default='splits', help='Directory holding the split files')
     parser.add_argument('--name', default='cora', help='Dataset name (prefix of split files)')
-    parser.add_argument('--op', default='hadamard', choices=list(OPERATORS), help='Edge feature operator. Default hadamard.')
+    parser.add_argument('--op', default='hadamard', choices=list(OPERATORS), help='Edge feature operator (logreg mode only). Default hadamard.')
+    parser.add_argument('--score', default='cosine', choices=['cosine', 'dot', 'logreg'],
+                        help="Scoring: cosine/dot = paper-faithful unsupervised similarity; logreg = supervised classifier. Default cosine.")
     parser.add_argument('--seed', type=int, default=42, help='Random seed. Default 42.')
     return parser.parse_args()
 
@@ -43,35 +45,43 @@ def edge_features(kv, pairs, op):
     return np.array(feats), len(pairs) - len(feats)
 
 
-# Trains logistic regression on edge features and returns the test AUC. Importable by the runner.
-def evaluate(emb, splits, name, op='hadamard', seed=42):
-    '''Load embedding + splits -> edge features -> logistic regression -> test AUC.'''
+# Scores held-out edges vs non-edges -> test AUC. Importable by the runner.
+def evaluate(emb, splits, name, op='hadamard', seed=42, score='cosine'):
+    '''score='cosine'|'dot' = paper-faithful UNSUPERVISED embedding-similarity ranking (no classifier);
+       score='logreg' = supervised edge classifier (--op feature -> logistic regression).'''
     kv = KeyedVectors.load_word2vec_format(str(emb))
     p = os.path.join(str(splits), name)
+    test_pos = load_pairs(f"{p}_test_pos.txt")
+    test_neg = load_pairs(f"{p}_test_neg.txt")
+
+    if score in ('cosine', 'dot'):                       # paper-style: rank test edges by embedding similarity, no training
+        def sim(u, v):
+            a, b = kv[u], kv[v]
+            d = float(np.dot(a, b))
+            return d / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12) if score == 'cosine' else d
+        y, s = [], []
+        for pairs, label in ((test_pos, 1), (test_neg, 0)):
+            for u, v in pairs:
+                if u in kv and v in kv:
+                    s.append(sim(u, v)); y.append(label)
+        return roc_auc_score(y, s)
+
+    # supervised alternative: edge feature (--op, default Hadamard) -> logistic regression trained on the 70% split
     sets = {k: load_pairs(f"{p}_{k}.txt") if k != 'train_pos' else load_pairs(f"{p}_train.edgelist")
             for k in ['train_pos', 'train_neg', 'test_pos', 'test_neg']}
-
-    feats, skipped = {}, 0
-    for k, pairs in sets.items():
-        feats[k], s = edge_features(kv, pairs, op)
-        skipped += s
-
+    feats = {k: edge_features(kv, pairs, op)[0] for k, pairs in sets.items()}
     X_train = np.vstack([feats['train_pos'], feats['train_neg']])
     y_train = np.r_[np.ones(len(feats['train_pos'])), np.zeros(len(feats['train_neg']))]
     X_test = np.vstack([feats['test_pos'], feats['test_neg']])
     y_test = np.r_[np.ones(len(feats['test_pos'])), np.zeros(len(feats['test_neg']))]
-
     clf = LogisticRegression(max_iter=1000, random_state=seed).fit(X_train, y_train)
-    auc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
-    if skipped:
-        print(f"  warning: skipped {skipped} pairs (node absent from embedding)")
-    return auc
+    return roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
 
 
 # Runs the evaluation from the command line and prints the AUC.
 def main(args):
-    auc = evaluate(args.emb, args.splits, args.name, args.op, args.seed)
-    print(f"{args.name} link prediction | op={args.op} seed={args.seed} | AUC={auc:.4f}")
+    auc = evaluate(args.emb, args.splits, args.name, args.op, args.seed, args.score)
+    print(f"{args.name} link prediction | score={args.score} seed={args.seed} | AUC={auc:.4f}")
 
 
 if __name__ == "__main__":

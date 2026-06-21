@@ -51,7 +51,7 @@ def run_linkpred(name, emb=None, retrain=False, params=None, seed=None):
         emb = OUTPUT_DIR / f"{name}.emb"
         print(f"  ! no --retrain: using full-graph {Path(emb).name} (LEAKAGE — plumbing check, not a paper number)")
 
-    auc = linkpred_eval(emb, SPLITS_DIR, name, REPRO["linkpred_op"], seed)
+    auc = linkpred_eval(emb, SPLITS_DIR, name, REPRO["linkpred_op"], seed, REPRO["linkpred_score"])
     metrics = {"auc": auc}
     settings = {"seed": seed, "op": REPRO["linkpred_op"], "test_frac": REPRO["linkpred_test_frac"],
                 "retrain": retrain, "emb": Path(emb).name, **counts}
@@ -77,49 +77,55 @@ def run_nodeclass(name, emb=None, seed=None):
     return metrics, settings
 
 
-# Repeat node classification over seeds: a fresh full-graph embedding per seed -> per-seed metric rows.
-def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None):
-    """Train one embedding per seed, score node classification each time. Returns a list of per-seed rows."""
+# Repeat node classification over seeds for one model: a fresh full-graph embedding per seed -> per-seed metric rows.
+def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None, model="identity2vec"):
+    """Train one embedding per seed with `model`, score node classification each time. Returns per-seed rows."""
     params = params or I2V_PARAMS
     from eval_nodeclass import evaluate as nodeclass_eval
+    from embedding_models import get_model
+    mdl = get_model(model)
     out_dir = OUTPUT_DIR / info["safe"]                          # per-dataset subfolder
     out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = "" if model == "identity2vec" else f"{model}_"      # keep I2V filenames stable so existing embeddings are reused
     rows = []
     for s in seeds:
-        emb = out_dir / f"{info['base']}_nc_{info['version']}_s{s}.emb"
+        emb = out_dir / f"{prefix}{info['base']}_nc_{info['version']}_s{s}.emb"
         if emb.exists():
-            print(f"  [nc s{s}] reuse existing {emb.name}")     # already trained -> skip; delete file to force rebuild
+            print(f"  [{model} nc s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
-            embed(info["edge_path"], emb, params, seed=s)
+            mdl.train(info["edge_path"], emb, s, params)
         f1s, n, c = nodeclass_eval(emb, info["label_path"], REPRO["nodeclass_train_frac"], s)
-        rows.append({"dataset": info["base"], "version": info["version"], "task": "nodeclass", "seed": s,
+        rows.append({"model": model, "dataset": info["base"], "version": info["version"], "task": "nodeclass", "seed": s,
                      "micro_f1": f1s["micro"], "macro_f1": f1s["macro"], "weighted_f1": f1s["weighted"]})
-        print(f"  [nc s{s}] micro={f1s['micro']:.4f} macro={f1s['macro']:.4f} weighted={f1s['weighted']:.4f}")
+        print(f"  [{model} nc s{s}] micro={f1s['micro']:.4f} macro={f1s['macro']:.4f} weighted={f1s['weighted']:.4f}")
     return rows
 
 
-# Repeat link prediction over seeds: per-seed edge split + train-only embedding (no leakage) -> per-seed AUC rows.
-def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None):
-    """Per seed: split edges, train on the 70% graph only, score AUC. Returns a list of per-seed rows."""
+# Repeat link prediction over seeds for one model: per-seed split + train-only embedding (no leakage) -> per-seed AUC rows.
+def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity2vec"):
+    """Per seed: split edges, train `model` on the 70% graph only, score AUC. Returns per-seed rows."""
     params = params or I2V_PARAMS
     from prepare_linkpred import prepare
     from eval_linkpred import evaluate as linkpred_eval
+    from embedding_models import get_model
+    mdl = get_model(model)
     sp_dir = SPLITS_DIR / info["safe"]                          # per-dataset subfolders
     out_dir = OUTPUT_DIR / info["safe"]
     sp_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = "" if model == "identity2vec" else f"{model}_"      # split is model-independent; only the emb carries the model
     rows = []
     for s in seeds:
-        name = f"{info['base']}_lp_{info['version']}_s{s}"      # split + emb filenames carry the seed
+        name = f"{info['base']}_lp_{info['version']}_s{s}"      # one shared split per (dataset, seed) -> fair across models
         prepare(info["edge_path"], name, sp_dir, REPRO["linkpred_test_frac"], s)   # deterministic: recreates same split cheaply
-        emb = out_dir / f"{name}.emb"
+        emb = out_dir / f"{prefix}{name}.emb"
         if emb.exists():
-            print(f"  [lp s{s}] reuse existing {emb.name}")      # already trained -> skip; delete file to force rebuild
+            print(f"  [{model} lp s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
-            embed(sp_dir / f"{name}_train.edgelist", emb, params, seed=s)
-        auc = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s)
-        rows.append({"dataset": info["base"], "version": info["version"], "task": "linkpred", "seed": s, "auc": auc})
-        print(f"  [lp s{s}] AUC={auc:.4f}")
+            mdl.train(sp_dir / f"{name}_train.edgelist", emb, s, params)
+        auc = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, REPRO["linkpred_score"])
+        rows.append({"model": model, "dataset": info["base"], "version": info["version"], "task": "linkpred", "seed": s, "auc": auc})
+        print(f"  [{model} lp s{s}] AUC={auc:.4f}")
     return rows
 
 
