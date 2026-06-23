@@ -21,6 +21,22 @@ class Graph():
             deg_dict[node] = deg
         return deg_dict 
     
+    # Returns each node's degree-distribution value Δ.
+    # Δ_u = fraction of graph nodes that have the same degree as node u.
+    def degree_distribution(self):
+        deg_dict = self.degree_node()
+        total_nodes = len(self.G.nodes)
+
+        degree_counts = {}
+        for deg in deg_dict.values():
+            degree_counts[deg] = degree_counts.get(deg, 0) + 1
+
+        dist_dict = {}
+        for node, deg in deg_dict.items():
+            dist_dict[node] = degree_counts[deg] / total_nodes
+
+        return dist_dict
+    
     # Computes eigenvector centrality for every node.
     # In our future ViRGo version, this should be cached because it is recomputed many times although the graph does not change. The checklist also marks this as the first important fix.
     def eigenvector_centrality(self):
@@ -72,7 +88,9 @@ class Graph():
                 nn = self.skip_visited(nn, visited)
                 bounded_curr = walk[-2]
                 pdn = self.poisson_dist(nn, bounded_curr)
-                next_node = min(pdn, key=pdn.get) 
+            #   next_node = max(pdn, key=pdn.get) 
+                current_score = self.identity_score(current_node, bounded_curr)
+                next_node = min(pdn, key=lambda x: abs(pdn[x] - current_score))
                 walk.append(next_node)
                 visited.append(next_node) 
                 
@@ -95,7 +113,7 @@ class Graph():
     def get_prob(self, n, curr):
         G = self.G
         neigh = list(G.neighbors(n))
-        p_val = self.degree_node()
+        p_val = self.degree_distribution()
         ev = self.eigenvector_centrality()
         p = []
         q = []
@@ -105,29 +123,44 @@ class Graph():
             p.append(p_val[node] * ev[node])
             q.append(path_length)
         return p, q
+    
+    # Computes one Poisson identity score Ψ for one node, using the current reference node.
+    def identity_score(self, node, bounded_curr):
+        e = self.e
+        neigh = list(self.G.neighbors(node))
+
+        if len(neigh) == 0:
+            return 0.0
         
-    # This function computes the Poisson distribution for a given set of neighbors (mnn) and the current node (bounded_curr).
-    # It calculates the Kullback-Leibler divergence between the probability distributions p and q for each neighbor, and then uses this divergence to compute the Poisson distribution value for each neighbor.
+        rt = 0
+        p, q = self.get_prob(node, bounded_curr)
+
+        for i in range(len(p)):
+            if p[i] > 0 and q[i] > 0:
+                rt += p[i] * np.log(p[i] / q[i])
+
+        k = len(neigh)
+        drt = (1 / (self.degree_node()[bounded_curr] + self.eigenvector_centrality()[bounded_curr])) * rt
+
+        poiss = (np.power(drt, k) * np.power(e, -drt)) / (np.math.factorial(k))
+
+        return poiss
+        
     # This is the mathematical heart of the code. It computes a KL-style divergence and then converts it into a Poisson-style score. The next node is selected using this score.
+
+    # Computes Ψ scores for all candidate next nodes.
     def poisson_dist(self, mnn, bounded_curr):
         #k = Number of adjacent neighbors
         #λ = Divergence rate
         #pdn = (λ**k * e**-λ) / k! 
         #KLDivergence = #sum(p(x) * log(p(x)/q(x)))
-        e = self.e
         pdn = {}
-        k = len(mnn)       
+
         for node in mnn:
-            rt = 0
-            p, q = self.get_prob(node, bounded_curr)
-            for i in range(len(p)):
-                t = p[i] * np.log(p[i] / q[i])
-                rt += t 
-            drt = (1 / (self.degree_node()[bounded_curr]+self.eigenvector_centrality()[bounded_curr])) * rt
-            #poiss = Decimal((np.power(drt, k) * np.power(e, -drt))) / Decimal(np.math.factorial(k))
-            poiss = (np.power(drt, k) * np.power(e, -drt)) / (np.math.factorial(k))
-            pdn[node] = poiss
+            pdn[node] = self.identity_score(node, bounded_curr)
+
         return pdn
+
     
     # This function performs multiple random walks starting from each node in the graph. It generates a corpus of walks, where each walk is a sequence of nodes visited during the random walk. 
     # The number of walks and the length of each walk can be specified as parameters.

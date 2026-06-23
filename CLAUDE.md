@@ -49,7 +49,7 @@ Keep I2V front end, replace back end:
 
 - **Link prediction** — 70:30 edge split, AUC. Retrain on 70% graph only (no leakage). For comparability with I2V Table 4.
 - **Node classification** — logistic regression on embeddings, weighted F1. Comparability with I2V (Cora, Citeseer, Politics, Enzymes have labels).
-- **Graph anomaly detection** — *new downstream application* (I2V did not do this). Standalone on GADBench/PyGOD first (AUC, AP), then integrate into COBench (collaborative semi-supervised, cross-model pseudo-labels).
+- **Graph anomaly detection** — *new downstream application* (I2V did not do this). Standalone on GADBench/PyGOD first (AUC, AP), then integrate into (collaborative semi-supervised, cross-model pseudo-labels).
 
 ---
 

@@ -14,6 +14,7 @@ class Graph(identity2vec.Graph):
     def __init__(self, nx_Graph, e):
         super().__init__(nx_Graph, e)
         self._deg = None
+        self._deg_dist = None
         self._ev = None
         self._neigh = None
         self._spl = {}
@@ -23,6 +24,24 @@ class Graph(identity2vec.Graph):
         if self._deg is None:
             self._deg = {n: d for n, d in self.G.degree}
         return self._deg
+    
+    # Cached degree-distribution Δ per node.
+    # Δ_u = fraction of graph nodes with the same degree as node u.
+    def degree_distribution(self):
+        if self._deg_dist is None:
+            deg_dict = self.degree_node()
+            total_nodes = len(self.G.nodes)
+
+            degree_counts = {}
+            for deg in deg_dict.values():
+                degree_counts[deg] = degree_counts.get(deg, 0) + 1
+
+            self._deg_dist = {
+                node: degree_counts[deg] / total_nodes
+                for node, deg in deg_dict.items()
+            }
+
+        return self._deg_dist
 
     # Eigenvector centrality, computed once (deterministic power iteration).
     def eigenvector_centrality(self):

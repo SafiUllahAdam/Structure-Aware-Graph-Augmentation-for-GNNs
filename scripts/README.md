@@ -1,6 +1,6 @@
 # scripts/ — ViRGo reproduction framework
 
-CoBench-style scaffolding that **wraps the existing root scripts** (`identity2vec.py`, `train.py`,
+Scaffolding that **wraps the existing root scripts** (`identity2vec.py`, `train.py`,
 `prepare_linkpred.py`, `eval_linkpred.py`, `eval_nodeclass.py`). Nothing is moved; these files only
 import or subprocess-call the root files.
 

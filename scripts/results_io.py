@@ -1,4 +1,4 @@
-"""Save a benchmark run to results/ as a numbered CSV with a JSON metadata header (CoBench style)."""
+"""Save a benchmark run to results/ as a numbered CSV with a JSON metadata header."""
 
 import csv
 import json
