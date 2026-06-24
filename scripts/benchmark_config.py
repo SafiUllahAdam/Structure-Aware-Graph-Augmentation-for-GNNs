@@ -31,6 +31,7 @@ BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 I2V_PARAMS = {
     "dimensions": 64, "walk_length": 40, "num_walks": 10,
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
+    "temperature": 0.3,
 }
 
 # Reproduction defaults — fixed for every run so results are repeatable.

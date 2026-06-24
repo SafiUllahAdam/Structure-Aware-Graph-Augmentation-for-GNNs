@@ -28,7 +28,9 @@ class Identity2VecModel(EmbeddingModel):
                "--input", str(edgelist), "--output", str(out_emb),
                "--dimensions", str(params["dimensions"]), "--walk-length", str(params["walk_length"]),
                "--num-walks", str(params["num_walks"]), "--window-size", str(params["window_size"]),
-               "--epochs", str(params["epochs"]), "--sg", str(params["sg"]), "--seed", str(seed), "--cached"]
+               "--epochs", str(params["epochs"]), "--sg", str(params["sg"]),
+               "--temperature", str(params["temperature"]),
+               "--seed", str(seed), "--cached"]
         subprocess.run(cmd, check=True, cwd=str(_ROOT))
         return Path(out_emb)
 

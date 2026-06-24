@@ -23,8 +23,8 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 ## 🗺️ Roadmap
 
 - [x] **Deliverable #1** — cached I2V variant (identical output, 207× faster).
-- [x] Link-prediction AUC vs the paper's Table 4 — I2V Cora LP ≈ **0.81** vs paper **0.8413**, within ±0.05 (after the paper-fidelity fixes; see `docs/notes.md`).
-- [x] Node-classification F1 vs the paper — Cora weighted F1 = **0.7368**, matches the paper's Section 4.4 / Figure 5 region.
+- [x] Link-prediction AUC vs the paper's Table 4 — I2V Cora LP **0.8305** vs paper **0.8413**, within ±0.05 (paper-fidelity fixes + temperature τ=0.3; see `docs/notes.md`).
+- [x] Node-classification F1 vs the paper — Cora weighted F1 = **0.7486**, matches the paper's Section 4.4 / Figure 5 region.
 - [ ] Train-ratio sweep (30–70%) to match Figure 5 *exactly*.
 - [ ] **Deliverable #2** — `virtual_graph.py`: top-K Poisson/KL virtual-graph builder.
 - [ ] **Deliverable #3** — GNN encoder over the virtual graph (GraphSAGE / GIN).
@@ -42,16 +42,17 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 | Cached I2V (speedup) | webkb | walk time | **207× faster, byte-identical** | ✅ done (Deliverable #1) |
 | Paper-fidelity fixes | I2V core | — | scoring aligned to paper (Δ, `p=Δ`/`q=Ω·d`, candidate-norm, log-space Poisson) | ✅ applied (re-run `.emb` for numbers) |
 | Cross-model benchmark | cora · citeseer · webkb · enzymes | F1 / AUC | I2V vs DeepWalk / node2vec / struc2vec | ✅ runs (notebook Steps 5–6) |
+| I2V + temperature (τ=0.3) | Cora | NC F1 / LP AUC | NC **0.7486** · LP **0.8305** (seed 42) | ✅ improved, near paper |
 
 *"Reproduced" = our number is within **±0.05** of the paper, with a fixed seed.*
 
-**Latest (2026-06-24):** the core I2V scoring was corrected to follow the paper's equations — degree-distribution Δ, `p = Δ` / `q = Ω·d`, candidate-side normalisation, and a numerically-safe log-space Poisson — plus a gentler Word2Vec setup. Node classification now matches the paper; link prediction stays within paper range. Details in `docs/notes.md`; re-generate `.emb` files to pick up the changes.
+**Latest (2026-06-24):** the core I2V scoring was corrected to follow the paper's equations — degree-distribution Δ, `p = Δ` / `q = Ω·d`, candidate-side normalisation, and a numerically-safe log-space Poisson — plus a gentler Word2Vec setup. Node classification now matches the paper; link prediction stays within paper range. A non-greedy **temperature** sampler (τ=0.3) was then added to next-node selection — on Cora it lifts both tasks (NC weighted F1 **0.7486**, LP AUC **0.8305**, seed 42). Details in `docs/notes.md`; re-generate `.emb` files to pick up the changes.
 
 ---
 
 ## 📁 Repository structure
 
-You normally only touch the **notebook** (`notebooks/reproduce_i2v.ipynb`) or **one command** (`scripts/main.py`). Everything else is here for completeness.
+We normally only touch the **notebook** (`notebooks/reproduce_i2v.ipynb`) or **one command** (`scripts/main.py`). Everything else is here for completeness.
 
 ```
 identity2vec/
@@ -98,7 +99,7 @@ This project uses the **conda environment `i2v`** (Python 3.12).
 ```bash
 conda activate i2v
 ```
-OCREATE YOUR OWN CONDA OR VIRTUAL ENV 
+OCREATE OUR OWN CONDA OR VIRTUAL ENV 
 The core libraries are already installed there: `numpy 1.26.4`, `networkx`, `gensim 4.3.3`, `scipy 1.12.0`, `scikit-learn 1.9.0`, `matplotlib`, `jupyter`.
 
 Starting from scratch instead?
@@ -116,7 +117,7 @@ pip install numpy==1.26.4 networkx gensim==4.3.3 scipy==1.12.0 scikit-learn matp
 3. Pick the kernel **"Python (i2v)"**.
 4. Run the cells top to bottom (**Shift + Enter**).
 
-You don't type any code — each cell just calls a project function. It reproduces **Cora node classification, weighted F1 = 0.6992**.
+We don't type any code — each cell just calls a project function. It reproduces **Cora node classification, weighted F1 = 0.6992**.
 
 ---
 
@@ -138,7 +139,7 @@ python scripts/main.py --task nodeclass --dataset cora
 python scripts/main.py --task linkpred --dataset cora --retrain
 ```
 
-Make your own embedding from a graph (the **fast cached** path):
+Make our own embedding from a graph (the **fast cached** path):
 
 ```bash
 python train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42

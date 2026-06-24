@@ -73,7 +73,7 @@ class Graph():
     
     # This function performs a random walk starting from a given node. It uses the Poisson distribution to decide which neighbor to visit next, while avoiding revisiting the last visited node. 
     # The walk continues until the specified walk length is reached or there are no more neighbors to visit.
-    def identity_walker(self, node, walk_length):
+    def identity_walker(self, node, walk_length, temperature=0.0):
         walk = [node]
         visited = [node]
         while len(walk) < walk_length:
@@ -88,10 +88,26 @@ class Graph():
             else:
                 nn = self.skip_visited(nn, visited)
                 bounded_curr = walk[-2]
+            #     pdn = self.poisson_dist(nn, bounded_curr)
+            #  #   next_node = max(pdn, key=pdn.get) 
+            #     current_score = self.identity_score(current_node, bounded_curr)
+            #     next_node = min(pdn, key=lambda x: abs(pdn[x] - current_score))
+            
                 pdn = self.poisson_dist(nn, bounded_curr)
-             #   next_node = max(pdn, key=pdn.get) 
                 current_score = self.identity_score(current_node, bounded_curr)
-                next_node = min(pdn, key=lambda x: abs(pdn[x] - current_score))
+
+                # Temperature sampling for Fix 1B:
+                # temperature = 0.0 means old greedy behavior.
+                # temperature > 0.0 means mostly choose closest score, but allow some exploration.
+                candidates = list(pdn.keys())
+                distances = np.array([abs(pdn[x] - current_score) for x in candidates])
+
+                if temperature <= 0:
+                    next_node = candidates[np.argmin(distances)]
+                else:
+                    weights = np.exp(-(distances - distances.min()) / temperature)
+                    probs = weights / weights.sum()
+                    next_node = np.random.choice(candidates, p=probs)
                 walk.append(next_node)
                 visited.append(next_node) 
                 
@@ -185,7 +201,7 @@ class Graph():
     # This function performs multiple random walks starting from each node in the graph. It generates a corpus of walks, where each walk is a sequence of nodes visited during the random walk. 
     # The number of walks and the length of each walk can be specified as parameters.
     # This creates the full training corpus. It starts walks from every node, repeats this num_walk times, and returns all walks. This output is later given to Word2Vec/SkipGram
-    def identity2vec_walk(self, num_walk, walk_length):
+    def identity2vec_walk(self, num_walk, walk_length, temperature=0.0):
         
         G = self.G
         print("STARTING RANDOM WALK... ")
@@ -199,7 +215,7 @@ class Graph():
             print("\n")
             print("Current Walk: " + str(cw) + " of " + str(num_walk))
             for node in tqdm(nodes):
-                node_walk = self.identity_walker(node, walk_length)
+                node_walk = self.identity_walker(node, walk_length, temperature)
                 walk_corpus.append(node_walk)            
                
         return walk_corpus

@@ -32,6 +32,9 @@ def parse_args():
 
     parser.add_argument('--walk-length', type=int, default=40,
                         help='Length of walk per source. Default is 40.')
+    
+    parser.add_argument('--temperature', type=float, default=0.0,
+                        help='Temperature for non-greedy I2V next-node sampling. 0.0 = greedy.')
 
     parser.add_argument('--num-walks', type=int, default=10,
                         help='Number of walks per source. Default is 10.')
@@ -96,7 +99,7 @@ def main(args):
     nx_Graph = build_graph()
     Graph = identity2vec_cached.Graph if args.cached else identity2vec.Graph
     G = Graph(nx_Graph, args.e)
-    walks = G.identity2vec_walk(args.num_walks, args.walk_length)
+    walks = G.identity2vec_walk(args.num_walks, args.walk_length, args.temperature)
     learn_embeddings(walks) 
 
 if __name__ == "__main__":

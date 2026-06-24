@@ -13,7 +13,7 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 ## Environment / defaults
 
 - Env: numpy 1.26.4, networkx, gensim 4.3.3, scipy 1.12.0. (torch / torch-geometric to be added for the GNN.)
-- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`. Word2Vec: `alpha=0.025 → min_alpha=0.01`, `negative=5`, `sample=1e-3` (Fix 6, 2026-06-24; was `alpha=0.25` / `sample=1e-5`).
+- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`, `temperature=0.0` (greedy; benchmark `I2V_PARAMS` uses `0.3`). Word2Vec: `alpha=0.025 → min_alpha=0.01`, `negative=5`, `sample=1e-3` (Fix 6, 2026-06-24; was `alpha=0.25` / `sample=1e-5`).
 - Datasets in `input/`: cora, citeseer, dhfr, enzymes, firstmmedges, nci, politics, proteins, webkb (`.edgelist`); citeseer also has original `citeseer.txt`.
 - Pretrained / trained embeddings in `output/`: `cora.emb` (author's, 2022-01-28), `webkb.emb` (trained 2026-06-13).
 
@@ -163,7 +163,7 @@ Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from 
   - CAVEAT 1: confirm 0.8494 -> 0.81 is real, not one-seed luck — re-run 3 seeds, mean±std.
   - CAVEAT 2: Fix 8 also interacts with Fix 1b — log-space warps the `|Ψ−Ψ|` closeness geometry, so selection changes even where nothing underflowed. Regenerate `.emb`.
 
-- **PROPOSED (NOT implemented) — temperature sampling, to recover LP without losing NC.** Keep Fix 8 untouched; change only the selection (`identity2vec.py:94`) from hard `min` to a weighted draw: `P(x) ∝ exp(−dₓ/τ)` with `dₓ = |logΨ_x − logΨ_current|`.
+- **PROPOSED → IMPLEMENTED 2026-06-24 (see entry below) — temperature sampling, to recover LP without losing NC.** Keep Fix 8 untouched; change only the selection (`identity2vec.py:94`) from hard `min` to a weighted draw: `P(x) ∝ exp(−dₓ/τ)` with `dₓ = |logΨ_x − logΨ_current|`.
   - `τ=0` = exactly today's greedy (NC-safe baseline preserved); `τ→∞` = random walk (DeepWalk-like). `τ` is the structure↔proximity dial (NC↔LP).
   - Structural bias kept (small `dₓ` still most likely) -> NC holds; added exploration diversifies walks -> richer Word2Vec contexts -> LP up. Fix 8's log-units make the softmax numerically stable.
   - Reproducible: walk is already stochastic + seeded (`test_source` first step uses `np.random`; `train.py:95` seeds it). `identity_walker` is base-class only -> both cached/non-cached inherit.
@@ -171,6 +171,24 @@ Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from 
   - PLAN: add `--temperature` (thread like `walk_length` -> `I2V_PARAMS`); sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` on cora + citeseer_linqs, 3 seeds; `τ=0` must reproduce current greedy (sanity); find the τ where LP climbs toward ~0.84 while NC holds.
 
 - **STALE RESULTS.** Fixes 1/3/4/6/8 all changed the math -> existing `.emb` and `results/` are from old code and do NOT reflect it. Regenerate embeddings (delete / FORCE_EMBED) before trusting any metric.
+
+### 2026-06-24 — temperature sampling IMPLEMENTED (Fix 8 extended) ✅
+
+The proposed non-greedy selection is now in code and gave a clear improvement on cora — keep it.
+
+- WHERE (verified fresh from disk):
+  - `identity2vec.py:76` `identity_walker(..., temperature=0.0)`; sampling at `:96-110` — `distances = |pdn[x] − current_score|`; `τ<=0` -> `argmin` (exact old greedy); `τ>0` -> `weights = exp(−(dₓ − min dₓ)/τ)` (max-subtracted = numerically stable), normalise, `np.random.choice`.
+  - `identity2vec.py:204` `identity2vec_walk(..., temperature=0.0)` threads it to the walker.
+  - `train.py:36-37` `--temperature` (float, default **0.0** = greedy); `train.py:102` passes `args.temperature`.
+  - `embedding_models.py:32` `Identity2VecModel` passes `--temperature str(params["temperature"])`.
+  - `benchmark_config.py:34` `I2V_PARAMS["temperature"] = 0.3` (notebook + benchmark default).
+  - Cached path: `identity_walker` / `identity2vec_walk` are inherited (not overridden) -> temperature flows to `--cached` too. Seeded via `np.random` (`train.py:95`) -> reproducible. `τ=0` reproduces pre-temperature greedy byte-for-byte (sanity gate).
+- RESULTS — cora, **seed 42**, `τ=0.3`, fresh embeddings (`notebooks/reproduce_i2v.ipynb`):
+  - NC: micro **0.7503** / macro **0.7292** / weighted **0.7486**.
+  - LP: AUC **0.8305**.
+  - vs history: NC up from 0.6906 / 0.6992 (old code / author emb); LP up from the post-Fix-8 greedy ~0.81 toward the paper's **0.8413** (Table 4). Improvement on BOTH — temperature recovered LP without losing the Fix-8 NC gain, exactly as predicted.
+- CAVEAT: **single seed (s42)** — run 3 seeds for mean±std before quoting as final; also sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` to confirm 0.3 is the sweet spot.
+- GAP (not a crash): `scripts/runner.py:embed()` — the `python scripts/main.py --task ... --retrain` CLI path — does NOT pass `--temperature`, so it stays greedy (0.0). The notebook/benchmark path (via `embedding_models`) DOES use 0.3. Thread `--temperature` into `runner.embed` if you want both entry points to agree. TODO logged.
 
 ---
 
@@ -198,5 +216,7 @@ Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from 
 - [ ] Regenerate all `.emb` — fixes 1/3/4/6/8 changed the math, on-disk results are stale.
 - [ ] Confirm Fix 8 LP drop 0.8494 -> 0.81 is real vs seed noise (3-seed mean±std).
 - [ ] Confirm Fix 4 ω choice (raw degree vs degree-distribution) with professor.
-- [ ] PROPOSED: temperature sampling (`--temperature` τ) for the selection step — recover LP without losing NC; ablation, not paper-exact.
+- [x] Temperature sampling implemented 2026-06-24 (`--temperature`, default greedy, benchmark τ=0.3): cora s42 NC 0.7486 / LP 0.8305 — improved both. Ablation, not paper-exact.
+- [ ] Temperature: run 3 seeds (mean±std) + sweep τ ∈ {0, 0.1, 0.3, 1, 3} on cora + citeseer_linqs.
+- [ ] Thread `--temperature` through `scripts/runner.embed` (CLI `--retrain` path still greedy; notebook/benchmark already 0.3).
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).
