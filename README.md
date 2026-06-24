@@ -20,6 +20,20 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 ---
 
+## 🗺️ Roadmap
+
+- [x] **Deliverable #1** — cached I2V variant (identical output, 207× faster).
+- [x] Link-prediction AUC vs the paper's Table 4 — I2V Cora LP ≈ **0.81** vs paper **0.8413**, within ±0.05 (after the paper-fidelity fixes; see `docs/notes.md`).
+- [x] Node-classification F1 vs the paper — Cora weighted F1 = **0.7368**, matches the paper's Section 4.4 / Figure 5 region.
+- [ ] Train-ratio sweep (30–70%) to match Figure 5 *exactly*.
+- [ ] **Deliverable #2** — `virtual_graph.py`: top-K Poisson/KL virtual-graph builder.
+- [ ] **Deliverable #3** — GNN encoder over the virtual graph (GraphSAGE / GIN).
+- [ ] **Deliverable #4** — Graph anomaly detection.
+- [ ] **Deliverable #5** — LLM-Context-Window Bottleneck.
+- [ ] Reproducible package + paper draft.
+
+---
+
 ## ✅ What works today
 
 | Task | Dataset | Metric | Result | Status |
@@ -159,19 +173,6 @@ Non-negotiables for this project:
 - Every run and decision is logged in **`docs/notes.md`** (the lab notebook).
 - A result counts as "reproduced" only when it lands **within ±0.05** of the paper's number.
 
----
-
-## 🗺️ Roadmap
-
-- [x] **Deliverable #1** — cached I2V variant (identical output, 207× faster).
-- [x] Link-prediction AUC vs the paper's Table 4 — I2V Cora LP ≈ **0.81** vs paper **0.8413**, within ±0.05 (after the paper-fidelity fixes; see `docs/notes.md`).
-- [x] Node-classification F1 vs the paper — Cora weighted F1 = **0.7368**, matches the paper's Section 4.4 / Figure 5 region.
-- [ ] Train-ratio sweep (30–70%) to match Figure 5 *exactly*.
-- [ ] **Deliverable #2** — `virtual_graph.py`: top-K Poisson/KL virtual-graph builder.
-- [ ] **Deliverable #3** — GNN encoder over the virtual graph (GraphSAGE / GIN / GAT).
-- [ ] **Deliverable #4** — graph anomaly detection.
-- [ ] **Deliverable #5** — LLM-Context-Window Bottleneck.
-- [ ] Reproducible package + paper draft.
 
 ---
 
