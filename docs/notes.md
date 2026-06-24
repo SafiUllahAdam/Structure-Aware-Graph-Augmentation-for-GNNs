@@ -13,7 +13,7 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 ## Environment / defaults
 
 - Env: numpy 1.26.4, networkx, gensim 4.3.3, scipy 1.12.0. (torch / torch-geometric to be added for the GNN.)
-- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`. Word2Vec: `alpha=0.25 → min_alpha=0.01`, `negative=5`, `sample=1e-5`.
+- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`. Word2Vec: `alpha=0.025 → min_alpha=0.01`, `negative=5`, `sample=1e-3` (Fix 6, 2026-06-24; was `alpha=0.25` / `sample=1e-5`).
 - Datasets in `input/`: cora, citeseer, dhfr, enzymes, firstmmedges, nci, politics, proteins, webkb (`.edgelist`); citeseer also has original `citeseer.txt`.
 - Pretrained / trained embeddings in `output/`: `cora.emb` (author's, 2022-01-28), `webkb.emb` (trained 2026-06-13).
 
@@ -124,6 +124,54 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 - FINDING (cora, same splits/seeds/params): node2vec NC 0.8165 / LP 0.9107 >> I2V NC 0.6906 / LP 0.8011. Expected — cora is homophilous, proximity methods (node2vec/deepwalk) beat structural-identity (I2V) on NC+LP. Our node2vec matches the node2vec literature; the paper's node2vec (LP 0.7658) is under-tuned, which is why the paper shows "I2V beats all". DO NOT claim I2V beats all on homophilous NC/LP; I2V's edge is structural tasks (heterophily/webkb, roles, anomaly).
 - **DECISION: dropped politics from the benchmark, swapped in `webkb_wisc`** (265 nodes, 5 classes, labels already verified/isomorphic). `BENCH_DATASETS = [cora, citeseer_linqs, enzymes, webkb_wisc]`; notebook Step 5 examples updated. Both Table 1 (NC) + Table 2 (LP) now cover **all 4** datasets. CAVEAT: webkb is heterophilous (content classes vs structural roles) -> I2V/struc2vec NC F1 may be low/near-random on it; that's expected, report as-is.
 
+### 2026-06-23 — walk-length 80 tried, then reverted to 40 (timing-driven)
+
+- Flipped 40 -> 80 for paper-fidelity, then **reverted to 40** after measuring walk-generation cost. Code (`train.py` default+help, `scripts/benchmark_config.I2V_PARAMS`) and docs (README, `docs/virgo_guide.md`, `CLAUDE.md`, this file: defaults + checklist) are back to **40**. Notebook inherits the config (no hardcoded value).
+- TIMING — cora, **cached** path, 10 walks/node, seed=42, walk-generation only (no Word2Vec):
+
+  | walk_length | wall time |
+  |---|---|
+  | 40 | 1010.8 s (~16.8 min) |
+  | 80 | 1894.0 s (~31.6 min) |
+  | **diff** | **+883.2 s (~14.7 min) = 1.87x slower** |
+
+  - Measured via `scratchpad/time_walks.py`: `identity2vec_cached.Graph(cora).identity2vec_walk(10, wl)` for `wl in {40, 80}`. Each call includes one fixed 3 s sleep -> the diff is sleep-free. ~1.87x (near-linear; sub-2x because the per-graph eigenvector compute + cached BFS amortize).
+  - This is the CACHED path. Uncached is far slower: the notebook's uncached cora walk-80 ran ~2:13/walk x 10 ~= 22 min for NC alone.
+- PERFORMANCE (40 vs 80) — _placeholder, fill by hand:_
+  - cora NC weighted F1:  40 = ____  |  80 = ____
+  - cora LP AUC:          40 = ____  |  80 = ____
+- DECISION: **walk-length = 40 active.** 80 = paper value, kept as a recorded deviation, not used — 1.87x slower with no confirmed metric gain (see placeholder).
+
+## 2026-06-24 — paper-fidelity fixes (professor review), Fix 8 effect, proposed sampling
+
+Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from disk (line refs current). Fixes landed over the last few sessions; recorded here together.
+
+- **Fix 1 — selection direction. DONE, version (b).** `identity2vec.py:92-94`. Compute Ψ of the current node, then pick the candidate minimizing `|Ψ_candidate − Ψ_current|` (least-dissimilar). Option (a) `max(pdn, key=pdn.get)` left commented as a record.
+- **Fix 2 — degree distribution, not raw degree. DONE.** Added `degree_distribution()` (Δ_u = n_d/n) at `identity2vec.py:27-39`; used for the `p` signal in `get_prob`. (Raw `degree_node()` now appears only in the Fix-4 divisor.)
+- **Fix 3 — p/q composition. DONE.** `get_prob:132-133`: `p = Δ`, `q = Ω·d`. Eigenvector moved out of the numerator back into the denominator; distance penalty restored. Matches paper Eqs 3-4.
+- **Fix 4 — normalize by candidate, not previous node. DONE ("4A").** `identity_score:154-158`: `normalizer = degree_node[node] + eigenvector[node]` of the candidate being scored (was `bounded_curr` — constant across candidates, so it didn't discriminate). NOTE: uses RAW degree + eigenvector; professor offered raw OR degree-distribution for ω -> confirm the choice.
+- **Fix 5 — walk-length 80. NOT applied (intentional).** Kept 40 (timing 1.87× slower, see 2026-06-23 entry). Paper's 80 = recorded deviation.
+- **Fix 6 — Word2Vec hyperparameters. DONE.** `train.py:86`: `alpha 0.25 -> 0.025`, `sample 1e-5 -> 1e-3` (min_alpha / negative / seed unchanged). Removes the 10× learning rate that only I2V used.
+- **Fix 7 — cached walker in sync. DONE.** `degree_distribution` cached at `identity2vec_cached.py:29-43` (`_deg_dist`). `identity_score` (Fixes 4A+8) is inherited (not overridden) and calls the cached signals via `self` -> cached and non-cached paths stay identical.
+- **Fix 8 — Poisson in log-space. DONE.** `identity2vec.py:160-167`, `from scipy.special import gammaln` (:9). `drt = max(drt, 1e-12)`; `log_poiss = k·log(drt) − drt − gammaln(k+1)`. Fixes underflow-to-0 on hubs AND the latent `factorial(k)` overflow for k>170.
+
+- **REVERSAL of the 2026-06-20 "DO NOT change" decision.** That audit kept the released-code deviations (p=deg·eigcent, q=dist, norm=deg+cent) for baseline comparability. Per the professor review + the paper-fidelity goal, Fixes 2/3/4 now move the code to the paper's Eqs 2-4. The original released-code baseline stays in git history (can be a separate comparison column if needed).
+
+- **FINDING — Fix 8 effect (cora):** node classification improved and now matches the paper; link-pred AUC dropped from best-recorded **0.8494 -> ~0.81**.
+  - Why: before Fix 8 the Poisson underflowed to 0 on high-degree nodes -> many tied scores -> selection effectively RANDOM -> the walk wandered the local neighborhood (proximity) -> accidentally boosted LP. Fix 8 made the scores meaningful -> the walk now follows structural identity as intended -> NC up, LP down.
+  - Context: the paper's own cora LP = **0.8413** (Table 4); 0.81 is within the ±0.05 repro bar. So the code now matches the paper on BOTH tasks — the 0.8494 was a bug-driven over-shoot, not a real LP capability.
+  - CAVEAT 1: confirm 0.8494 -> 0.81 is real, not one-seed luck — re-run 3 seeds, mean±std.
+  - CAVEAT 2: Fix 8 also interacts with Fix 1b — log-space warps the `|Ψ−Ψ|` closeness geometry, so selection changes even where nothing underflowed. Regenerate `.emb`.
+
+- **PROPOSED (NOT implemented) — temperature sampling, to recover LP without losing NC.** Keep Fix 8 untouched; change only the selection (`identity2vec.py:94`) from hard `min` to a weighted draw: `P(x) ∝ exp(−dₓ/τ)` with `dₓ = |logΨ_x − logΨ_current|`.
+  - `τ=0` = exactly today's greedy (NC-safe baseline preserved); `τ→∞` = random walk (DeepWalk-like). `τ` is the structure↔proximity dial (NC↔LP).
+  - Structural bias kept (small `dₓ` still most likely) -> NC holds; added exploration diversifies walks -> richer Word2Vec contexts -> LP up. Fix 8's log-units make the softmax numerically stable.
+  - Reproducible: walk is already stochastic + seeded (`test_source` first step uses `np.random`; `train.py:95` seeds it). `identity_walker` is base-class only -> both cached/non-cached inherit.
+  - HONESTY: the paper literally selects "least dissimilar" (greedy), so sampling is an **ablation/extension**, not paper-exact — report next to greedy.
+  - PLAN: add `--temperature` (thread like `walk_length` -> `I2V_PARAMS`); sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` on cora + citeseer_linqs, 3 seeds; `τ=0` must reproduce current greedy (sanity); find the τ where LP climbs toward ~0.84 while NC holds.
+
+- **STALE RESULTS.** Fixes 1/3/4/6/8 all changed the math -> existing `.emb` and `results/` are from old code and do NOT reflect it. Regenerate embeddings (delete / FORCE_EMBED) before trusting any metric.
+
 ---
 
 ## TODO backlog (open threads)
@@ -144,6 +192,11 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 - [ ] Document `citeseer.edgelist` derivation from `citeseer.txt`.
 - [ ] Finish/confirm citeseer embedding.
 - [x] Build cached I2V variant; verify embeddings identical + measure speedup (Deliverable #1) — done 2026-06-17: webkb 207.7× faster, byte-identical; pipeline uses `--cached`.
-- [x] walk-length = **40** (active; flipped 40 -> 80 -> 40 on 2026-06-17). `train.py` + `benchmark_config` = 40. Paper's 80 = recorded deviation.
+- [x] walk-length = **40** (active; flipped 40 -> 80 -> 40 again on 2026-06-23 after timing 80 = slower, see entry below). `train.py` + `benchmark_config` = 40. Paper's 80 = recorded deviation.
 - [ ] On-disk `output/cora_lp.emb` is an 80-walk embedding (AUC 0.7972); retrain at 40 to refresh a 40 link-pred number if wanted.
+- [x] Paper-fidelity fixes (professor review), done 2026-06-24: Fix 1b selection, Fix 2 Δ, Fix 3 p/q, Fix 4A normalizer, Fix 6 Word2Vec, Fix 7 cache sync, Fix 8 log-space. Fix 5 (walk-80) intentionally NOT applied.
+- [ ] Regenerate all `.emb` — fixes 1/3/4/6/8 changed the math, on-disk results are stale.
+- [ ] Confirm Fix 8 LP drop 0.8494 -> 0.81 is real vs seed noise (3-seed mean±std).
+- [ ] Confirm Fix 4 ω choice (raw degree vs degree-distribution) with professor.
+- [ ] PROPOSED: temperature sampling (`--temperature` τ) for the selection step — recover LP without losing NC; ablation, not paper-exact.
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).

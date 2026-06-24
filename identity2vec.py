@@ -6,6 +6,7 @@ import networkx as nx
 from tqdm import tqdm
 import time
 from decimal import Decimal
+from scipy.special import gammaln
 
 
 class Graph():
@@ -88,7 +89,7 @@ class Graph():
                 nn = self.skip_visited(nn, visited)
                 bounded_curr = walk[-2]
                 pdn = self.poisson_dist(nn, bounded_curr)
-            #   next_node = max(pdn, key=pdn.get) 
+             #   next_node = max(pdn, key=pdn.get) 
                 current_score = self.identity_score(current_node, bounded_curr)
                 next_node = min(pdn, key=lambda x: abs(pdn[x] - current_score))
                 walk.append(next_node)
@@ -110,18 +111,27 @@ class Graph():
     
     # This function calculates the probability distributions p and q for a given node n and the current node curr.
     # p is based on the degree and eigenvector centrality of the neighbors of n, while q is based on the shortest path lengths from curr to each neighbor of n. 
+    # Calculates p and q for KL-style comparison.
+    # Fix 3:
+    # p = Δ node degree-distribution
+    # q = Ω eigenvector centrality × shortest-path distance
     def get_prob(self, n, curr):
         G = self.G
         neigh = list(G.neighbors(n))
-        p_val = self.degree_distribution()
+
+        degree_dist = self.degree_distribution()
         ev = self.eigenvector_centrality()
+
         p = []
         q = []
+
         for node in neigh:
             _, path_length = self.s_path(curr, node)
-            path_length += 0.01     #Prevent PathLength 0
-            p.append(p_val[node] * ev[node])
-            q.append(path_length)
+            path_length += 0.01  # prevents zero distance
+
+            p.append(degree_dist[node])
+            q.append(ev[node] * path_length)
+
         return p, q
     
     # Computes one Poisson identity score Ψ for one node, using the current reference node.
@@ -140,11 +150,21 @@ class Graph():
                 rt += p[i] * np.log(p[i] / q[i])
 
         k = len(neigh)
-        drt = (1 / (self.degree_node()[bounded_curr] + self.eigenvector_centrality()[bounded_curr])) * rt
 
-        poiss = (np.power(drt, k) * np.power(e, -drt)) / (np.math.factorial(k))
+        # Fix 4A:
+        # Normalize by the candidate node's own raw degree + eigenvector centrality.
+        # Here, "node" is the candidate being scored.
+        normalizer = self.degree_node()[node] + self.eigenvector_centrality()[node]
+        drt = (1 / normalizer) * rt
 
-        return poiss
+        # Fix 8: compute Poisson score in log-space for numerical safety.
+        # Original: (drt**k * e**(-drt)) / k!
+        # Log version: k*log(drt) - drt - log(k!)
+        # gammaln(k + 1) = log(k!)
+        drt = max(drt, 1e-12)
+        log_poiss = k * np.log(drt) - drt - gammaln(k + 1)
+
+        return log_poiss
         
     # This is the mathematical heart of the code. It computes a KL-style divergence and then converts it into a Poisson-style score. The next node is selected using this score.
 

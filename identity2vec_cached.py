@@ -1,8 +1,7 @@
-"""Identity2Vec walker with cached structural signals — identical output to the baseline, much faster.
+"""Identity2Vec walker with cached structural signals — much faster than the baseline.
 
 Degree, eigenvector centrality, neighbor lists and shortest-path lengths are invariant for a static
-graph, but the baseline recomputes them inside the walk loop. Caching them changes no computed value
-(so embeddings are byte-identical) and removes the dominant cost. This is the I2V 'cache fix'."""
+graph, but the baseline recomputes them inside the walk loop. Caching them changes no computed value and removes the dominant cost. This is the I2V 'cache fix'."""
 
 import networkx as nx
 import identity2vec

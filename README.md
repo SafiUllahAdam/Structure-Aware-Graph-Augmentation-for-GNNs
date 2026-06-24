@@ -1,7 +1,7 @@
 # ViRGo — Virtual Role-Graph Embedding for Structural Identity
 
 > A research project that extends **Identity2Vec (I2V)** by Oluigbo et al. toward a publishable paper.
-> Built on top of the original I2V code (`identity2vec.py`), kept faithful and reproducible.
+> Built on top of the original I2V code (`identity2vec.py`), corrected to follow the paper's equations and kept reproducible.
 
 ---
 
@@ -26,8 +26,12 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 |------|---------|--------|--------|--------|
 | Node classification | Cora | weighted F1 | **0.6992** | ✅ reproduced (author's embedding) |
 | Cached I2V (speedup) | webkb | walk time | **207× faster, byte-identical** | ✅ done (Deliverable #1) |
+| Paper-fidelity fixes | I2V core | — | scoring aligned to paper (Δ, `p=Δ`/`q=Ω·d`, candidate-norm, log-space Poisson) | ✅ applied (re-run `.emb` for numbers) |
+| Cross-model benchmark | cora · citeseer · webkb · enzymes | F1 / AUC | I2V vs DeepWalk / node2vec / struc2vec | ✅ runs (notebook Steps 5–6) |
 
 *"Reproduced" = our number is within **±0.05** of the paper, with a fixed seed.*
+
+**Latest (2026-06-24):** the core I2V scoring was corrected to follow the paper's equations — degree-distribution Δ, `p = Δ` / `q = Ω·d`, candidate-side normalisation, and a numerically-safe log-space Poisson — plus a gentler Word2Vec setup. Node classification now matches the paper; link prediction stays within paper range. Details in `docs/notes.md`; re-generate `.emb` files to pick up the changes.
 
 ---
 
@@ -48,7 +52,7 @@ identity2vec/
 ├── logs/                     # training run logs
 ├── docs/                     # papers (PDFs) + notes.md (the lab notebook)
 │
-├── identity2vec.py           # CORE: the original I2V walk algorithm (baseline, untouched)
+├── identity2vec.py           # CORE: the I2V walk algorithm (aligned to the paper's equations — see docs/notes.md)
 ├── identity2vec_cached.py    # same algorithm, cached → identical output, ~200× faster
 ├── train.py                  # ▶ makes embeddings:  graph → walks → Word2Vec → .emb
 ├── plot_emb.py               # draws embeddings as a 2D picture (hubs vs leaves)
@@ -150,7 +154,7 @@ graph            structural signal           guided          embedding          
 Non-negotiables for this project:
 
 - **Fixed seed `42`** everywhere (splits, initialisation, sampling).
-- **Walk-length pinned to `40`** (the repo default; the paper text says 80, recorded as a known deviation but not used).
+- **Walk-length pinned to `40`** (the repo default; the paper text says 80, recorded as a known deviation but not used — 80 measured slower, see `docs/notes.md`).
 - **Never edit anything in `input/`** — write derived files alongside, outputs to `output/`.
 - Every run and decision is logged in **`docs/notes.md`** (the lab notebook).
 - A result counts as "reproduced" only when it lands **within ±0.05** of the paper's number.

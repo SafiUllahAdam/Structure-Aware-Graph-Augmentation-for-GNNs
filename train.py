@@ -83,7 +83,7 @@ def learn_embeddings(walks):
     print("Training Node Corpus...")
     model = Word2Vec(identitywalks, vector_size=args.dimensions, window=args.window_size, 
                      min_count=args.min_count, sg=args.sg, workers=args.workers, epochs=args.epochs,  
-                    sample=1e-5, alpha=0.25, min_alpha=0.01, negative=5, seed=args.seed)
+                    sample=1e-3, alpha=0.025, min_alpha=0.01, negative=5, seed=args.seed)
     print("Saving Embeddings...")
     model.wv.save_word2vec_format(args.output)
     

@@ -91,7 +91,7 @@ Registered in `scripts/benchmark_config.py` (`DATASETS`). Labelled & ready: **co
 
 **Link prediction — *inductive, leakage-free*.** Split the **edges** 70/30. A *spanning tree* stays in train so the graph stays connected; equal numbers of fake "negative" (non-edge) pairs are added. **Retrain a fresh embedding on the 70% train graph only** (so test edges are never seen). Turn each node-pair into an edge feature with the **Hadamard** product, train logistic regression, score AUC on the held-out 30%. **Metric: AUC.**
 
-**Fixed settings:** `seed = 42`; embedding `dimensions = 64, num_walks = 10, window = 10, epochs = 1`; `walk_length` = **40** everywhere (train.py, benchmark_config, notebook); the paper says 80, kept as a recorded deviation, not used. Classifier = logistic regression (the paper's L-BFGS / L2). No separate validation set (we don't tune).
+**Fixed settings:** `seed = 42`; embedding `dimensions = 64, num_walks = 10, window = 10, epochs = 1`; `walk_length` = **40** everywhere (train.py, benchmark_config, notebook); the paper says 80, kept as a recorded deviation, not used (80 measured slower — see `docs/notes.md`). Classifier = logistic regression (the paper's L-BFGS / L2). No separate validation set (we don't tune).
 
 **Caveat (research rigor):** results come from a **single split**. Small datasets are noisy across seeds — for a paper, report **mean ± std over ≥5 seeds** and add macro-F1.
 
