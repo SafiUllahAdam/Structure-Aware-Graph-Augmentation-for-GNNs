@@ -27,8 +27,8 @@ def parse_args():
 	parser.add_argument('--dimensions', type=int, default=128,
 	                    help='Number of dimensions. Default is 128.')
 
-	parser.add_argument('--walk-length', type=int, default=80,
-	                    help='Length of walk per source. Default is 80.')
+	parser.add_argument('--walk-length', type=int, default=40,
+	                    help='Length of walk per source. Default is 40.')
 
 	parser.add_argument('--num-walks', type=int, default=10,
 	                    help='Number of walks per source. Default is 10.')
@@ -78,7 +78,7 @@ def learn_embeddings():
 	'''
 	logging.info("Initializing creation of the representations...")
 	walks = LineSentence('random_walks.txt')
-	model = Word2Vec(walks, vector_size=args.dimensions, window=args.window_size, min_count=0, hs=1, sg=1, workers=args.workers, epochs=args.iter)
+	model = Word2Vec(walks, vector_size=args.dimensions, window=args.window_size, min_count=0, hs=0, sg=1, negative=5, alpha=0.025, min_alpha=0.01, sample=1e-3, workers=args.workers, epochs=args.iter)
 	model.wv.save_word2vec_format(args.output)
 	logging.info("Representations created.")
 	

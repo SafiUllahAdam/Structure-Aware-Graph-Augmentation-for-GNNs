@@ -190,6 +190,18 @@ The proposed non-greedy selection is now in code and gave a clear improvement on
 - CAVEAT: **single seed (s42)** — run 3 seeds for mean±std before quoting as final; also sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` to confirm 0.3 is the sweet spot.
 - GAP (not a crash): `scripts/runner.py:embed()` — the `python scripts/main.py --task ... --retrain` CLI path — does NOT pass `--temperature`, so it stays greedy (0.0). The notebook/benchmark path (via `embedding_models`) DOES use 0.3. Thread `--temperature` into `runner.embed` if you want both entry points to agree. TODO logged.
 
+### 2026-06-24 — cross-model config standardized for fair benchmark ✅
+
+Goal: identical Skipgram/Word2Vec **training** across all 4 models so the comparison is fair; **I2V = anchor, left untouched** (it's stable). Walk generation + method-defining knobs stay per-model.
+
+- I2V: **UNCHANGED** (alpha 0.025, min_alpha 0.01, sample 1e-3, negative 5, hs 0). Its embeddings stay valid -> keep cora s42 NC 0.7486 / LP 0.8305; **no I2V retrain**.
+- node2vec + DeepWalk (`embedding_models.py:48-50`): pinned the Skipgram params explicitly to match I2V — `alpha=0.025, min_alpha=0.01, sample=1e-3, negative=5, hs=0`. Only `min_alpha` actually differed before (gensim default 0.0001 -> 0.01); the rest already equalled I2V via gensim defaults but are now explicit/locked.
+- struc2vec (`baselines/struc2vec/src/main.py:81`): switched **hierarchical-softmax -> negative sampling** (`hs=0, negative=5`) + `alpha=0.025, min_alpha=0.01, sample=1e-3` to match I2V — also matches the paper's stated protocol ("negative sampling for DeepWalk and struc2vec"). Walk-length **default 80 -> 40** (`:30`) for standalone consistency.
+- walk_length = **40 for all** — benchmark already forced 40 via `I2V_PARAMS`; struc2vec standalone default now 40 too. (80 tried earlier, no gain — see 2026-06-23.)
+- KEPT per-model (NOT standardized — these define each method): node2vec `p=1/q=0.5`, DeepWalk `p=q=1`, I2V `temperature=0.3` + Poisson/KL walk, struc2vec `OPT1/2/3` + multilayer structural walk.
+- VERIFIED: `py_compile` of both edited files OK (no run executed).
+- EFFECT / next: regenerate ONLY the 3 baselines' `.emb` (their config changed; delete + re-run), then re-score. struc2vec will shift (hs->neg, likely up toward its paper ~0.71 LP); node2vec/DeepWalk shift slightly (min_alpha); I2V flat. struc2vec still has NO seed -> report mean±std.
+
 ---
 
 ## TODO backlog (open threads)
@@ -219,4 +231,6 @@ The proposed non-greedy selection is now in code and gave a clear improvement on
 - [x] Temperature sampling implemented 2026-06-24 (`--temperature`, default greedy, benchmark τ=0.3): cora s42 NC 0.7486 / LP 0.8305 — improved both. Ablation, not paper-exact.
 - [ ] Temperature: run 3 seeds (mean±std) + sweep τ ∈ {0, 0.1, 0.3, 1, 3} on cora + citeseer_linqs.
 - [ ] Thread `--temperature` through `scripts/runner.embed` (CLI `--retrain` path still greedy; notebook/benchmark already 0.3).
+- [x] Cross-model Skipgram config standardized to I2V 2026-06-24 (node2vec/DeepWalk `min_alpha=0.01`; struc2vec hs→negative sampling; walk_length 40 all). I2V untouched; per-model walk knobs kept.
+- [ ] Regenerate the 3 baselines' `.emb` (config changed) + re-run benchmark; I2V embeddings stay valid (no retrain).
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).

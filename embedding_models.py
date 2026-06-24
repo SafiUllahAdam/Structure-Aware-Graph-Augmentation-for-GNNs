@@ -46,7 +46,8 @@ class _RandomWalkModel(EmbeddingModel):
         n2v = Node2Vec(G, dimensions=params["dimensions"], walk_length=params["walk_length"],
                        num_walks=params["num_walks"], p=self.p, q=self.q, workers=1, seed=seed, quiet=True)
         model = n2v.fit(window=params["window_size"], min_count=0, sg=params["sg"],
-                        epochs=params["epochs"], workers=1, seed=seed)
+                        epochs=params["epochs"], workers=1, seed=seed,
+                        alpha=0.025, min_alpha=0.01, sample=1e-3, negative=5, hs=0)   # Skipgram config matched to I2V (fair benchmark)
         model.wv.save_word2vec_format(str(out_emb))
         return Path(out_emb)
 
