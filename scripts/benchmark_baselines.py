@@ -74,9 +74,11 @@ def save_benchmark(rows, out_dir=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(out_dir / "benchmark_per_seed.csv", index=False)
     nc = benchmark_table(rows, "nodeclass", "weighted_f1")
-    lp = benchmark_table(rows, "linkpred", "auc")
+    lp = benchmark_table(rows, "linkpred", "auc")                    # headline = logreg (the main result)
+    lp_cosine = benchmark_table(rows, "linkpred", "auc_cosine")      # second column: unsupervised cosine
     nc.to_csv(out_dir / "table1_nodeclass_weighted_f1.csv")
     lp.to_csv(out_dir / "table2_linkpred_auc.csv")
+    lp_cosine.to_csv(out_dir / "table2_linkpred_auc_cosine.csv")
     return nc, lp
 
 

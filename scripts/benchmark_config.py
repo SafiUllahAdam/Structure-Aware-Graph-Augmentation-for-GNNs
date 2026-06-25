@@ -39,8 +39,8 @@ REPRO = {
     "seed": 42,
     "linkpred_test_frac": 0.30,    # 70:30 edge split
     "nodeclass_train_frac": 0.70,  # stratified split (paper sweeps 30-70%)
-    "linkpred_op": "hadamard",     # edge operator (only used when linkpred_score='logreg')
-    "linkpred_score": "cosine",    # paper-faithful: unsupervised embedding-similarity AUC ('logreg' = supervised Hadamard classifier)
+    "linkpred_op": "hadamard",     # edge operator for the logreg edge features (node2vec protocol)
+    "linkpred_score": "logreg",    # main result: Hadamard edge features -> logistic regression (paper's node2vec link-pred protocol); 'cosine' = unsupervised similarity, kept as a second column
 }
 
 

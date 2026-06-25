@@ -123,9 +123,12 @@ def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity
             print(f"  [{model} lp s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
             mdl.train(sp_dir / f"{name}_train.edgelist", emb, s, params)
-        auc = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, REPRO["linkpred_score"])
-        rows.append({"model": model, "dataset": info["base"], "version": info["version"], "task": "linkpred", "seed": s, "auc": auc})
-        print(f"  [{model} lp s{s}] AUC={auc:.4f}")
+        auc_logreg = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, "logreg")   # main: Hadamard + logreg
+        auc_cosine = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, "cosine")   # second column: unsupervised similarity
+        auc = auc_logreg if REPRO["linkpred_score"] == "logreg" else auc_cosine            # headline AUC = configured scorer
+        rows.append({"model": model, "dataset": info["base"], "version": info["version"], "task": "linkpred", "seed": s,
+                     "auc": auc, "auc_logreg": auc_logreg, "auc_cosine": auc_cosine})
+        print(f"  [{model} lp s{s}] AUC={auc:.4f} (logreg={auc_logreg:.4f} cosine={auc_cosine:.4f})")
     return rows
 
 

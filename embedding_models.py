@@ -60,10 +60,10 @@ class DeepWalkModel(_RandomWalkModel):
 
 
 class Node2VecModel(_RandomWalkModel):
-    """node2vec: biased walks. p=1, q=0.5 (homophily-leaning); paper does not fix p/q, so this is a logged default."""
+    """node2vec: paper does not fix p/q, so use the neutral default p=q=1 (≈ DeepWalk), paper-faithful baseline."""
     name = "node2vec"
     p = 1.0
-    q = 0.5
+    q = 1.0
 
 
 class Struc2VecModel(EmbeddingModel):
