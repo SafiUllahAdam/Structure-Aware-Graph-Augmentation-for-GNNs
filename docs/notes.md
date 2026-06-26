@@ -234,3 +234,12 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - [x] Cross-model Skipgram config standardized to I2V 2026-06-24 (node2vec/DeepWalk `min_alpha=0.01`; struc2vec hs→negative sampling; walk_length 40 all). I2V untouched; per-model walk knobs kept.
 - [ ] Regenerate the 3 baselines' `.emb` (config changed) + re-run benchmark; I2V embeddings stay valid (no retrain).
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).
+
+---
+
+### 2026-06-25 — walk-length flipped 40 → 80 (paper value)
+
+- DECISION: **walk-length = 80 (active)**, reverting the 2026-06-23 "40 active" decision per request. 80 = the I2V paper value; ~1.87× slower than 40 (see 2026-06-23 timing), accepted.
+- Changed everywhere: `train.py` default+help, `scripts/benchmark_config.I2V_PARAMS["walk_length"]` + comment, `baselines/struc2vec/src/main.py` default+help, and docs (`README.md`, `docs/virgo_guide.md`, `CLAUDE.md`). Notebook inherits the config (no hardcoded value).
+- CACHE: deleted all 42 `output/**/*.emb` (every model/dataset/seed, nc+lp) — built at 40, now stale. Next benchmark run rebuilds at 80.
+- Supersedes the checklist line above (`walk-length = 40`) and the 2026-06-24 standardization note (`walk_length 40 all`).

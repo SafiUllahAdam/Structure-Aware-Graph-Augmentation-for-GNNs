@@ -44,7 +44,7 @@ class _RandomWalkModel(EmbeddingModel):
         from node2vec import Node2Vec
         G = nx.read_edgelist(str(edgelist), nodetype=int, create_using=nx.Graph())
         n2v = Node2Vec(G, dimensions=params["dimensions"], walk_length=params["walk_length"],
-                       num_walks=params["num_walks"], p=self.p, q=self.q, workers=1, seed=seed, quiet=True)
+                       num_walks=params["num_walks"], p=self.p, q=self.q, workers=1, seed=seed, quiet=False)
         model = n2v.fit(window=params["window_size"], min_count=0, sg=params["sg"],
                         epochs=params["epochs"], workers=1, seed=seed,
                         alpha=0.025, min_alpha=0.01, sample=1e-3, negative=5, hs=0)   # Skipgram config matched to I2V (fair benchmark)
@@ -60,10 +60,10 @@ class DeepWalkModel(_RandomWalkModel):
 
 
 class Node2VecModel(_RandomWalkModel):
-    """node2vec: paper does not fix p/q, so use the neutral default p=q=1 (≈ DeepWalk), paper-faithful baseline."""
+    """node2vec: biased walks (p=1, q=0.5) so it stays a distinct method from DeepWalk (p=q=1); paper does not fix p/q."""
     name = "node2vec"
     p = 1.0
-    q = 1.0
+    q = 0.5
 
 
 class Struc2VecModel(EmbeddingModel):
@@ -76,12 +76,14 @@ class Struc2VecModel(EmbeddingModel):
         pdir = src.parent / "pickles"                                # struc2vec caches distances/walks under FIXED names here
         shutil.rmtree(pdir, ignore_errors=True); pdir.mkdir(parents=True, exist_ok=True)   # clear so each graph is fresh (no cross-dataset reuse)
         (src / "random_walks.txt").unlink(missing_ok=True)
+        n_nodes = nx.read_edgelist(str(edgelist), nodetype=int).number_of_nodes()
+        opt = "True" if n_nodes > 10000 else "False"   # exact struc2vec on small graphs (cora/citeseer/webkb); optimizations only for large (enzymes ~19.5k -> memory)
         cmd = [sys.executable, str(src / "main.py"),
                "--input", str(Path(edgelist).resolve()), "--output", str(Path(out_emb).resolve()),
                "--dimensions", str(params["dimensions"]), "--walk-length", str(params["walk_length"]),
                "--num-walks", str(params["num_walks"]), "--window-size", str(params["window_size"]),
                "--iter", str(params["epochs"]), "--workers", "1",
-               "--OPT1", "True", "--OPT2", "True", "--OPT3", "True"]   # optimizations on (needed for larger graphs)
+               "--OPT1", opt, "--OPT2", opt, "--OPT3", opt]
         subprocess.run(cmd, check=True, cwd=str(src))                 # cwd=src so its imports + side-files stay contained
         return Path(out_emb)
 

@@ -27,9 +27,9 @@ DATASETS = {
 BENCH_DATASETS = ["cora", "citeseer_linqs", "enzymes", "webkb_wisc"]
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
-# Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=40 active, 80=paper but slower, see notes.md).
+# Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=80 = paper value, see notes.md).
 I2V_PARAMS = {
-    "dimensions": 64, "walk_length": 40, "num_walks": 10,
+    "dimensions": 64, "walk_length": 80, "num_walks": 10,
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
     "temperature": 0.3,
 }

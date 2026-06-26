@@ -6,6 +6,7 @@ from gensim.models import KeyedVectors
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
+from sklearn.multiclass import OneVsRestClassifier
 
 
 # Defines command-line options: embedding file, labels file, train fraction, seed.
@@ -41,7 +42,8 @@ def evaluate(emb, labels_path, train_frac=0.7, seed=42):
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, train_size=train_frac, stratify=y, random_state=seed)
-    pred = LogisticRegression(max_iter=1000, random_state=seed).fit(X_train, y_train).predict(X_test)
+    clf = OneVsRestClassifier(LogisticRegression(max_iter=300, solver="lbfgs", random_state=seed))   # paper protocol: one-vs-rest LBFGS, 300 iters (L2 is sklearn's default penalty)
+    pred = clf.fit(X_train, y_train).predict(X_test)
     f1s = {avg: f1_score(y_test, pred, average=avg) for avg in ("micro", "macro", "weighted")}
     if len(ids) < len(labels):
         print(f"  warning: {len(labels) - len(ids)} labelled nodes had no embedding (skipped)")

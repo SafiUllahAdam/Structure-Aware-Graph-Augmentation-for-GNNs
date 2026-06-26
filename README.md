@@ -169,7 +169,7 @@ graph            structural signal           guided          embedding          
 Non-negotiables for this project:
 
 - **Fixed seed `42`** everywhere (splits, initialisation, sampling).
-- **Walk-length pinned to `40`** (the repo default; the paper text says 80, recorded as a known deviation but not used — 80 measured slower, see `docs/notes.md`).
+- **Walk-length pinned to `80`** (the paper value; previously ran at 40 — 80 is ~1.87× slower, see `docs/notes.md`).
 - **Never edit anything in `input/`** — write derived files alongside, outputs to `output/`.
 - Every run and decision is logged in **`docs/notes.md`** (the lab notebook).
 - A result counts as "reproduced" only when it lands **within ±0.05** of the paper's number.
