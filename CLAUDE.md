@@ -53,11 +53,13 @@ Keep I2V front end, replace back end:
 
 ---
 
-## 4. Status
+## 4. Status & phases
 
-- Reproducing I2V. Comparison subset: **Cora + Citeseer** (smallest labelled datasets).
-- Embeddings: `cora.emb` (author's), `citeseer.emb` (training).
-- Baseline confirmed: I2V recomputes centrality inside the walk loop (slow) — motivates the cache fix.
+- **Phase 1 — reproducibility (match the I2V paper). ✅ done.** Cached I2V (byte-identical, ~200× faster, Deliverable #1) + cross-model baseline comparison; results within ±0.05 of the paper, 3-seed harness. Baselines (DeepWalk / node2vec / struc2vec) used as published/default — **not fine-tuned** (out of scope).
+- **Phase 2 — virtual-graph creation.** Build the virtual graph from I2V Poisson/KL Ψ (top-K structurally-similar nodes) + simpler comparison graphs (degree-only, centrality-only). ← next
+- **Phase 3 — modern GNN encoder.** Replace walk + Skipgram with a GNN (GraphSAGE / GIN / GAT) over the virtual graph; design + compare architecture variants. (Technical contribution.)
+- **Phase 4 — downstream tasks.** Evaluate ViRGo embeddings on node classification (F1), link prediction (AUC), and anomaly detection (new, AUC/AP); plus the virtual-graph ablation (which graph best per data/task).
+- **Phase 5 — LLM context-window issue.** Compact structural embeddings as a large-graph summary so structure fits an LLM's context window. (Stretch — do not start.)
 
 ---
 
@@ -77,7 +79,7 @@ Keep I2V front end, replace back end:
 
 - Fixed `seed=42` everywhere (split, init, sampling).
 - Never modify files in `input/`; write derived files alongside, outputs to `output/`.
-- Log every run setting and deviation in `notes.md` (e.g. walk-length now 80 to match the paper, was 40).
+- Log every run setting and deviation in `notes.md` (e.g. walk-length now 40, paper's 80 kept as a recorded deviation).
 - A result is "reproduced" only when our metric is within ~±0.05 of the paper's.
 - Ship splits, seeds, and eval scripts with the method.
 

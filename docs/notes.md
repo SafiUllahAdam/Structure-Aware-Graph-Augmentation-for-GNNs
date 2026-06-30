@@ -243,3 +243,48 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - Changed everywhere: `train.py` default+help, `scripts/benchmark_config.I2V_PARAMS["walk_length"]` + comment, `baselines/struc2vec/src/main.py` default+help, and docs (`README.md`, `docs/virgo_guide.md`, `CLAUDE.md`). Notebook inherits the config (no hardcoded value).
 - CACHE: deleted all 42 `output/**/*.emb` (every model/dataset/seed, nc+lp) — built at 40, now stale. Next benchmark run rebuilds at 80.
 - Supersedes the checklist line above (`walk-length = 40`) and the 2026-06-24 standardization note (`walk_length 40 all`).
+
+### 2026-06-29 — walk-length reverted 80 → 40 (back to repo default)
+
+- DECISION: **walk-length = 40 (active)**, reverting the 2026-06-25 "80 active" flip per request. 40 = repo default + the setting behind author `cora.emb`; the paper's 80 (~1.87× slower, no confirmed gain) is kept as a recorded deviation.
+- Reverted everywhere: `train.py` default+help, `scripts/benchmark_config.I2V_PARAMS["walk_length"]` + comment, `baselines/struc2vec/src/main.py` default+help, docs (`README.md`, `docs/virgo_guide.md`, `CLAUDE.md`). Notebook inherits the config (no hardcoded value).
+- CACHE: deleted the 24 stale 80-walk `output/cora/*.emb` (rebuilt after the 2026-06-25 flip); next run rebuilds at 40. No author `output/cora.emb` present.
+- Supersedes the 2026-06-25 "80 active" entry.
+
+### 2026-06-30 — benchmark scoring finalized + first 3-seed cross-model run
+
+Findings-driven cleanups (implemented one-by-one) + the first full 3-seed run.
+
+- **Link-pred scoring — BOTH computed every seed; headline now COSINE.** `runner.run_linkpred_repeated` scores each `.emb` two ways: `auc_logreg` (Hadamard edge feature → logistic regression, node2vec protocol) and `auc_cosine` (unsupervised cosine similarity, paper-faithful, no classifier). `REPRO["linkpred_score"]` picks the headline `auc` column — now **`"cosine"`** (was `"logreg"`). `benchmark_baselines` writes `table2_linkpred_auc.csv` (=headline=cosine) + `table2_linkpred_auc_cosine.csv` (identical now); `auc_logreg` survives only in `benchmark_per_seed.csv`. Cosine for edges + logreg for labels = paper alignment. STALE COMMENTS (values correct): `benchmark_config.py:43` and `benchmark_baselines.py:79-80` still say "main = logreg".
+- **Node-class classifier (Fix 6).** `eval_nodeclass.py:45` = `OneVsRestClassifier(LogisticRegression(max_iter=300, solver="lbfgs", random_state=seed))` (L2 = sklearn default; `multi_class="ovr"` avoided — removed in sklearn ≥1.7). Reports micro/macro/weighted F1.
+- **struc2vec OPT (Fix 4).** `Struc2VecModel.train`: `--OPT1/2/3 = False` for graphs ≤10k nodes (cora/citeseer/webkb = exact distance), `True` only for large graphs (enzymes ~19.5k → memory). struc2vec still unseeded → report mean±std.
+- **node2vec vs DeepWalk kept distinct.** DeepWalk `p=q=1` (uniform), node2vec `p=1/q=0.5` (biased) → node2vec is not a DeepWalk duplicate. Paper does not fix p/q.
+- **FINDING — first 3-seed cross-model run (cora, seeds 42/43/44, τ=0.3). Supersedes the "single seed s42" temperature caveat.** Snapshot captured at **walk-length 80** (06-25→06-29 window); those `.emb` were deleted in the 40-revert → **regenerate at walk-40 before quoting as final.**
+
+  | model | NC weighted F1 | LP AUC (cosine headline) |
+  |---|---|---|
+  | identity2vec | 0.7403 ± 0.0116 | 0.8281 ± 0.0085 |
+  | deepwalk | 0.8109 ± 0.0216 | 0.9011 ± 0.0017 |
+  | node2vec | 0.8166 ± 0.0090 | 0.9031 ± 0.0029 |
+  | struc2vec | 0.3219 ± 0.0053 | 0.5491 ± 0.0077 |
+
+  - Confirms the 2026-06-20 finding: on homophilous cora, proximity methods (node2vec/deepwalk) beat structural I2V on NC+LP; struc2vec weak. I2V's edge is structural/heterophilous tasks, not cora.
+- **DOCS.** `docs/virgo_guide.md` full-synced to current code (notebook Steps 0–5, 70/30 split, OvR classifier, dataset registry, per-seed `.emb` naming, honest §8). Notebook walk/training progress bars restored (`embedding_models` `quiet=False`).
+- TODO: regenerate the table at walk-40; run τ-sweep {0,0.1,0.3,1,3} + τ=0 vs 0.3 (delete I2V `.emb` between τ — filename ignores τ).
+
+### 2026-06-30 — direction: Phase 1 done, focus shifts to the GNN encoder
+
+- DIRECTION (project steer): I2V reproduction is accepted as correct. Baselines are **not** to be fine-tuned — the paper's baselines look under-tuned, but tuning them is out of scope; they stand at published/default settings. Focus moves **fully to the technical contribution**: replace the walk + Skipgram back-end with a modern GNN encoder over the virtual graph.
+- NEXT: design several GNN architecture variants (GraphSAGE / GIN / GAT over the Poisson/KL virtual graph) as candidates, then compare them.
+- The cross-model baseline table (cora, 3 seeds; see entry above) stands as the reference — no further baseline tuning.
+
+### 2026-06-30 — canonical project phases fixed
+
+Project flow locked into 5 phases (Phase 1 done):
+1. **Phase 1 — reproducibility (match the I2V paper). DONE.** Cached I2V + cross-model baselines (used as-is, not fine-tuned); within ±0.05, 3-seed harness.
+2. **Phase 2 — virtual-graph creation.** top-K Poisson/KL Ψ graph + degree-only / centrality-only comparison graphs (`virtual_graph.py`). ← next
+3. **Phase 3 — modern GNN encoder.** GraphSAGE / GIN / GAT over the virtual graph, replacing walk + Skipgram; design + compare variants.
+4. **Phase 4 — downstream tasks.** node classification, link prediction, anomaly detection (new); virtual-graph ablation (which graph best per data/task).
+5. **Phase 5 — LLM context-window issue.** structural embeddings as a compact large-graph summary (stretch).
+- Refines the earlier 2026-06-30 note: the immediate next is **Phase 2 (virtual graph)**, then Phase 3 (GNN) — not the GNN directly.
+- Mirrored in README, CLAUDE.md §4, docs/virgo_guide.md.

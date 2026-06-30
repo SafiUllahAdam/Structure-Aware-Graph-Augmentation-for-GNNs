@@ -27,9 +27,9 @@ DATASETS = {
 BENCH_DATASETS = ["cora", "citeseer_linqs", "enzymes", "webkb_wisc"]
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
-# Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=80 = paper value, see notes.md).
+# Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=40 = repo default, paper's 80 is a recorded deviation, see notes.md).
 I2V_PARAMS = {
-    "dimensions": 64, "walk_length": 80, "num_walks": 10,
+    "dimensions": 64, "walk_length": 40, "num_walks": 10,
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
     "temperature": 0.3,
 }
@@ -40,7 +40,7 @@ REPRO = {
     "linkpred_test_frac": 0.30,    # 70:30 edge split
     "nodeclass_train_frac": 0.70,  # stratified split (paper sweeps 30-70%)
     "linkpred_op": "hadamard",     # edge operator for the logreg edge features (node2vec protocol)
-    "linkpred_score": "logreg",    # main result: Hadamard edge features -> logistic regression (paper's node2vec link-pred protocol); 'cosine' = unsupervised similarity, kept as a second column
+    "linkpred_score": "cosine",    # main result: Hadamard edge features -> logistic regression (paper's node2vec link-pred protocol); 'cosine' = unsupervised similarity, kept as a second column
 }
 
 

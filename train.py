@@ -30,8 +30,8 @@ def parse_args():
     parser.add_argument('--dimensions', type=int, default=64,
                         help='Number of dimensions. Default is 64.')
 
-    parser.add_argument('--walk-length', type=int, default=80,
-                        help='Length of walk per source. Default is 80.')
+    parser.add_argument('--walk-length', type=int, default=40,
+                        help='Length of walk per source. Default is 40.')
     
     parser.add_argument('--temperature', type=float, default=0.0,
                         help='Temperature for non-greedy I2V next-node sampling. 0.0 = greedy.')
