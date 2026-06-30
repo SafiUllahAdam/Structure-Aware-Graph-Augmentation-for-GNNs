@@ -1,6 +1,5 @@
-# ViRGo — Beginner's Guide
-
-*A spoon-feeding onboarding guide. Read this once, top to bottom, and you can run and extend the project on your own. No prior graph or ML knowledge assumed.*
+# ViRGo — Guide
+*Onboarding guide. Read this once, top to bottom, and you can run and extend the project on your own.*
 
 ---
 
@@ -168,3 +167,7 @@ Registered in `scripts/benchmark_config.py` (`DATASETS`). Labelled & verified: *
 ## 13. Mini-glossary
 
 **Node/edge** — dot / line. **Embedding** — 64-number fingerprint per node. **Structural identity** — a node's role (hub, bridge), independent of position. **Transductive** — embed the whole graph, hide only labels. **Inductive** — retrain on a sub-graph so test items are unseen. **Weighted F1** — accuracy-like score that accounts for class sizes. **AUC** — probability the model ranks a real edge above a fake one. **Leakage** — letting test information into training (forbidden).
+
+
+Command:
+python docs/build_pdf.py docs/virgo_guide.md docs/virgo_guide.pdf
