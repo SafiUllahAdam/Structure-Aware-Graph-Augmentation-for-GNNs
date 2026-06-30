@@ -27,7 +27,6 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 - [x] Link-prediction AUC vs paper Table 4 — Cora LP **0.8305** vs **0.8413**, within ±0.05.
 - [x] Node-classification F1 vs paper — Cora weighted F1 **0.7486** ≈ paper Section 4.4 / Figure 5.
 - [x] Cross-model baseline comparison (vs DeepWalk / node2vec / struc2vec) — baselines used as-is, **not fine-tuned**.
-- [ ] (optional) Train-ratio sweep (30–70%) to match Figure 5 *exactly*.
 
 **Phase 2 — Virtual-graph creation.** ← next
 - [ ] `virtual_graph.py`: top-K Poisson/KL Ψ builder + degree-only / centrality-only comparison graphs.
