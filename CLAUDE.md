@@ -56,8 +56,8 @@ Keep I2V front end, replace back end:
 ## 4. Status & phases
 
 - **Phase 1 — reproducibility (match the I2V paper). ✅ done.** Cached I2V (byte-identical, ~200× faster, Deliverable #1) + cross-model baseline comparison; results within ±0.05 of the paper, 3-seed harness. Baselines (DeepWalk / node2vec / struc2vec) used as published/default — **not fine-tuned** (out of scope).
-- **Phase 2 — virtual-graph creation.** Build the virtual graph from I2V Poisson/KL Ψ (top-K structurally-similar nodes) + simpler comparison graphs (degree-only, centrality-only). ← next
-- **Phase 3 — modern GNN encoder.** Replace walk + Skipgram with a GNN (GraphSAGE / GIN / GAT) over the virtual graph; design + compare architecture variants. (Technical contribution.)
+- **Phase 2 — virtual-graph creation (the core study).** (1) Build the virtual-graph system, then (2) test different virtual-graph variants (I2V Poisson/KL Ψ top-K, degree-only, centrality-only). **The virtual graph — not the encoder — is the variable under study:** the central question is *which virtual graph makes a GNN perform best* per task (node classification, link prediction, later anomaly detection). I2V's Poisson/KL graph is one generic option to test. ← next
+- **Phase 3 — modern GNN encoder.** Run different GNN encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram. (Technical contribution; encoder choice secondary to the virtual graph.)
 - **Phase 4 — downstream tasks.** Evaluate ViRGo embeddings on node classification (F1), link prediction (AUC), and anomaly detection (new, AUC/AP); plus the virtual-graph ablation (which graph best per data/task).
 - **Phase 5 — LLM context-window issue.** Compact structural embeddings as a large-graph summary so structure fits an LLM's context window. (Stretch — do not start.)
 

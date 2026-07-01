@@ -13,7 +13,7 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 # Dataset registry: name -> edgelist + label file (labels may not exist yet -> None or a path to be filled).
 DATASETS = {
     "cora":     {"edgelist": INPUT_DIR / "cora.edgelist",     "labels": LABELS_DIR / "cora.labels"},
-    "citeseer": {"edgelist": INPUT_DIR / "citeseer.edgelist", "labels": None},  # author graph; LINQS labels don't align (use citeseer_linqs)
+    "citeseer": {"edgelist": INPUT_DIR / "citeseer.edgelist", "labels": None},  # author's own graph (paper's file) -> link-pred only, no aligned labels
     "citeseer_linqs": {"edgelist": INPUT_DIR / "citeseer_linqs.edgelist", "labels": LABELS_DIR / "citeseer_linqs.labels"},  # aligned (graph+labels from LINQS)
     "politics": {"edgelist": INPUT_DIR / "politics.edgelist", "labels": None},  # rt-pol ships no labels -> link-pred only (no verifiable NC source)
     "enzymes":  {"edgelist": INPUT_DIR / "enzymes.edgelist",  "labels": LABELS_DIR / "enzymes.labels"},  # labels built+verified by make_labels.make_enzymes
@@ -24,7 +24,7 @@ DATASETS = {
 
 # Cross-model benchmark scope: which datasets and methods the comparison loop sweeps (benchmark_baselines.py).
 # (politics dropped: rt-pol ships no verifiable node labels -> webkb_wisc used instead, fully labelled.)
-BENCH_DATASETS = ["cora", "citeseer_linqs", "enzymes", "webkb_wisc"]
+BENCH_DATASETS = ["cora", "citeseer", "enzymes", "webkb_wisc"]  # citeseer = author graph, link-pred only (no aligned labels)
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
 # Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=40 = repo default, paper's 80 is a recorded deviation, see notes.md).

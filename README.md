@@ -1,7 +1,7 @@
 # ViRGo — Virtual Role-Graph Embedding for Structural Identity
 
-> A research project that extends **Identity2Vec (I2V)** by Oluigbo et al. toward a publishable paper.
-> Built on top of the original I2V code (`identity2vec.py`), corrected to follow the paper's equations and kept reproducible.
+> A research project on **structural-identity graph representation learning**, aimed to make a research contribution.
+> It studies how connecting role-similar nodes into a **virtual graph** and encoding it with a modern **GNN** improves node embeddings across downstream tasks.
 
 ---
 
@@ -15,7 +15,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 **ViRGo** (this project) asks a research question on top of that:
 
-> Instead of passing messages only along the real edges, can we build a **virtual graph** that connects *role-similar* nodes, and does a modern **GNN** over that virtual graph beat the original walk-based method?
+> Instead of passing messages only along the real edges, we build a **virtual graph** that connects *role-similar* nodes. The central question: **which virtual graph makes a GNN perform best** for each task (node classification, link prediction, anomaly detection)? The virtual graph — not the encoder — is the variable under study; I2V's Poisson/KL graph is just one generic option.
 
 
 ---
@@ -28,11 +28,12 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 - [x] Node-classification F1 vs paper — Cora weighted F1 **0.7486** ≈ paper Section 4.4 / Figure 5.
 - [x] Cross-model baseline comparison (vs DeepWalk / node2vec / struc2vec) — baselines used as-is, **not fine-tuned**.
 
-**Phase 2 — Virtual-graph creation.** ← next
-- [ ] `virtual_graph.py`: top-K Poisson/KL Ψ builder + degree-only / centrality-only comparison graphs.
+**Phase 2 — Virtual-graph creation.** ← next _(the core study)_
+- [ ] `virtual_graph.py`: build the virtual-graph system + variants (top-K Poisson/KL Ψ, degree-only, centrality-only).
+- [ ] Test **which virtual graph helps a GNN most per task** (node classification, link prediction, later anomaly detection) — the virtual graph, not the encoder, is the variable; I2V's Poisson/KL graph is one generic option.
 
-**Phase 3 — Modern GNN encoder.** _(technical contribution)_
-- [ ] GNN over the virtual graph (GraphSAGE / GIN / GAT) replacing walk + Skipgram; design + compare architecture variants.
+**Phase 3 — Modern GNN encoder.** _(technical contribution; encoder choice secondary to the virtual graph)_
+- [ ] Run different GNN encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram.
 
 **Phase 4 — Downstream tasks.**
 - [ ] Node classification (F1), link prediction (AUC), anomaly detection (new, AUC/AP); virtual-graph ablation (which graph best per data/task).
@@ -42,7 +43,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 - [ ] Reproducible package + paper draft.
 
-> **Current focus.** Phase 1 is complete. Next is **Phase 2 — building the virtual graph**, then **Phase 3 — the GNN encoder** replacing walk + Skipgram. Baselines stay at published/default settings — not fine-tuned — because the contribution is the encoder, not baseline tuning.
+> **Current focus.** Phase 1 is complete. Next is **Phase 2 — building the virtual graph**, then **Phase 3 — the GNN encoder** replacing walk + Skipgram. Baselines stay at published/default settings — not fine-tuned — because the contribution is the method (virtual graph + GNN), not baseline tuning.
 
 ---
 

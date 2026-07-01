@@ -182,13 +182,10 @@ def make_politics():
 
 # Maps a requested dataset to the version actually used; auto-aligns Citeseer (author graph has no matching labels).
 def resolve_dataset(name):
-    """Return the dataset version to use. Author 'citeseer' -> aligned 'citeseer_linqs', with a clear reason printed."""
+    """Return the dataset version to use. Author 'citeseer' = paper's own graph (link prediction only, no aligned labels)."""
     name = name.lower()
     if name == "citeseer":
-        print("NOTE: author 'citeseer' graph and LINQS labels use different node numbering (edge overlap ~0.00),")
-        print("      so LINQS labels would point at the WRONG nodes -> node classification would be fake.")
-        name = "citeseer_linqs"
-        print("USING 'citeseer_linqs' instead: graph + labels both rebuilt from LINQS, so ids align by construction.")
+        print("Using author 'citeseer' graph (paper's own file) -> link prediction only (no aligned labels).")
     if name == "citeseer_linqs" and not os.path.exists("input/citeseer_linqs.edgelist"):
         make_citeseer_linqs()                                    # build the aligned pair before training
     return name
@@ -232,7 +229,7 @@ def ensure_labels(dataset):
 # Dataset name -> (base, version, safe-name). 'safe' is the aligned graph+labels version to actually use.
 _VERSIONS = {
     "cora":           ("cora", "orig", "cora"),
-    "citeseer":       ("citeseer", "linqs", "citeseer_linqs"),   # author graph mismatches LINQS labels -> aligned
+    "citeseer":       ("citeseer", "orig", "citeseer"),          # author's own graph (paper's file) -> link-pred only, no labels
     "citeseer_linqs": ("citeseer", "linqs", "citeseer_linqs"),
     "webkb_wisc":     ("webkb", "wisc", "webkb_wisc"),
     "enzymes":        ("enzymes", "orig", "enzymes"),            # networkrepository ids expected to align
@@ -258,10 +255,9 @@ def prepare_dataset(name):
     if name not in _VERSIONS:
         raise ValueError(f"Unknown dataset '{name}'. Known: {list(_VERSIONS)}")
     base, version, safe = _VERSIONS[name]
-    if name == "citeseer":
-        print("NOTE: author 'citeseer' graph and LINQS labels use different node ids (edge overlap ~0.00) ->")
-        print("      using aligned 'citeseer_linqs' (graph + labels from one source). Author files untouched.")
-    if name in ("enzymes", "politics"):                         # may resolve to the self-aligned <name>_nr version
+    if name == "citeseer":                                      # author graph = paper's own file, no aligned labels -> link-pred only
+        print("Using author 'citeseer' graph (paper's own file) -> link prediction only (no aligned labels).")
+    elif name in ("enzymes", "politics"):                       # may resolve to the self-aligned <name>_nr version
         safe = _ensure_nr(name)
         base, version, _ = _VERSIONS[safe]
     else:
@@ -275,6 +271,5 @@ def prepare_dataset(name):
 
 
 if __name__ == "__main__":
-    make_labels("Cora")
-    make_labels("Citeseer")
+    make_labels("Cora")                                         # citeseer is link-pred only (author graph, no aligned labels)
     make_webkb()

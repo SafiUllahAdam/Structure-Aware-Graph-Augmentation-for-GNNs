@@ -288,3 +288,27 @@ Project flow locked into 5 phases (Phase 1 done):
 5. **Phase 5 — LLM context-window issue.** structural embeddings as a compact large-graph summary (stretch).
 - Refines the earlier 2026-06-30 note: the immediate next is **Phase 2 (virtual graph)**, then Phase 3 (GNN) — not the GNN directly.
 - Mirrored in README, CLAUDE.md §4, docs/virgo_guide.md.
+
+### 2026-06-30 — Phase 2 framing: the virtual graph IS the study
+
+- The central research question is **which virtual graph makes a GNN perform best** per task (node classification, link prediction, later anomaly detection). The **virtual graph — not the encoder — is the variable under study.**
+- I2V's Poisson/KL similarity graph is **one generic** virtual graph; test whether it works well per task, against simpler variants (degree-only, centrality-only).
+- ViRGo is **NOT** mainly "GraphSAGE vs GIN" — encoder choice is secondary.
+- Phase 2 order: (1) build the virtual-graph system, (2) test virtual-graph variants; Phase 3: run different GNN encoders on them.
+- Mirrored in README, CLAUDE.md §4, docs/virgo_guide.md.
+
+### 2026-07-01 — Benchmark switched to author `citeseer` (drop `citeseer_linqs`)
+- DECISION: use the **author's own `citeseer` graph** (`input/citeseer.edgelist`, derived from the paper's `citeseer.txt`) instead of `citeseer_linqs`. It is the paper's actual file → **link prediction only** (no aligned labels, node classification not run on it).
+- Note: the two graphs are structurally **identical** (3264 nodes / 4536 edges / largest CC 2110); `citeseer_linqs` was the same graph renumbered + LINQS labels attached (edge overlap 16/4536 = pure relabel). So this switch does **not** change LP structure — it just uses the paper's numbering and skips the unaligned-label workaround.
+- Changes: `make_labels.py` — `resolve_dataset` no longer swaps citeseer→citeseer_linqs; `_VERSIONS["citeseer"]=("citeseer","orig","citeseer")`; `prepare_dataset` skips label build for citeseer (LP-only); `__main__` no longer builds citeseer Planetoid labels (they'd be misaligned). `benchmark_config.py` — `BENCH_DATASETS = [cora, citeseer, enzymes, webkb_wisc]`.
+- `citeseer_linqs` files + registry entry kept (unused by the benchmark now); can still be called explicitly if NC on Citeseer is ever needed.
+- FINDING — first author-`citeseer` LP result (seed 42, walk-40, τ=0.3, largest CC = 2110 nodes):
+
+  | score | AUC | paper Table 4 (I2V) | within ±0.05? |
+  |---|---|---|---|
+  | cosine (headline, paper-faithful) | **0.8606** | 0.8373 | yes (Δ 0.023) |
+  | logreg (Hadamard, node2vec protocol) | **0.8771** | — | — |
+
+  - emb `output/citeseer/citeseer_lp_orig_s42.emb`; splits `splits/citeseer/citeseer_lp_orig_s42_*`.
+  - **Single seed (s42) — indicative, not final.** TODO: run seeds 43/44 for mean±std.
+- **Why LP only, no node classification on citeseer:** the author graph (`input/citeseer.edgelist`) is the paper's own file but ships **no labels**, and its node numbering does **not** match LINQS `citeseer.content` order (edge overlap ~0.00), so LINQS labels would point at the WRONG nodes → any NC would be fake. Node classification on Citeseer needs the aligned `citeseer_linqs` build; on the paper's graph we report **link prediction only** (LP needs no labels).

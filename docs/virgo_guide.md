@@ -25,8 +25,8 @@
 
 **Project phases:**
 1. **Phase 1 — reproducibility (match the I2V paper). ✅ done** — cached I2V + cross-model baseline comparison (baselines used as-is, **not fine-tuned**); within ±0.05 of the paper.
-2. **Phase 2 — virtual-graph creation** ← next — top-K Poisson/KL Ψ graph + degree-only / centrality-only comparison graphs.
-3. **Phase 3 — modern GNN encoder** — GraphSAGE / GIN / GAT over the virtual graph, replacing walk + Skipgram (technical contribution; design + compare variants).
+2. **Phase 2 — virtual-graph creation (the core study)** ← next — build the virtual-graph system, then test variants (top-K Poisson/KL Ψ, degree-only, centrality-only). The virtual graph, *not* the encoder, is the variable under study: **which virtual graph makes a GNN perform best** per task? I2V's Poisson/KL graph is one generic option.
+3. **Phase 3 — modern GNN encoder** — run different encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram (encoder choice secondary to the virtual graph).
 4. **Phase 4 — downstream tasks** — node classification, link prediction, anomaly detection (new); virtual-graph ablation (which graph best per data/task).
 5. **Phase 5 — LLM context-window issue** — compact structural embeddings as a large-graph summary (stretch; not yet).
 
