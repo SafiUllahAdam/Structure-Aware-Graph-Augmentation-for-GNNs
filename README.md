@@ -28,12 +28,27 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 - [x] Node-classification F1 vs paper — Cora weighted F1 **0.7486** ≈ paper Section 4.4 / Figure 5.
 - [x] Cross-model baseline comparison (vs DeepWalk / node2vec / struc2vec) — baselines used as-is, **not fine-tuned**.
 
-**Phase 2 — Virtual-graph creation.** ← next _(the core study)_
-- [ ] `virtual_graph.py`: build the virtual-graph system + variants (top-K Poisson/KL Ψ, degree-only, centrality-only).
-- [ ] Test **which virtual graph helps a GNN most per task** (node classification, link prediction, later anomaly detection) — the virtual graph, not the encoder, is the variable; I2V's Poisson/KL graph is one generic option.
+**Phase 2 — Virtual-graph creation. ✅ core built** _(the core study)_
+- [x] `virtual_graph.py`: top-K virtual-graph builder, 3 variants (Poisson/KL **Ψ**, degree-only, centrality-only), deterministic, CLI + notebook.
+- [x] Phase-2 notebook (`notebooks/virtual_graph_phase2.ipynb`): build → verify constraints → K sweep → NC/LP comparison under a fixed DeepWalk bridge encoder (leakage-free LP).
+- [x] Graph-health table auto-logged for every graph built → `results/vir_graph_stats/virtual_graph_stats.csv` (dataset × sim × K: edges, components, isolates…).
+- [x] First comparison (Cora, K=10, 3 seeds → `results/vir_graph_variants/`): **best virtual graph is task-dependent** — centrality wins node classification, degree wins link prediction; Ψ not best on Cora under the bridge (indicative only).
+- [ ] Full scoring of K ∈ {5, 20} + the 3 remaining datasets — **deliberately deferred** until the Phase-3 GNN replaces the DeepWalk bridge (4 datasets total for the published comparison).
 
-**Phase 3 — Modern GNN encoder.** _(technical contribution; encoder choice secondary to the virtual graph)_
-- [ ] Run different GNN encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram.
+**Phase 3 — Modern GNN encoder (ViRGo-SAGE).** ← current _(replace walk + Skipgram with **unsupervised GraphSAGE**, Skipgram-analog loss; full design: `docs/phase3_gnn_design.md`)_
+
+*Spine first (must exist before any variant test):*
+- [ ] 0. Professor sign-off on the design doc (his instruction: discuss variants before building).
+- [ ] 1. `GNN_PARAMS` in `scripts/benchmark_config.py` (lr, epochs, hidden, layers, Q negatives, agg) — single source of truth like `I2V_PARAMS`.
+- [ ] 2. Feature builder — structural X = [degree, eigenvector centrality Ω, ψ, clustering], z-normalized (SAGE needs input features; I2V never did).
+- [ ] 3. Walk-corpus positives — same walk generation as the Phase-2 bridge (I2V params, seeded) on the virtual graph ⇒ Phase-2 vs Phase-3 differ in **one component only** (Skipgram lookup vs message passing).
+- [ ] 4. `encoder.py` — `SageEncoder` default spine: virtual edgelist → PyG → 2-layer mean GraphSAGE → unsupervised loss → `train(epochs)` → 64-d `.emb`.
+- [ ] 5. Verify the spine once (loss falls, existing evals read the `.emb`, same-seed rerun deterministic, output in `output/<dataset>/k<K>/`).
+
+*Variant tests (flag flips over the working spine):*
+- [ ] Stage 1 — lock the encoder (Cora, Ψ, K=10): **A** positives (walk co-occurrence vs 1-hop) × **B** aggregation (mean vs Ψ-weighted) → 4 configs × 3 seeds.
+- [ ] Stage 2 — the study: winning config × {Ψ, degree, centrality} × K {5,10,20} — "which virtual graph?" under the GNN, vs the Phase-2 bridge table and I2V.
+- [ ] Stage 3 — ablations: **C** depth (1–3 layers), **D** features (structural-4 / degree-only / random), **E** original-graph **control row only** (small baseline for comparison, not a full design).
 
 **Phase 4 — Downstream tasks.**
 - [ ] Node classification (F1), link prediction (AUC), anomaly detection (new, AUC/AP); virtual-graph ablation (which graph best per data/task).
@@ -43,7 +58,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 - [ ] Reproducible package + paper draft.
 
-> **Current focus.** Phase 1 is complete. Next is **Phase 2 — building the virtual graph**, then **Phase 3 — the GNN encoder** replacing walk + Skipgram. Baselines stay at published/default settings — not fine-tuned — because the contribution is the method (virtual graph + GNN), not baseline tuning.
+> **Current focus.** Phases 1–2 core are complete (virtual-graph system built, first Cora comparison in). Now **Phase 3 — ViRGo-SAGE**: unsupervised GraphSAGE over the virtual graphs (design locked, awaiting professor sign-off, then the spine steps 1–5 above). Full K sweep + 4-dataset scoring deliberately deferred until the GNN replaces the DeepWalk bridge. Baselines stay at published/default settings — not fine-tuned — because the contribution is the method (virtual graph + GNN), not baseline tuning.
 
 ---
 
@@ -76,14 +91,17 @@ identity2vec/
 ├── output/                   # trained embeddings (.emb): cora.emb (author), webkb.emb (trained)
 ├── labels/                   # node categories for classification (cora.labels)
 ├── splits/                   # 70/30 edge splits for link prediction (no leakage)
-├── results/                  # scores (numbered .csv) + plots (.png)
+├── results/                  # scores (numbered .csv) + plots (.png); Phase-2 subfolders: vir_graph_stats/ (graph-health table), vir_graph_variants/ (variant task-score CSVs)
 ├── logs/                     # training run logs
-├── docs/                     # papers (PDFs) + notes.md (the lab notebook)
+├── docs/                     # papers (PDFs), notes.md (lab notebook), paper_log.md (curated paper-worthy log), phase3_gnn_design.md (Phase-3 design)
 │
 ├── identity2vec.py           # CORE: the I2V walk algorithm (aligned to the paper's equations — see docs/notes.md)
 ├── identity2vec_cached.py    # same algorithm, cached → identical output, ~200× faster
 ├── train.py                  # ▶ makes embeddings:  graph → walks → Word2Vec → .emb
 ├── plot_emb.py               # draws embeddings as a 2D picture (hubs vs leaves)
+│
+├── virtual_graph.py          # Phase 2: top-K structural-similarity virtual graph (Ψ / degree / centrality)
+├── embedding_models.py       # model wrappers (I2V / DeepWalk / node2vec / struc2vec) → same .emb format
 │
 ├── make_labels.py            # downloads + builds label files (cora)
 ├── prepare_linkpred.py       # builds the 70/30 edge split
@@ -91,7 +109,8 @@ identity2vec/
 ├── eval_linkpred.py          # scores link prediction (AUC)
 │
 ├── notebooks/
-│   └── reproduce_i2v.ipynb   # ⭐ START HERE — click-through reproduction
+│   ├── reproduce_i2v.ipynb   # ⭐ Phase 1 — click-through reproduction
+│   └── virtual_graph_phase2.ipynb  # Phase 2 — build, verify + compare virtual graphs
 │
 ├── scripts/                  # one tidy CLI for every task
 │   ├── main.py               #   the single entry point
