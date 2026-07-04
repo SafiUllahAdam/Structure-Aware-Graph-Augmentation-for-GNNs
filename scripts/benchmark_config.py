@@ -18,13 +18,12 @@ DATASETS = {
     "politics": {"edgelist": INPUT_DIR / "politics.edgelist", "labels": None},  # rt-pol ships no labels -> link-pred only (no verifiable NC source)
     "enzymes":  {"edgelist": INPUT_DIR / "enzymes.edgelist",  "labels": LABELS_DIR / "enzymes.labels"},  # labels built+verified by make_labels.make_enzymes
     "enzymes_nr": {"edgelist": INPUT_DIR / "enzymes_nr.edgelist", "labels": LABELS_DIR / "enzymes_nr.labels"},  # aligned fallback if enzymes ids mismatch
-    "webkb":    {"edgelist": INPUT_DIR / "webkb.edgelist",    "labels": None},  # author's I2V numbering; labels unrecoverable (use webkb_wisc)
-    "webkb_wisc": {"edgelist": INPUT_DIR / "webkb_wisc.edgelist", "labels": LABELS_DIR / "webkb_wisc.labels"},  # same graph, labelled (Wisconsin)
 }
+# webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
 # Cross-model benchmark scope: which datasets and methods the comparison loop sweeps (benchmark_baselines.py).
-# (politics dropped: rt-pol ships no verifiable node labels -> webkb_wisc used instead, fully labelled.)
-BENCH_DATASETS = ["cora", "citeseer", "enzymes", "webkb_wisc"]  # citeseer = author graph, link-pred only (no aligned labels)
+# (politics dropped: no verifiable labels; webkb_wisc dropped 2026-07-02 with its deleted input files.)
+BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
 # Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=40 = repo default, paper's 80 is a recorded deviation, see notes.md).
@@ -33,6 +32,11 @@ I2V_PARAMS = {
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
     "temperature": 0.3,
 }
+
+# Virtual-graph study (Phase 2): variants + K sweep. SAME K across variants + SAME seeds = fair comparison.
+VG_SIMS = ["psi", "degree", "centrality"]   # psi = I2V KL->Poisson Ψ; degree/centrality = simpler baselines ("which graph best?")
+VG_K = [5, 10, 20]                          # top-K sweep (sparsity vs over-smoothing tradeoff)
+VG_SEEDS = [42, 43, 44]                     # deterministic build; extra seeds cover the downstream walk/GNN encoder
 
 # Reproduction defaults — fixed for every run so results are repeatable.
 REPRO = {
