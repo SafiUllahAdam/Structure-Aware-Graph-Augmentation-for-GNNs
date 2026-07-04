@@ -63,7 +63,7 @@ Out of scope: hyperbolic/non-Euclidean space (a second paper).
 | `output/` | Trained embeddings (`.emb`). |
 | `labels/` | Node categories for classification. |
 | `splits/` | Edge splits for link prediction. |
-| `results/` | Score sheets (`.csv`) + plots (`.png`). |
+| `results/` | Score sheets (`.csv`) + plots (`.png`). Phase-2 subfolders: `vir_graph_stats/` (per-graph health table) + `vir_graph_variants/` (variant task-score comparison CSVs). |
 | `docs/` | The paper PDF, proposal, `notes.md` (lab notebook), **this guide**. |
 | `CLAUDE.md` | The project's governing rules (read it). |
 
