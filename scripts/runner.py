@@ -84,7 +84,7 @@ def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None, model="identit
     from eval_nodeclass import evaluate as nodeclass_eval
     from embedding_models import get_model
     mdl = get_model(model)
-    out_dir = OUTPUT_DIR / info["safe"]                          # per-dataset subfolder
+    out_dir = OUTPUT_DIR / info["safe"] / "i2v_main"             # Phase-1 reproduction embeddings: output/<dataset>/i2v_main/
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "" if model == "identity2vec" else f"{model}_"      # keep I2V filenames stable so existing embeddings are reused
     rows = []
@@ -110,7 +110,7 @@ def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity
     from embedding_models import get_model
     mdl = get_model(model)
     sp_dir = SPLITS_DIR / info["safe"]                          # per-dataset subfolders
-    out_dir = OUTPUT_DIR / info["safe"]
+    out_dir = OUTPUT_DIR / info["safe"] / "i2v_main"            # Phase-1 reproduction embeddings: output/<dataset>/i2v_main/
     sp_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "" if model == "identity2vec" else f"{model}_"      # split is model-independent; only the emb carries the model

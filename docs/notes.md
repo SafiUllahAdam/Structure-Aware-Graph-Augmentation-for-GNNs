@@ -312,3 +312,36 @@ Project flow locked into 5 phases (Phase 1 done):
   - emb `output/citeseer/citeseer_lp_orig_s42.emb`; splits `splits/citeseer/citeseer_lp_orig_s42_*`.
   - **Single seed (s42) — indicative, not final.** TODO: run seeds 43/44 for mean±std.
 - **Why LP only, no node classification on citeseer:** the author graph (`input/citeseer.edgelist`) is the paper's own file but ships **no labels**, and its node numbering does **not** match LINQS `citeseer.content` order (edge overlap ~0.00), so LINQS labels would point at the WRONG nodes → any NC would be fake. Node classification on Citeseer needs the aligned `citeseer_linqs` build; on the paper's graph we report **link prediction only** (LP needs no labels).
+
+### 2026-07-01 — Phase 2 started: `virtual_graph.py` (top-K structural virtual-graph builder, Deliverable #2)
+
+- NEW `virtual_graph.py` — mirrors `train.py` shape (`argparse` / `build_graph()` / `main(args)`, core class `VirtualGraph`). Reuses `identity2vec_cached.Graph` for cached degree / Δ / eigenvector centrality (computed once).
+- **DECISION (option A):** I2V's Ψ is walk-contextual (needs a reference node + shortest-path). Lifted it to an all-pairs virtual graph via a **reference-free per-node signature**, then top-K nearest signatures. For `psi` the signature = I2V's exact KL→Poisson score (Fix 4A normalizer + Fix 8 log-Poisson) with the walk shortest-path factor dropped (`q = Ω` instead of `Ω·pathlen`). Rejected option B (reuse `identity_score` literally per pair — asymmetric, slower, off-walk).
+- **3 variants** (`--sim`, pluggable = add one branch): `psi` (I2V KL/Poisson), `degree` (degree-only), `centrality` (eigenvector-only). Same-K baselines answer "which virtual graph is best per data/task".
+- **Constraints enforced + verified on cora (k=10):** same node set (2708, none missing) · 0 self-loops · exactly top-K per node (min_deg=K) · undirected union (symmetric) · finite weights `1/(1+dist)` ∈ (0,1], no NaN/inf · weighted `.edgelist`, NetworkX + PyG (`from_networkx` OK) readable. **Build is deterministic** (byte-identical rebuild).
+- cora edge counts: psi 16251 (avg_deg 12.0), degree 26216 (19.4 — integer-degree ties inflate the union), centrality 16110 (11.9). Artifacts: `output/cora/virtual_<sim>_k10.edgelist`.
+- Config: `benchmark_config.py` gains `VG_SIMS=[psi,degree,centrality]`, `VG_K=[5,10,20]`, `VG_SEEDS=[42,43,44]`.
+- Virtual edgelist is a **drop-in** for the existing walk encoders (DeepWalk/node2vec read any edgelist) and for the Phase 3 GNN (same file) → variant comparison uses ONE fixed encoder, only the graph changes.
+- **Next:** (2) variant-comparison harness (build sweep → one fixed encoder → existing `eval_nodeclass`/`eval_linkpred`), then Phase 3 GNN encoder over these graphs.
+
+### 2026-07-01 — Phase 2 notebook + first variant comparison (cora, indicative)
+
+- NEW `notebooks/virtual_graph_phase2.ipynb` — self-contained, runs top-to-bottom, **no terminal**: build → visualize → verify constraints → variant sweep → compare on NC + LP → save. Executes clean (nbconvert exit 0), saved with outputs + charts. I2V-repro notebook left frozen as the Phase-1 record.
+- **Fixed-encoder protocol:** only the graph changes — same DeepWalk bridge (I2V_PARAMS), same K=10, same seeds [42,43,44]. LP is leak-free (virtual graph rebuilt from the 70% train edges).
+- **FIRST comparison (cora, DeepWalk bridge, 3 seeds), `results/phase2/cora_variant_comparison_K10.csv`:**
+
+  | variant | node-class weighted-F1 | link-pred AUC |
+  |---|---|---|
+  | centrality | **0.381** ± 0.007 | 0.551 ± 0.008 |
+  | psi (I2V KL/Poisson) | 0.234 ± 0.005 | 0.511 ± 0.006 |
+  | degree | 0.152 ± 0.007 | **0.555** ± 0.002 |
+
+- FINDING (indicative): **best virtual graph is task-dependent** — centrality wins node classification, degree wins link prediction; I2V's psi is not best on cora under the DeepWalk bridge. Directly supports the Phase-2 question "which graph per data/task".
+- **CAVEATS — not final:** (a) DeepWalk bridge, NOT the Phase-3 GNN (which uses edge weights psi/centrality carry but DeepWalk ignores); (b) cora is homophily/community-labelled, so structural embeddings score modestly (F1) and cosine LP AUC sits near 0.55; (c) single dataset, K=10 only. Re-run the sweep (K=5/20, more datasets) + the GNN before drawing conclusions.
+- **Notebook UX (added):** `DATASET` = single knob (Section 1); everything reads the `DATASETS` registry, NC auto-skips + LP-only when `labels is None`. `FORCE_REBUILD=False` = **reuse-if-exists at every stage** (virtual edgelists, `.emb`, LP splits); `True` = regenerate. Verified: re-run reused all (no re-embedding), byte-stable results.
+
+### 2026-07-02 — Output layout redesign (user-requested) + graph-health stats
+
+- **New canonical layout, all datasets, both phases:** everything for a dataset under ONE folder — `output/<dataset>/i2v_main/` = ALL Phase-1 reproduction embeddings (I2V no-prefix + `deepwalk_/node2vec_/struc2vec_`); `output/<dataset>/k<K>/` = Phase-2 files (`virtual_<sim>.edgelist`, `vg_{nc|lp}_<sim>_s<seed>.emb`). No flat files, no sibling `cora_10/`-style folders.
+- Code updated to match (folders lead, code follows): `runner.py` `run_nodeclass_repeated`/`run_linkpred_repeated` now write `output/<safe>/i2v_main/` (Step-5 benchmark inherits automatically); Phase-2 notebook writes `output/<dataset>/k<K>/`. Existing files moved, none regenerated (filenames unchanged ⇒ reuse intact); `core_i2vorg_embeddings/` merged into `cora/i2v_main/` (24 embs) and removed.
+- **Graph-health stats (notebook):** every `build_virtual()` call upserts one row — `dataset, sim, K, nodes, edges, avg_degree, components, isolates, path` — into `results/vir_graph_stats/virtual_graph_stats.csv` (one accumulating table across datasets; key = dataset×sim×K, no duplicates). For debugging bad scores (sparse/disconnected/isolates) + ablation-quality table for the paper.
