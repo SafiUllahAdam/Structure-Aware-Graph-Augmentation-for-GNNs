@@ -30,13 +30,21 @@ BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 I2V_PARAMS = {
     "dimensions": 64, "walk_length": 40, "num_walks": 10,
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
-    "temperature": 0.3,
 }
 
 # Virtual-graph study (Phase 2): variants + K sweep. SAME K across variants + SAME seeds = fair comparison.
 VG_SIMS = ["psi", "degree", "centrality"]   # psi = I2V KL->Poisson Ψ; degree/centrality = simpler baselines ("which graph best?")
 VG_K = [5, 10, 20]                          # top-K sweep (sparsity vs over-smoothing tradeoff)
 VG_SEEDS = [42, 43, 44]                     # deterministic build; extra seeds cover the downstream walk/GNN encoder
+
+# ViRGo-SAGE encoder (Phase 3): unsupervised GraphSAGE over the virtual graph, Skipgram-analog loss.
+# Walk corpus for the positives reuses I2V_PARAMS (num_walks/walk_length/window) -> only the encoder changes vs the Phase-2 bridge.
+GNN_PARAMS = {
+    "hidden": 64, "dimensions": 64, "layers": 2, "agg": "mean",
+    "lr": 0.01, "epochs": 50, "negatives": 5,             # Q=5 matches the bridge's Word2Vec negative=5
+    "pairs_per_epoch": 100_000, "max_pairs": 2_000_000,   # deterministic corpus caps (runtime/memory on large graphs)
+    "positives": "walk",                                  # ablation A: "walk" = A1 walk co-occurrence (bridge-comparable), "edge" = A2 direct virtual edges
+}
 
 # Reproduction defaults — fixed for every run so results are repeatable.
 REPRO = {

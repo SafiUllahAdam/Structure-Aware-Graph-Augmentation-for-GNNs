@@ -20,7 +20,7 @@ Maintained automatically: a new entry is added whenever something research-signi
 
 - **Cached I2V.** I2V recomputes the structural signal (degree + eigenvector centrality) inside the walk loop — per neighbor, per step, per walk — which dominates cost. For a static graph these are constant, so we compute them once and cache. Result: embeddings **byte-identical** to the original, **~200× faster** (Deliverable #1).
 - **Reproduction bar.** A metric counts as reproduced only within **±0.05** of the paper. Cora I2V lands in the paper's range on both tasks under a 3-seed harness (seeds 42/43/44).
-- **Hyperparameters (I2V, `I2V_PARAMS`).** dimensions=64, walk_length=40, num_walks=10, window_size=10, epochs=1, sg=1 (Skipgram), e=2.7182, temperature=0.3. **DEVIATION:** paper text states walk_length=80; we use the repo default 40 (matches the author's released `cora.emb`), recorded as a deliberate deviation.
+- **Hyperparameters (I2V, `I2V_PARAMS`).** dimensions=64, walk_length=40, num_walks=10, window_size=10, epochs=1, sg=1 (Skipgram), e=2.7182. **DEVIATION:** paper text states walk_length=80; we use the repo default 40 (matches the author's released `cora.emb`), recorded as a deliberate deviation.
 - **Evaluation protocol.** Node classification = one-vs-rest logistic regression on embeddings, weighted F1, stratified split. Link prediction = 70:30 edge split, embedding retrained on the 70% train graph only (no leakage), Hadamard edge features → logistic regression → test AUC.
 - **FINDING (baseline comparison).** On homophilous Cora, proximity methods beat structural ones: node2vec (NC ≈0.82 / LP ≈0.91) > I2V (NC ≈0.69 / LP ≈0.80). This is expected — proximity embeddings suit community/homophily labels — and indicates the original paper's "I2V beats all" reflects under-tuned baselines. I2V's advantage is on **structural** tasks. This motivates studying the virtual graph rather than the encoder alone.
 
@@ -67,3 +67,34 @@ Graph sizes (Cora, K=10): psi 16251 edges (avg deg 12.0), degree 26216 (19.4 —
 - **Comparability design.** Walk corpus for positives uses the exact I2V params of the Phase-2 DeepWalk bridge (num_walks=10, walk_length=40, window=10, seeds 42/43/44) ⇒ Phase-2 bridge vs Phase-3 SAGE differ in **one component only** (Skipgram lookup vs message passing) — a clean encoder ablation.
 - **Variant axes for the study/ablations:** A positives (walk co-occurrence vs 1-hop virtual neighbors — "are walks still needed once similarity is explicit?"), B aggregation (mean / **Ψ-weighted mean** — first use of the virtual edge weights / max / sum), C depth 1–3 (over-smoothing: virtual graphs near-connected at K=10), D features (structural-4 / degree-only / random), E graph (Ψ, degree, centrality × K 5/10/20; dual virtual+original branch deferred to follow-up work).
 - **Run plan:** Stage 1 lock encoder on Cora Ψ K=10 (A×B, 4 configs, 3 seeds) → Stage 2 full "which virtual graph?" matrix under the GNN → Stage 3 depth/feature ablations + original-graph control → Phase 4 remaining 3 datasets + anomaly detection. Full design: `docs/phase3_gnn_design.md`.
+- **Implementation (2026-07-04).** Spine implemented as designed (`encoder.py` `SageEncoder` + `notebooks/3-phase3_gnn_encoder.ipynb`). Method details now fixed in code: input features are computed on the **original** graph (the structural-identity signal) while message passing runs on the **virtual** graph; loss positives come from the same seeded, unweighted walk generator the Phase-2 bridge used (num_walks=10, length=40, window=10); Q=5 negatives ∝ deg^0.75; training CPU-only with seeded RNGs for reproducibility; LP reuses the identical Phase-2 splits so the encoder comparison is split-for-split fair. First SAGE results pending the notebook run.
+
+### First encoder head-to-head — Enzymes, Ψ virtual graph, K=10, seeds 42/43/44 (2026-07-06, INDICATIVE)
+
+First full run of the spine (single-seed pass earlier the same day, superseded by this 3-seed result). Same virtual graph (Ψ, K=10), same walk corpus, same leakage-free LP splits (`enzymes_vglp_s{42,43,44}`), cosine LP scoring — **only the encoder differs**:
+
+| task | DeepWalk bridge (Phase 2) | ViRGo-SAGE (Phase 3) | Δ |
+|---|---|---|---|
+| node classification (weighted F1) | 0.4971 | **0.5405 ± 0.0014** | +0.043 |
+| link prediction (AUC) | 0.5110 ± 0.0297 | **0.6632 ± 0.0114** | **+0.152** |
+
+Graph health (enzymes, Ψ, K=10): 19,474 nodes, 111,401 edges, avg degree 11.44, 10 components, 0 isolates. Training loss falls ~13–18 → ~4.1 over 50 epochs across seeds. Enzymes labels: 106 labelled nodes absent from the edgelist are skipped identically for both encoders (n=19,474, 3 classes).
+
+- **FINDING (indicative).** Message passing over the virtual graph beats the Skipgram lookup on both tasks and across all 3 seeds; the LP gain is large (+0.152 AUC, from near-random 0.51 to 0.66) and exceeds the seed spread by an order of magnitude. Supports the technical contribution: GNN > walk+Skipgram on the *same* virtual graph.
+- **CAVEATS.** (a) Single dataset (enzymes), single variant/K (Ψ, K=10) — spine verification, not the study. (b) SAGE additionally consumes 4 structural input features from the original graph (degree, Ω, ψ, clustering), which the lookup-table bridge cannot use by construction — deliberate design (that *is* the GNN's advantage), but the D-axis feature ablation (degree-only / random features) is what will isolate feature signal from message-passing signal. (c) Cosine-scored LP, as in Phase 2.
+- **Ablation A implemented (2026-07-06).** `positives` knob on the ViRGo-SAGE loss: **A1 `walk`** = window-10 co-occurrence on virtual-graph walks (default; identical to the Phase-2 bridge corpus ⇒ fair Skipgram-vs-GNN comparison), **A2 `edge`** = the virtual edges themselves as positive pairs (both directions, no walks) — tests whether walks are still needed once structural similarity is explicit in the graph. Everything else (negatives ∝ deg^0.75 Q=5, loss, caps, seeds) unchanged, so A1-vs-A2 is a one-component comparison. A2 artifacts tagged `sage_edge_*` / scoreboard encoder `graphsage_edge`. Results below.
+
+### Ablation A results — A1 walks vs A2 direct edges — Enzymes, Ψ, K=10, seeds 42/43/44 (2026-07-06, INDICATIVE)
+
+Same graph, features, architecture, negatives, splits, seeds — **only the positive-pair source differs** (A2 corpus: 222,802 edge pairs, under the 2M cap; both schemes sample 100k pairs/epoch):
+
+| task | DeepWalk bridge (Phase 2) | SAGE A1 (walk) | SAGE A2 (edge) |
+|---|---|---|---|
+| node classification (weighted F1) | 0.4971 ± 0.0057 | 0.5405 ± 0.0014 | **0.5413 ± 0.0011** |
+| link prediction (AUC) | 0.5110 ± 0.0297 | 0.6632 ± 0.0114 | **0.6909 ± 0.0156** |
+
+- **FINDING 1.** The GNN beats the bridge under *both* objectives (NC +0.044, LP +0.15–0.18) — the encoder win is robust to the positive-pair scheme, not an artifact of the walk corpus.
+- **FINDING 2 (the A ablation).** NC: statistical tie (Δ 0.0008, within seed noise). LP: A2 +0.028 over A1 (≈2σ vs seed stds) — likely real, borderline at 3 seeds. **Walks are not needed once structural similarity is explicit in the graph**: I2V ran walks to *find* role-similar nodes; the virtual graph already lists them, so direct edges suffice and even help LP. A2 is also cheaper (no walk generation).
+- **DECISION.** A2 (direct-edge positives) becomes the default training objective for the remaining ablations/study; A1 is kept and reported as the bridge-comparable configuration — the "Phase-2 vs Phase-3 differ in one component only" claim holds only under A1.
+- **DEVIATION.** Design doc planned Stage 1 on Cora; this first A run used enzymes. Cora repeat pending (cheap — cora bridge embeddings ready at 3 seeds).
+- **CAVEATS.** Single dataset (enzymes), single graph variant/K (Ψ, 10), 3 seeds, cosine LP; loss *values* are not comparable across A1/A2 (different positive distributions) — only the downstream metrics are; feature-vs-message-passing attribution still waits on the D-axis ablation.
