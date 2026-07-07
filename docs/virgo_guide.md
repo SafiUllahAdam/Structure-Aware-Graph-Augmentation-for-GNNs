@@ -58,7 +58,7 @@ Out of scope: hyperbolic/non-Euclidean space (a second paper).
 | `scripts/results_io.py` | Saves a run to `results/NNN.<date>.<dataset>.<task>.csv`. |
 | `scripts/utils.py` | Helpers: set seed, load embedding, next run id. |
 | `scripts/main.py` | Terminal CLI (alternative to the notebook). |
-| `notebooks/reproduce_i2v.ipynb` | ⭐ **Primary entry point** — click-through reproduction (see §5). |
+| `notebooks/1-reproduce_i2v.ipynb` | ⭐ **Primary entry point** — click-through reproduction (see §5). |
 | `input/` | Original graphs (`.edgelist`). **Never edit.** |
 | `output/` | Trained embeddings (`.emb`). |
 | `labels/` | Node categories for classification. |
@@ -77,7 +77,7 @@ Out of scope: hyperbolic/non-Euclidean space (a second paper).
 
 ## 5. How to run (the notebook = single entry point)
 
-Open `notebooks/reproduce_i2v.ipynb`, run cells **top to bottom (Shift+Enter)**. You edit **one cell** (Step 1).
+Open `notebooks/1-reproduce_i2v.ipynb`, run cells **top to bottom (Shift+Enter)**. You edit **one cell** (Step 1).
 
 - **Step 0** — set up (imports, paths).
 - **Step 1** — set `DATASET` and the seed list (e.g. `[42, 43, 44]`). ⬅️ the only cell you edit; every cell below follows it.

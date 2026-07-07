@@ -30,7 +30,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 **Phase 2 — Virtual-graph creation. ✅ core built** _(the core study)_
 - [x] `virtual_graph.py`: top-K virtual-graph builder, 3 variants (Poisson/KL **Ψ**, degree-only, centrality-only), deterministic, CLI + notebook.
-- [x] Phase-2 notebook (`notebooks/virtual_graph_phase2.ipynb`): build → verify constraints → K sweep → NC/LP comparison under a fixed DeepWalk bridge encoder (leakage-free LP).
+- [x] Phase-2 notebook (`notebooks/2-phase_2_virtual_graph.ipynb`): build → verify constraints → K sweep → NC/LP comparison under a fixed DeepWalk bridge encoder (leakage-free LP).
 - [x] Graph-health table auto-logged for every graph built → `results/vir_graph_stats/virtual_graph_stats.csv` (dataset × sim × K: edges, components, isolates…).
 - [x] First comparison (Cora, K=10, 3 seeds → `results/vir_graph_variants/`): **best virtual graph is task-dependent** — centrality wins node classification, degree wins link prediction; Ψ not best on Cora under the bridge (indicative only).
 - [ ] Full scoring of K ∈ {5, 20} + the 3 remaining datasets — **deliberately deferred** until the Phase-3 GNN replaces the DeepWalk bridge (4 datasets total for the published comparison).
@@ -38,15 +38,14 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 **Phase 3 — Modern GNN encoder (ViRGo-SAGE).** ← current _(replace walk + Skipgram with **unsupervised GraphSAGE**, Skipgram-analog loss; full design: `docs/phase3_gnn_design.md`)_
 
 *Spine first (must exist before any variant test):*
-- [ ] 0. Professor sign-off on the design doc (his instruction: discuss variants before building).
-- [ ] 1. `GNN_PARAMS` in `scripts/benchmark_config.py` (lr, epochs, hidden, layers, Q negatives, agg) — single source of truth like `I2V_PARAMS`.
-- [ ] 2. Feature builder — structural X = [degree, eigenvector centrality Ω, ψ, clustering], z-normalized (SAGE needs input features; I2V never did).
-- [ ] 3. Walk-corpus positives — same walk generation as the Phase-2 bridge (I2V params, seeded) on the virtual graph ⇒ Phase-2 vs Phase-3 differ in **one component only** (Skipgram lookup vs message passing).
-- [ ] 4. `encoder.py` — `SageEncoder` default spine: virtual edgelist → PyG → 2-layer mean GraphSAGE → unsupervised loss → `train(epochs)` → 64-d `.emb`.
-- [ ] 5. Verify the spine once (loss falls, existing evals read the `.emb`, same-seed rerun deterministic, output in `output/<dataset>/k<K>/`).
+- [x] 1. `GNN_PARAMS` in `scripts/benchmark_config.py` (lr, epochs, hidden, layers, Q negatives, agg) — single source of truth like `I2V_PARAMS`.
+- [x] 2. Feature builder — structural X = [degree, eigenvector centrality Ω, ψ, clustering], z-normalized (`SageEncoder.features()`; SAGE needs input features, I2V never did).
+- [x] 3. Walk-corpus positives — same walk generation as the Phase-2 bridge (I2V params, seeded) on the virtual graph ⇒ Phase-2 vs Phase-3 differ in **one component only** (Skipgram lookup vs message passing) (`SageEncoder.corpus()`).
+- [x] 4. `encoder.py` — `SageEncoder` default spine: virtual edgelist → PyG → 2-layer mean GraphSAGE → unsupervised loss → `train(epochs)` → 64-d `.emb` (+ CLI mirroring `virtual_graph.py`).
+- [x] 5. Verify the spine once — **done 2026-07-06** (enzymes, Ψ, K=10, 3 seeds: loss falls, evals read the `.emb`, outputs in `output/enzymes/k10/`).
 
 *Variant tests (flag flips over the working spine):*
-- [ ] Stage 1 — lock the encoder (Cora, Ψ, K=10): **A** positives (walk co-occurrence vs 1-hop) × **B** aggregation (mean vs Ψ-weighted) → 4 configs × 3 seeds.
+- [ ] Stage 1 — lock the encoder: **A** positives ✅ implemented + first result (`--positives {walk,edge}`; enzymes Ψ K=10, 3 seeds: A2 edge ≥ A1 walk → **A2 default**, cora repeat pending) · **B** aggregation (mean vs Ψ-weighted) next.
 - [ ] Stage 2 — the study: winning config × {Ψ, degree, centrality} × K {5,10,20} — "which virtual graph?" under the GNN, vs the Phase-2 bridge table and I2V.
 - [ ] Stage 3 — ablations: **C** depth (1–3 layers), **D** features (structural-4 / degree-only / random), **E** original-graph **control row only** (small baseline for comparison, not a full design).
 
@@ -58,7 +57,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 
 - [ ] Reproducible package + paper draft.
 
-> **Current focus.** Phases 1–2 core are complete (virtual-graph system built, first Cora comparison in). Now **Phase 3 — ViRGo-SAGE**: unsupervised GraphSAGE over the virtual graphs (design locked, awaiting professor sign-off, then the spine steps 1–5 above). Full K sweep + 4-dataset scoring deliberately deferred until the GNN replaces the DeepWalk bridge. Baselines stay at published/default settings — not fine-tuned — because the contribution is the method (virtual graph + GNN), not baseline tuning.
+> **Current focus.** Phases 1–2 core are complete (virtual-graph system built, first Cora comparison in). Now **Phase 3 — ViRGo-SAGE**: unsupervised GraphSAGE over the virtual graphs (design locked, then the spine steps 1–5 above). Full K sweep + 4-dataset scoring deliberately deferred until the GNN replaces the DeepWalk bridge. Baselines stay at published/default settings — not fine-tuned — because the contribution is the method (virtual graph + GNN), not baseline tuning.
 
 ---
 
@@ -70,17 +69,16 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 | Cached I2V (speedup) | webkb | walk time | **207× faster, byte-identical** | ✅ done (Deliverable #1) |
 | Paper-fidelity fixes | I2V core | — | scoring aligned to paper (Δ, `p=Δ`/`q=Ω·d`, candidate-norm, log-space Poisson) | ✅ applied (re-run `.emb` for numbers) |
 | Cross-model benchmark | cora · citeseer · webkb · enzymes | F1 / AUC | I2V vs DeepWalk / node2vec / struc2vec | ✅ runs (notebook Steps 5–6) |
-| I2V + temperature (τ=0.3) | Cora | NC F1 / LP AUC | NC **0.7486** · LP **0.8305** (seed 42) | ✅ improved, near paper |
 
 *"Reproduced" = our number is within **±0.05** of the paper, with a fixed seed.*
 
-**Latest (2026-06-24):** the core I2V scoring was corrected to follow the paper's equations — degree-distribution Δ, `p = Δ` / `q = Ω·d`, candidate-side normalisation, and a numerically-safe log-space Poisson — plus a gentler Word2Vec setup. Node classification now matches the paper; link prediction stays within paper range. A non-greedy **temperature** sampler (τ=0.3) was then added to next-node selection — on Cora it lifts both tasks (NC weighted F1 **0.7486**, LP AUC **0.8305**, seed 42). Details in `docs/notes.md`; re-generate `.emb` files to pick up the changes.
+**Latest (2026-06-24):** the core I2V scoring was corrected to follow the paper's equations — degree-distribution Δ, `p = Δ` / `q = Ω·d`, candidate-side normalisation, and a numerically-safe log-space Poisson — plus a gentler Word2Vec setup. Node classification now matches the paper; link prediction stays within paper range. Next-node selection is the paper-exact greedy `min |Ψ−Ψ_curr|` (a temperature sampler was tried and removed 2026-07-07). Details in `docs/notes.md`; re-generate `.emb` files to pick up the changes.
 
 ---
 
 ## 📁 Repository structure
 
-We normally only touch the **notebook** (`notebooks/reproduce_i2v.ipynb`) or **one command** (`scripts/main.py`). Everything else is here for completeness.
+We normally only touch the **notebook** (`notebooks/1-reproduce_i2v.ipynb`) or **one command** (`scripts/main.py`). Everything else is here for completeness.
 
 ```
 identity2vec/
@@ -101,6 +99,7 @@ identity2vec/
 ├── plot_emb.py               # draws embeddings as a 2D picture (hubs vs leaves)
 │
 ├── virtual_graph.py          # Phase 2: top-K structural-similarity virtual graph (Ψ / degree / centrality)
+├── encoder.py                # Phase 3: ViRGo-SAGE — unsupervised GraphSAGE over the virtual graph → .emb
 ├── embedding_models.py       # model wrappers (I2V / DeepWalk / node2vec / struc2vec) → same .emb format
 │
 ├── make_labels.py            # downloads + builds label files (cora)
@@ -109,8 +108,9 @@ identity2vec/
 ├── eval_linkpred.py          # scores link prediction (AUC)
 │
 ├── notebooks/
-│   ├── reproduce_i2v.ipynb   # ⭐ Phase 1 — click-through reproduction
-│   └── virtual_graph_phase2.ipynb  # Phase 2 — build, verify + compare virtual graphs
+│   ├── 1-reproduce_i2v.ipynb   # ⭐ Phase 1 — click-through reproduction
+│   ├── 2-phase_2_virtual_graph.ipynb # Phase 2 — build, verify + test virtual graphs (graphs only)
+│   └── 3-phase3_gnn_encoder.ipynb    # Phase 3 — train + evaluate ViRGo-SAGE on the saved virtual graphs
 │
 ├── scripts/                  # one tidy CLI for every task
 │   ├── main.py               #   the single entry point
@@ -145,7 +145,7 @@ pip install numpy==1.26.4 networkx gensim==4.3.3 scipy==1.12.0 scikit-learn matp
 ## 🚀 Quick start — the notebook (easiest)
 
 1. `conda activate i2v`
-2. Open `notebooks/reproduce_i2v.ipynb` (in VS Code, or run `jupyter lab`).
+2. Open `notebooks/1-reproduce_i2v.ipynb` (in VS Code, or run `jupyter lab`).
 3. Pick the kernel **"Python (i2v)"**.
 4. Run the cells top to bottom (**Shift + Enter**).
 

@@ -13,7 +13,7 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 ## Environment / defaults
 
 - Env: numpy 1.26.4, networkx, gensim 4.3.3, scipy 1.12.0. (torch / torch-geometric to be added for the GNN.)
-- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`, `temperature=0.0` (greedy; benchmark `I2V_PARAMS` uses `0.3`). Word2Vec: `alpha=0.025 → min_alpha=0.01`, `negative=5`, `sample=1e-3` (Fix 6, 2026-06-24; was `alpha=0.25` / `sample=1e-5`).
+- I2V `train.py` defaults: `dimensions=64`, `walk-length=40`, `num-walks=10`, `window-size=10`, `epochs=1`, `sg=1` (skipgram), `min-count=0`, `workers=1`, `e=2.7182`. Word2Vec: `alpha=0.025 → min_alpha=0.01`, `negative=5`, `sample=1e-3` (Fix 6, 2026-06-24; was `alpha=0.25` / `sample=1e-5`).
 - Datasets in `input/`: cora, citeseer, dhfr, enzymes, firstmmedges, nci, politics, proteins, webkb (`.edgelist`); citeseer also has original `citeseer.txt`.
 - Pretrained / trained embeddings in `output/`: `cora.emb` (author's, 2022-01-28), `webkb.emb` (trained 2026-06-13).
 
@@ -81,8 +81,8 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
 - AUDIT (read-only, full repo vs CLAUDE.md / proposal): seed=42 consistent across `train` / `prepare_linkpred` / `eval_*` / `utils` / `REPRO`; `input/` untouched; cached overrides verified safe (`s_path` returns length only, `node_neighbors` returns fresh copies); split filenames match between `prepare` (writer) and `eval_linkpred` (reader). Env: `python` -> conda **i2v** (`sklearn 1.9.0`, `gensim 4.3.3`, `numpy 1.26.4`) — all deps present; the bash `libtinfo` warning is the interactive shell, cosmetic only. Dataset sizes: cora 2708/5278, citeseer 3264/4536, webkb 265/479, politics 18470, enzymes 19474, dhfr 32075, nci 101924. NOTE: `input/proteins.edgelist` and `input/firstmmedges.edgelist` read as 0 nodes (empty/malformed) — not in the dataset registry, harmless for now.
 
 - FIX (accuracy repairs — NOT the cache fix):
-  - `notebooks/reproduce_i2v.ipynb` was BROKEN: Cell 8 imported the deleted `make_planetoid_labels`; its saved outputs were a failed run (overlap 0.0028 -> STOP -> `FileNotFoundError`). Changed import to `from make_labels import make_labels` and re-ran headless. Now clean end-to-end: `edge_overlap=1.0000`, labels written, **weighted F1 = 0.6992**, saved `results/003.cora.nodeclass.csv`.
-    - `python -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.kernel_name=python3 notebooks/reproduce_i2v.ipynb`
+  - `notebooks/1-reproduce_i2v.ipynb` was BROKEN: Cell 8 imported the deleted `make_planetoid_labels`; its saved outputs were a failed run (overlap 0.0028 -> STOP -> `FileNotFoundError`). Changed import to `from make_labels import make_labels` and re-ran headless. Now clean end-to-end: `edge_overlap=1.0000`, labels written, **weighted F1 = 0.6992**, saved `results/003.cora.nodeclass.csv`.
+    - `python -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.kernel_name=python3 notebooks/1-reproduce_i2v.ipynb`
   - `train.py` stale help strings corrected: `--walk-length` "Default is 80." -> "40."; `--workers` "Default is 8." -> "1." (defaults were already 40 / 1; only the help text was wrong).
 
 - FIX1 DONE — **cache wired + speedup proven** (Deliverable #1). `scripts/runner.embed` now passes `--cached` (default on) + `--seed`, so every pipeline retrain uses the fast path. Benchmark on webkb (265n/479e, num-walks=2 walk-length=10, seed=42): baseline **916.6s → cached 4.4s = 207.7×** (≈646× minus `train.py`'s fixed 3s sleep); both `.emb` md5 `e458fa5e2a360ac388803ee990afb312` → **BYTE-IDENTICAL**. Confirms the cache changes no computed value and removes the dominant cost.
@@ -163,32 +163,11 @@ Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from 
   - CAVEAT 1: confirm 0.8494 -> 0.81 is real, not one-seed luck — re-run 3 seeds, mean±std.
   - CAVEAT 2: Fix 8 also interacts with Fix 1b — log-space warps the `|Ψ−Ψ|` closeness geometry, so selection changes even where nothing underflowed. Regenerate `.emb`.
 
-- **PROPOSED → IMPLEMENTED 2026-06-24 (see entry below) — temperature sampling, to recover LP without losing NC.** Keep Fix 8 untouched; change only the selection (`identity2vec.py:94`) from hard `min` to a weighted draw: `P(x) ∝ exp(−dₓ/τ)` with `dₓ = |logΨ_x − logΨ_current|`.
-  - `τ=0` = exactly today's greedy (NC-safe baseline preserved); `τ→∞` = random walk (DeepWalk-like). `τ` is the structure↔proximity dial (NC↔LP).
-  - Structural bias kept (small `dₓ` still most likely) -> NC holds; added exploration diversifies walks -> richer Word2Vec contexts -> LP up. Fix 8's log-units make the softmax numerically stable.
-  - Reproducible: walk is already stochastic + seeded (`test_source` first step uses `np.random`; `train.py:95` seeds it). `identity_walker` is base-class only -> both cached/non-cached inherit.
-  - HONESTY: the paper literally selects "least dissimilar" (greedy), so sampling is an **ablation/extension**, not paper-exact — report next to greedy.
-  - PLAN: add `--temperature` (thread like `walk_length` -> `I2V_PARAMS`); sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` on cora + citeseer_linqs, 3 seeds; `τ=0` must reproduce current greedy (sanity); find the τ where LP climbs toward ~0.84 while NC holds.
-
 - **STALE RESULTS.** Fixes 1/3/4/6/8 all changed the math -> existing `.emb` and `results/` are from old code and do NOT reflect it. Regenerate embeddings (delete / FORCE_EMBED) before trusting any metric.
 
-### 2026-06-24 — temperature sampling IMPLEMENTED (Fix 8 extended) ✅
+### 2026-06-24 — temperature sampling (Fix 8 extension) — REMOVED 2026-07-07 ❌
 
-The proposed non-greedy selection is now in code and gave a clear improvement on cora — keep it.
-
-- WHERE (verified fresh from disk):
-  - `identity2vec.py:76` `identity_walker(..., temperature=0.0)`; sampling at `:96-110` — `distances = |pdn[x] − current_score|`; `τ<=0` -> `argmin` (exact old greedy); `τ>0` -> `weights = exp(−(dₓ − min dₓ)/τ)` (max-subtracted = numerically stable), normalise, `np.random.choice`.
-  - `identity2vec.py:204` `identity2vec_walk(..., temperature=0.0)` threads it to the walker.
-  - `train.py:36-37` `--temperature` (float, default **0.0** = greedy); `train.py:102` passes `args.temperature`.
-  - `embedding_models.py:32` `Identity2VecModel` passes `--temperature str(params["temperature"])`.
-  - `benchmark_config.py:34` `I2V_PARAMS["temperature"] = 0.3` (notebook + benchmark default).
-  - Cached path: `identity_walker` / `identity2vec_walk` are inherited (not overridden) -> temperature flows to `--cached` too. Seeded via `np.random` (`train.py:95`) -> reproducible. `τ=0` reproduces pre-temperature greedy byte-for-byte (sanity gate).
-- RESULTS — cora, **seed 42**, `τ=0.3`, fresh embeddings (`notebooks/reproduce_i2v.ipynb`):
-  - NC: micro **0.7503** / macro **0.7292** / weighted **0.7486**.
-  - LP: AUC **0.8305**.
-  - vs history: NC up from 0.6906 / 0.6992 (old code / author emb); LP up from the post-Fix-8 greedy ~0.81 toward the paper's **0.8413** (Table 4). Improvement on BOTH — temperature recovered LP without losing the Fix-8 NC gain, exactly as predicted.
-- CAVEAT: **single seed (s42)** — run 3 seeds for mean±std before quoting as final; also sweep `τ ∈ {0, 0.1, 0.3, 1, 3}` to confirm 0.3 is the sweet spot.
-- GAP (not a crash): `scripts/runner.py:embed()` — the `python scripts/main.py --task ... --retrain` CLI path — does NOT pass `--temperature`, so it stays greedy (0.0). The notebook/benchmark path (via `embedding_models`) DOES use 0.3. Thread `--temperature` into `runner.embed` if you want both entry points to agree. TODO logged.
+A non-greedy softmax next-node sampler (`--temperature`, benchmark τ=0.3) was added here — cora s42 NC 0.7486 / LP 0.8305, an improvement on both — then **removed entirely on 2026-07-07** to keep I2V paper-exact for the ViRGo comparison (the paper selects "least dissimilar" = greedy). Selection is back to `min(pdn, key=|Ψ−Ψ_curr|)` (`identity2vec.py`); `--temperature` gone from `train.py`, `embedding_models.py`, `I2V_PARAMS`. Cached path inherits the walker, so it is greedy again too. Any I2V numbers produced with τ=0.3 (incl. the cross-model benchmark tables) are stale — regenerate `.emb` greedy before quoting.
 
 ### 2026-06-25 — cross-model config standardized for fair benchmark ✅
 
@@ -198,7 +177,7 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - node2vec + DeepWalk (`embedding_models.py:48-50`): pinned the Skipgram params explicitly to match I2V — `alpha=0.025, min_alpha=0.01, sample=1e-3, negative=5, hs=0`. Only `min_alpha` actually differed before (gensim default 0.0001 -> 0.01); the rest already equalled I2V via gensim defaults but are now explicit/locked.
 - struc2vec (`baselines/struc2vec/src/main.py:81`): switched **hierarchical-softmax -> negative sampling** (`hs=0, negative=5`) + `alpha=0.025, min_alpha=0.01, sample=1e-3` to match I2V — also matches the paper's stated protocol ("negative sampling for DeepWalk and struc2vec"). Walk-length **default 80 -> 40** (`:30`) for standalone consistency.
 - walk_length = **40 for all** — benchmark already forced 40 via `I2V_PARAMS`; struc2vec standalone default now 40 too. (80 tried earlier, no gain — see 2026-06-23.)
-- KEPT per-model (NOT standardized — these define each method): node2vec `p=1/q=0.5`, DeepWalk `p=q=1`, I2V `temperature=0.3` + Poisson/KL walk, struc2vec `OPT1/2/3` + multilayer structural walk.
+- KEPT per-model (NOT standardized — these define each method): node2vec `p=1/q=0.5`, DeepWalk `p=q=1`, I2V Poisson/KL walk, struc2vec `OPT1/2/3` + multilayer structural walk.
 - VERIFIED: `py_compile` of both edited files OK (no run executed).
 - EFFECT / next: regenerate ONLY the 3 baselines' `.emb` (their config changed; delete + re-run), then re-score. struc2vec will shift (hs->neg, likely up toward its paper ~0.71 LP); node2vec/DeepWalk shift slightly (min_alpha); I2V flat. struc2vec still has NO seed -> report mean±std.
 
@@ -209,12 +188,12 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - [x] `prepare_linkpred.py` (70:30 split, seed=42) — done, verified on cora.
 - [x] framework under `scripts/` — done, smoke-tested (`results/001`).
 - [x] Install scikit-learn — done (in env `i2v`; confirm that's the right env).
-- [x] Notebook-first workflow: `notebooks/reproduce_i2v.ipynb` (one click-through notebook reusing the tested functions). Installed + registered `ipykernel` ("Python (i2v)" kernel) for VS Code. Removed the old `virgo_dev.ipynb`.
+- [x] Notebook-first workflow: `notebooks/1-reproduce_i2v.ipynb` (one click-through notebook reusing the tested functions). Installed + registered `ipykernel` ("Python (i2v)" kernel) for VS Code. Removed the old `virgo_dev.ipynb`.
 - [x] Made `make_planetoid_labels.py` importable (guarded its run-calls with `if __name__ == "__main__"`); node-class scorer verified with throwaway labels (the F1 path works).
 - [x] Training reproducibility fixed (`train.py` only — `identity2vec.py` untouched): added `--seed` (default 42), seeded global `np.random` before the walks (covers identity2vec's `np.random.shuffle`/`choice`), and passed `seed=args.seed` to `Word2Vec`. Verified byte-identical `.emb` across two same-seed runs, and different across seeds. **Requires `--workers 1`** (the default) — gensim is nondeterministic with multiple workers even with a seed.
 - [x] **Cora labels solved + node classification reproduced.** FINDING: the author's `input/cora.edgelist` numbers nodes by **order of appearance in the LINQS `cora.content`** file — that ordering reproduces the edgelist at **edge_overlap = 1.0000**. Planetoid Cora is the *same graph but a different numbering* (overlap 0.003, identical degree sequences), so its labels are WRONG here — the safety check correctly refused them. The author's `input.zip` ships **no labels** at all. Wrote `make_labels.py` (LINQS `.tgz` via plain `urllib` — bypasses PyG's flaky `fsspec` that gave `FSTimeoutError`; verifies overlap before writing); deleted the misleading `make_planetoid_labels.py`.
   - RESULT (first real reproduction): **Cora node classification weighted F1 = 0.6992** (2708 nodes, 7 classes, `train_frac=0.8`, `seed=42`, author's `output/cora.emb`). Saved `results/002.cora.nodeclass.csv`.
-  - `notebooks/reproduce_i2v.ipynb` runs fully end-to-end (verified headless, all 8 cells pass).
+  - `notebooks/1-reproduce_i2v.ipynb` runs fully end-to-end (verified headless, all 8 cells pass).
   - [ ] Compare 0.6992 to the paper's **Figure 5 / Section 4.4** — that figure is likely an F1-vs-train-ratio curve, so add a train-ratio sweep (and confirm the paper's F1 averaging: weighted vs micro/macro) to match it exactly.
   - [ ] Citeseer labels: our `citeseer.edgelist` was *derived by us*, so its numbering may not match LINQS `citeseer.content` order — run `make_labels('Citeseer')` and check the overlap before trusting it.
 - [ ] Retrain I2V on `splits/cora_train.edgelist` -> run `eval_linkpred.py` -> record AUC vs I2V Table 4.
@@ -228,9 +207,7 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - [ ] Regenerate all `.emb` — fixes 1/3/4/6/8 changed the math, on-disk results are stale.
 - [ ] Confirm Fix 8 LP drop 0.8494 -> 0.81 is real vs seed noise (3-seed mean±std).
 - [ ] Confirm Fix 4 ω choice (raw degree vs degree-distribution) with professor.
-- [x] Temperature sampling implemented 2026-06-24 (`--temperature`, default greedy, benchmark τ=0.3): cora s42 NC 0.7486 / LP 0.8305 — improved both. Ablation, not paper-exact.
-- [ ] Temperature: run 3 seeds (mean±std) + sweep τ ∈ {0, 0.1, 0.3, 1, 3} on cora + citeseer_linqs.
-- [ ] Thread `--temperature` through `scripts/runner.embed` (CLI `--retrain` path still greedy; notebook/benchmark already 0.3).
+- [x] Temperature sampling (2026-06-24 ablation, τ=0.3) — **removed 2026-07-07**, I2V restored to paper-exact greedy; τ TODOs (seed sweep, runner threading) dropped with it. Regenerate I2V `.emb`.
 - [x] Cross-model Skipgram config standardized to I2V 2026-06-24 (node2vec/DeepWalk `min_alpha=0.01`; struc2vec hs→negative sampling; walk_length 40 all). I2V untouched; per-model walk knobs kept.
 - [ ] Regenerate the 3 baselines' `.emb` (config changed) + re-run benchmark; I2V embeddings stay valid (no retrain).
 - [ ] `virtual_graph.py` — top-K Ψ builder (Deliverable #2).
@@ -259,7 +236,7 @@ Findings-driven cleanups (implemented one-by-one) + the first full 3-seed run.
 - **Node-class classifier (Fix 6).** `eval_nodeclass.py:45` = `OneVsRestClassifier(LogisticRegression(max_iter=300, solver="lbfgs", random_state=seed))` (L2 = sklearn default; `multi_class="ovr"` avoided — removed in sklearn ≥1.7). Reports micro/macro/weighted F1.
 - **struc2vec OPT (Fix 4).** `Struc2VecModel.train`: `--OPT1/2/3 = False` for graphs ≤10k nodes (cora/citeseer/webkb = exact distance), `True` only for large graphs (enzymes ~19.5k → memory). struc2vec still unseeded → report mean±std.
 - **node2vec vs DeepWalk kept distinct.** DeepWalk `p=q=1` (uniform), node2vec `p=1/q=0.5` (biased) → node2vec is not a DeepWalk duplicate. Paper does not fix p/q.
-- **FINDING — first 3-seed cross-model run (cora, seeds 42/43/44, τ=0.3). Supersedes the "single seed s42" temperature caveat.** Snapshot captured at **walk-length 80** (06-25→06-29 window); those `.emb` were deleted in the 40-revert → **regenerate at walk-40 before quoting as final.**
+- **FINDING — first 3-seed cross-model run (cora, seeds 42/43/44; I2V ran with τ=0.3, temperature since removed 2026-07-07).** Snapshot captured at **walk-length 80** (06-25→06-29 window); those `.emb` were deleted in the 40-revert → **regenerate at walk-40 + greedy I2V before quoting as final.**
 
   | model | NC weighted F1 | LP AUC (cosine headline) |
   |---|---|---|
@@ -302,7 +279,7 @@ Project flow locked into 5 phases (Phase 1 done):
 - Note: the two graphs are structurally **identical** (3264 nodes / 4536 edges / largest CC 2110); `citeseer_linqs` was the same graph renumbered + LINQS labels attached (edge overlap 16/4536 = pure relabel). So this switch does **not** change LP structure — it just uses the paper's numbering and skips the unaligned-label workaround.
 - Changes: `make_labels.py` — `resolve_dataset` no longer swaps citeseer→citeseer_linqs; `_VERSIONS["citeseer"]=("citeseer","orig","citeseer")`; `prepare_dataset` skips label build for citeseer (LP-only); `__main__` no longer builds citeseer Planetoid labels (they'd be misaligned). `benchmark_config.py` — `BENCH_DATASETS = [cora, citeseer, enzymes, webkb_wisc]`.
 - `citeseer_linqs` files + registry entry kept (unused by the benchmark now); can still be called explicitly if NC on Citeseer is ever needed.
-- FINDING — first author-`citeseer` LP result (seed 42, walk-40, τ=0.3, largest CC = 2110 nodes):
+- FINDING — first author-`citeseer` LP result (seed 42, walk-40, ran with τ=0.3 — temperature since removed 2026-07-07, regenerate greedy; largest CC = 2110 nodes):
 
   | score | AUC | paper Table 4 (I2V) | within ±0.05? |
   |---|---|---|---|
@@ -326,7 +303,7 @@ Project flow locked into 5 phases (Phase 1 done):
 
 ### 2026-07-01 — Phase 2 notebook + first variant comparison (cora, indicative)
 
-- NEW `notebooks/virtual_graph_phase2.ipynb` — self-contained, runs top-to-bottom, **no terminal**: build → visualize → verify constraints → variant sweep → compare on NC + LP → save. Executes clean (nbconvert exit 0), saved with outputs + charts. I2V-repro notebook left frozen as the Phase-1 record.
+- NEW `notebooks/2-virtual_graph_phase2.ipynb` — self-contained, runs top-to-bottom, **no terminal**: build → visualize → verify constraints → variant sweep → compare on NC + LP → save. Executes clean (nbconvert exit 0), saved with outputs + charts. I2V-repro notebook left frozen as the Phase-1 record.
 - **Fixed-encoder protocol:** only the graph changes — same DeepWalk bridge (I2V_PARAMS), same K=10, same seeds [42,43,44]. LP is leak-free (virtual graph rebuilt from the 70% train edges).
 - **FIRST comparison (cora, DeepWalk bridge, 3 seeds), `results/vir_graph_variants/cora_variant_comparison_K10.csv`:**
 
@@ -346,8 +323,36 @@ Project flow locked into 5 phases (Phase 1 done):
 - Code updated to match (folders lead, code follows): `runner.py` `run_nodeclass_repeated`/`run_linkpred_repeated` now write `output/<safe>/i2v_main/` (Step-5 benchmark inherits automatically); Phase-2 notebook writes `output/<dataset>/k<K>/`. Existing files moved, none regenerated (filenames unchanged ⇒ reuse intact); `core_i2vorg_embeddings/` merged into `cora/i2v_main/` (24 embs) and removed.
 - **Graph-health stats (notebook):** every `build_virtual()` call upserts one row — `dataset, sim, K, nodes, edges, avg_degree, components, isolates, path` — into `results/vir_graph_stats/virtual_graph_stats.csv` (one accumulating table across datasets; key = dataset×sim×K, no duplicates). For debugging bad scores (sparse/disconnected/isolates) + ablation-quality table for the paper.
 
-### 2026-07-04 — Renamed `results/phase2/` → `results/vir_graph_variants/` (user-requested)
+### 2026-07-02 — Renamed `results/phase2/` → `results/vir_graph_variants/` (user-requested)
 
 - **Rename:** task-score comparison CSVs (e.g. `cora_variant_comparison_K10.csv`) moved from `results/phase2/` to `results/vir_graph_variants/`. Clearer name; sits beside `results/vir_graph_stats/` so both Phase-2 result folders are self-describing.
 - **Two sibling Phase-2 folders under `results/`:** `vir_graph_stats/` = per-graph health table (one graph = one row); `vir_graph_variants/` = downstream variant task-score comparison CSVs.
 - Updated every reference (folders lead, code follows): notebook code cell (`Path("results") / "vir_graph_variants"`) + its markdown/stale outputs, this file, README tree, `docs/virgo_guide.md`. No Python source referenced the old path. Directory moved with `git mv` (CSV preserved), notebook JSON re-verified valid.
+
+### 2026-07-04 — Phase 3 spine implemented (ViRGo-SAGE)
+
+- NEW `encoder.py` — `SageEncoder` (repo style: argparse / `build_graph()` / `main(args)`, exposes `train(epochs)`). Features X = [deg, Ω, ψ, clustering] z-normalized, computed on the **original** graph (reuses `VirtualGraph.signatures` + cached core + `nx.clustering`); message passing over the **virtual** graph (2-layer mean `SAGEConv`, 4→64→64). Loss = Skipgram-analog: positives = window-10 co-occurrence on **unweighted node2vec walks over the virtual graph** (num_walks=10, len=40, workers=1, seeded — the exact Phase-2 bridge corpus), negatives ∝ deg^0.75 with Q=5 (matches Word2Vec `negative=5`), Adam lr=0.01, 50 epochs, 100k pairs/epoch (corpus capped 2M, deterministic). CPU-only + seeded torch/np/generators → reproducible. Writes word2vec-format `.emb` (existing evals unchanged).
+  - `python encoder.py --input input/cora.edgelist --sim psi --k 10 --seed 42` → `output/<ds>/k<K>/sage_<sim>_s<seed>.emb`
+- `benchmark_config.py` + `GNN_PARAMS` (hidden/dims 64, layers 2, mean agg, lr 0.01, epochs 50, Q=5, pairs_per_epoch 100k, max_pairs 2M).
+- NEW `notebooks/3-phase3_gnn_encoder.ipynb` (15 cells) — **reads Phase-2 artifacts only, builds no graphs** (separation of concerns per request): load saved `virtual_<sim>.edgelist` → train spine per seed → `sage_nc_<sim>_s<seed>.emb` + loss curve → verify (node count, finite, KeyedVectors-readable) → NC weighted-F1 → leakage-free LP (reuses the SAME `_vglp_` splits, train-virtual rebuilt from the 70% edges, `sage_lp_*.emb`) → summary CSV `results/vir_graph_variants/<ds>_sage_spine_K<K>.csv` + bridge table displayed alongside. `2-virtual_graph_phase2.ipynb` untouched (stays the graph builder + bridge record).
+- `import encoder` verified in env `i2v` (torch 2.12.0+cu130, PyG 2.8.0). Notebook NOT executed — first SAGE numbers come when it runs (README Phase-3 step 5).
+
+### 2026-07-06 — First Phase-3 run (enzymes) + §6 head-to-head table + rename fallout
+
+- **First spine run (user-executed, enzymes, Ψ, K=10, seed 42):** SAGE NC F1 0.5398 vs bridge 0.5051; LP AUC 0.6609 vs 0.5121 (details → `docs/paper_log.md`). Spine verified end-to-end: loss falls, evals read the `.emb`, outputs land in `output/enzymes/k10/`.
+- **Phase-3 §6 rewritten into a real head-to-head:** one table with `deepwalk_bridge / virgo_sage / delta` per task (was: two differently-shaped tables side by side). Saves a second CSV `results/vir_graph_variants/<ds>_encoder_comparison_K<K>.csv`; single-seed std now 0.0 (was NaN). Fairness note added: bridge CSV must come from a Phase-2 run with the same DATASET/SIM/SEEDS (CSV does not record seeds).
+- **Notebook renamed again by user:** `2-virtual_graph_phase2.ipynb` → `2-phase_2_virtual_graph.ipynb`. Patched references in README (roadmap + tree) and Phase-3 notebook (intro + load-cell assert). Historical notes entries left as-is.
+- **Files missing on disk (flagged, not restored):** `results/vir_graph_variants/enzymes_variant_comparison_K10.csv` + `enzymes_sage_spine_K10.csv` were saved by the runs (per notebook outputs) but are no longer present; `results/vir_graph_stats/virtual_graph_stats.csv` lost its 9 cora rows (only the enzymes row remains). Restore = rerun Phase-2 §5/§9 and Phase-3 §6 (instant — all edgelists/`.emb` reuse from disk).
+- **§6 revised again (user feedback: one table, non-technical readable):** both encoders now scored *inside* §6 directly from their saved embeddings (`vg_*` = Phase-2 bridge, `sage_*` = Phase-3) with the shared eval scripts — no dependency on the Phase-2 comparison CSV, numbers always match the Setup knobs. Single display/CSV: `task / deepwalk_phase2 / graphsage_phase3 / improvement / winner` → `results/vir_graph_variants/<ds>_encoder_comparison_K<K>.csv`. The separate `<ds>_sage_spine_K<K>.csv` save + sage-only summary table were removed from §6 (per-seed sage numbers still printed in §4/§5).
+- **Accumulating scoreboard added (user request: keep every variant's results, visualize comparisons):** new `record_score()` in `scripts/results_io.py` upserts one row per dataset × encoder × sim × K × task (with seeds, mean, std) into `results/vir_graph_variants/scoreboard.csv` — same replace-never-duplicate pattern as the graph-health table. Phase-3 §6 now records both encoders there on every run; NEW §7 "Scoreboard" cell shows the full table for the current dataset + one grouped bar chart per task (bars = sim×K variants, colors = encoders, error bars = std). Old §7 "Status + next" renumbered to §8.
+- **Scoreboard columns renamed for readability (user request):** `sim` → `graph_variant`, `K` → `top_K_neighbors` — in `results_io.record_score()` (params + row keys + upsert key + sort), the existing `scoreboard.csv` header (sed, data rows untouched), and Phase-3 §7 (reader cell + markdown now includes a column-meanings line). §6 calls are positional → unchanged.
+- **3-seed enzymes head-to-head (user-run):** bridge NC 0.4971 / LP 0.5110±0.0297 vs SAGE NC 0.5405±0.0014 / LP 0.6632±0.0114 → paper_log entry updated (supersedes the single-seed numbers).
+
+### 2026-07-06 — Ablation A implemented (A1 walk vs A2 edge positives)
+
+- `encoder.py`: `corpus()` + `train()` gained `positives=` ("walk" = A1 window co-occurrence, unchanged default; "edge" = A2 = the virtual edges themselves as positive pairs, added in both directions, no walks). Same deterministic cap, negatives, loss. CLI: `--positives {walk,edge}`; CLI output auto-tags `sage_edge_` when edge.
+- `scripts/benchmark_config.py`: `GNN_PARAMS["positives"] = "walk"`.
+- `notebooks/3-phase3_gnn_encoder.ipynb`: Setup gained `POSITIVES` knob + derived `TAG` (`sage` / `sage_edge` file prefix) + `ENCODER` (`graphsage` / `graphsage_edge` scoreboard name); §2/§3/§4/§5 use TAG paths + pass positives; §6 compares the selected variant vs the bridge (dynamic column name, snapshot CSV suffixed `_edge` for A2), records under ENCODER; §2 markdown explains the knob; §8 status updated. A2 runs can never overwrite A1 files, snapshots, or scoreboard rows.
+- **RESULTS (user-run A2 pass, enzymes ψ K10, seeds 42/43/44) → full entry in `docs/paper_log.md`:** A1 NC 0.5405±0.0014 / LP 0.6632±0.0114; **A2 NC 0.5413±0.0011 / LP 0.6909±0.0156**; bridge 0.4971 / 0.5110. FINDING: NC tie, LP A2 +0.028 (≈2σ) — walks unnecessary once similarity is explicit in the graph. DECISION: **A2 = default objective** going forward; A1 kept/reported as the bridge-comparable config. DEVIATION: Stage-1 A ran on enzymes, design doc said cora — repeat pending. Artifacts: `output/enzymes/k10/sage_edge_{nc,lp}_psi_s4{2,3,4}.emb`, `results/vir_graph_variants/enzymes_encoder_comparison_K10_edge.csv`, scoreboard rows `graphsage_edge`.
+- GAP (minor, logged for later): notebook 3 reads its own `POSITIVES` knob, not `GNN_PARAMS["positives"]` — config entry currently informational only; unify to one source of truth. Notebook intro markdown still A1-worded ("same walk corpus") — stale for A2 runs.
+- TODO next (Stage 1): **B** aggregation — wire `agg` (mean vs Ψ-weighted) into `SAGEConv` (currently hardcoded `aggr='mean'`, `GNN_PARAMS["agg"]` unused); then repeat A×B on cora.
