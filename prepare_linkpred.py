@@ -6,12 +6,12 @@ import random
 import networkx as nx
 
 
-# Defines command-line options: which graph, dataset name, output dir, test fraction, seed.
+# Defines command-line options: which graph, output seed-folder, test fraction, seed.
 def parse_args():
     parser = argparse.ArgumentParser(description="Prepare leakage-free link-prediction splits.")
     parser.add_argument('--input', default='input/cora.edgelist', help='Input graph edgelist')
-    parser.add_argument('--name', default='cora', help='Dataset name (prefix for output files)')
-    parser.add_argument('--outdir', default='splits', help='Directory to write splits. Default splits.')
+    parser.add_argument('--outdir', default=None,
+                        help='Seed folder for the 4 split files (default: splits/link_prediction/original_graph/<dataset>/seed_<seed>)')
     parser.add_argument('--test-frac', type=float, default=0.3, help='Fraction of edges held out for test. Default 0.3.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed. Default 42.')
     return parser.parse_args()
@@ -61,9 +61,9 @@ def write_pairs(path, pairs):
             f.write(f"{u} {v}\n")
 
 
-# Builds and writes all split files for one dataset; returns the counts. Importable by the runner.
-def prepare(input_path, name, outdir, test_frac=0.3, seed=42):
-    '''Split edges -> sample negatives -> write train graph + pos/neg pair files. Returns counts.'''
+# Builds and writes the 4 split files into one seed folder; returns the counts. Importable by the runner.
+def prepare(input_path, outdir, test_frac=0.3, seed=42):
+    '''Split edges -> sample negatives -> write train.edgelist + train_neg/test_pos/test_neg.txt into outdir. Returns counts.'''
     os.makedirs(outdir, exist_ok=True)
     G = build_graph(input_path)
     train_pos, test_pos = split_edges(G, test_frac, seed)
@@ -71,11 +71,11 @@ def prepare(input_path, name, outdir, test_frac=0.3, seed=42):
     neg = sample_non_edges(G, len(train_pos) + len(test_pos), seed, pos)
     train_neg, test_neg = neg[:len(train_pos)], neg[len(train_pos):]
 
-    p = os.path.join(str(outdir), name)
-    write_pairs(f"{p}_train.edgelist", train_pos)   # retrain embeddings on THIS graph only
-    write_pairs(f"{p}_train_neg.txt", train_neg)
-    write_pairs(f"{p}_test_pos.txt", test_pos)
-    write_pairs(f"{p}_test_neg.txt", test_neg)
+    p = str(outdir)
+    write_pairs(os.path.join(p, "train.edgelist"), train_pos)   # retrain embeddings on THIS graph only
+    write_pairs(os.path.join(p, "train_neg.txt"), train_neg)
+    write_pairs(os.path.join(p, "test_pos.txt"), test_pos)
+    write_pairs(os.path.join(p, "test_neg.txt"), test_neg)
     return {"nodes": G.number_of_nodes(), "edges": G.number_of_edges(),
             "train_pos": len(train_pos), "train_neg": len(train_neg),
             "test_pos": len(test_pos), "test_neg": len(test_neg)}
@@ -83,10 +83,13 @@ def prepare(input_path, name, outdir, test_frac=0.3, seed=42):
 
 # Runs the split from the command line and prints a summary.
 def main(args):
-    c = prepare(args.input, args.name, args.outdir, args.test_frac, args.seed)
-    print(f"{args.name}: nodes={c['nodes']} edges={c['edges']} seed={args.seed}")
+    if args.outdir is None:
+        ds = os.path.splitext(os.path.basename(args.input))[0]
+        args.outdir = f"splits/link_prediction/original_graph/{ds}/seed_{args.seed}"
+    c = prepare(args.input, args.outdir, args.test_frac, args.seed)
+    print(f"{args.input}: nodes={c['nodes']} edges={c['edges']} seed={args.seed}")
     print(f"  train_pos={c['train_pos']} train_neg={c['train_neg']} test_pos={c['test_pos']} test_neg={c['test_neg']}")
-    print(f"  wrote splits to {args.outdir}/  -> next: retrain I2V on {args.outdir}/{args.name}_train.edgelist")
+    print(f"  wrote splits to {args.outdir}/  -> next: retrain the embedding on {args.outdir}/train.edgelist")
 
 
 if __name__ == "__main__":

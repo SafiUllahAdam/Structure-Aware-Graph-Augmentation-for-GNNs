@@ -1,6 +1,7 @@
 '''Unsupervised GraphSAGE over a virtual graph: same Skipgram-analog objective as I2V, lookup table replaced by message passing.'''
 # Phase 3 (ViRGo-SAGE). Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
-# Positives = walk co-occurrence on the virtual graph, generated exactly like the Phase-2 DeepWalk bridge -> only the encoder differs.
+# Positives = direct virtual edges by default (ablation-A winner); "walk" kept as the Phase-2-bridge-comparable option.
+# Ablation D: the `feats` knob selects which structural features enter the GNN ("random" = the no-structure control).
 
 import argparse
 from pathlib import Path
@@ -9,7 +10,7 @@ import numpy as np
 import networkx as nx
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import SAGEConv, GraphConv
 
 from virtual_graph import VirtualGraph
 
@@ -18,27 +19,40 @@ WALKS = {"num_walks": 10, "walk_length": 40, "window": 10}
 
 
 class SageEncoder():
-    '''2-layer mean GraphSAGE trained with Skipgram-style positives/negatives from walks on the virtual graph.'''
+    '''2-layer GraphSAGE trained with Skipgram-style positives/negatives; neighbor aggregation mean/weighted/sum/max (ablation B).'''
 
-    def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2):
-        self.G, self.V, self.seed = G, V, seed
+    def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2, agg="mean", feats="all"):
+        self.G, self.V, self.seed, self.feats = G, V, seed, feats
         torch.manual_seed(seed); np.random.seed(seed)         # CPU-only + seeded -> bit-reproducible
         self.nodes = list(G.nodes)
         self.index = {n: i for i, n in enumerate(self.nodes)}
         e = [(self.index[u], self.index[v]) for u, v in V.edges]
         self.edge_index = torch.tensor([[a for a, b in e] + [b for a, b in e],
                                         [b for a, b in e] + [a for a, b in e]], dtype=torch.long)   # undirected -> both directions
+        if agg == "weighted":                                  # ablation B "weighted": Ψ edge weights, normalized per target -> weighted mean
+            w = torch.tensor([float(d.get("weight", 1.0)) for _, _, d in V.edges(data=True)] * 2, dtype=torch.float)
+            denom = torch.zeros(len(self.nodes)).scatter_add_(0, self.edge_index[1], w)
+            self.edge_weight = w / denom[self.edge_index[1]].clamp(min=1e-12)
+        else:
+            self.edge_weight = None
         self.X = self.features()
         dims = [self.X.shape[1]] + [hidden] * (layers - 1) + [dimensions]
-        self.convs = torch.nn.ModuleList(SAGEConv(dims[i], dims[i + 1], aggr='mean') for i in range(layers))
+        Conv = GraphConv if agg == "weighted" else SAGEConv    # GraphConv = same root+neighbor form as SAGE but edge-weight-aware
+        self.convs = torch.nn.ModuleList(Conv(dims[i], dims[i + 1], aggr='add' if agg == "weighted" else agg) for i in range(layers))
 
     def features(self):
-        '''Structural node features from the ORIGINAL graph: [degree, eigenvector centrality, psi, clustering], z-normalized.'''
-        vg = VirtualGraph(self.G)
-        _, psi = vg.signatures('psi')                          # reference-free I2V KL->Poisson score per node
-        deg, ev = vg.core.degree_node(), vg.core.eigenvector_centrality()
-        clus = nx.clustering(self.G)
-        X = np.array([[deg[n], ev[n], float(psi[i, 0]), clus[n]] for i, n in enumerate(self.nodes)])
+        '''Structural node features from the ORIGINAL graph, z-normalized; ablation D `feats` selects the subset.'''
+        if self.feats == "random":                             # D4 control: node identity only, zero structural signal
+            X = np.random.default_rng(self.seed).normal(size=(len(self.nodes), 4))
+        elif self.feats == "const":                            # D5 floor: identical rows -> z-norm gives all-zeros
+            X = np.ones((len(self.nodes), 1))
+        else:
+            vg = VirtualGraph(self.G)
+            _, psi = vg.signatures('psi')                      # reference-free I2V KL->Poisson score per node
+            deg, ev = vg.core.degree_node(), vg.core.eigenvector_centrality()
+            clus = nx.clustering(self.G)
+            cols = {"degree": [0], "deg_cent": [0, 1], "psi": [2], "all": [0, 1, 2, 3]}[self.feats]
+            X = np.array([[deg[n], ev[n], float(psi[i, 0]), clus[n]] for i, n in enumerate(self.nodes)])[:, cols]
         return torch.tensor((X - X.mean(0)) / (X.std(0) + 1e-9), dtype=torch.float)
 
     def corpus(self, max_pairs=2_000_000, positives="walk"):
@@ -67,7 +81,7 @@ class SageEncoder():
         '''Full-graph message passing over the virtual edges -> one embedding per node.'''
         z = self.X
         for i, conv in enumerate(self.convs):
-            z = conv(z, self.edge_index)
+            z = conv(z, self.edge_index) if self.edge_weight is None else conv(z, self.edge_index, self.edge_weight)
             if i < len(self.convs) - 1:
                 z = F.relu(z)
         return z
@@ -115,15 +129,18 @@ def build_graph(path):
 # Runs the whole pipeline: load original + virtual graph -> train ViRGo-SAGE -> save .emb.
 def main(args):
     ds = Path(args.input).stem
-    tag = "sage" if args.positives == "walk" else "sage_edge"  # A2 output never overwrites the A1 spine
-    virtual = args.virtual or f"output/{ds}/k{args.k}/virtual_{args.sim}.edgelist"
-    output = args.output or f"output/{ds}/k{args.k}/{tag}_{args.sim}_s{args.seed}.emb"
+    tag = (("graphsage_walk" if args.positives == "walk" else "graphsage_edge") + ("" if args.agg == "mean" else f"_{args.agg}")
+           + ("" if args.features == "all" else f"_feat_{args.features}"))   # each ablation writes its own files
+    virtual = args.virtual or f"output/notebook2_create_vir_graph/virtual_graphs/{ds}/k{args.k}/{args.sim}/virtual_graph.edgelist"
+    output = args.output or f"output/notebook3_gnn_encoder/node_classification/{ds}/k{args.k}/{args.sim}/{tag}_s{args.seed}.emb"
     G = build_graph(args.input)
     V = nx.read_weighted_edgelist(virtual, nodetype=int)
     V.add_nodes_from(G.nodes)                                  # edgelists omit isolated nodes -> restore the full node set
-    enc = SageEncoder(G, V, args.seed, hidden=args.hidden, dimensions=args.dimensions, layers=args.layers)
+    enc = SageEncoder(G, V, args.seed, hidden=args.hidden, dimensions=args.dimensions, layers=args.layers,
+                      agg=args.agg, feats=args.features)
     enc.train(args.epochs, lr=args.lr, negatives=args.negatives, positives=args.positives)
-    print(f"virgo-sage | sim={args.sim} k={args.k} positives={args.positives} seed={args.seed} -> {enc.save(output)}")
+    print(f"virgo-sage | sim={args.sim} k={args.k} positives={args.positives} agg={args.agg} feats={args.features} "
+          f"seed={args.seed} -> {enc.save(output)}")
 
 
 # Defines command-line options (mirrors virtual_graph.py); defaults mirror scripts/benchmark_config.GNN_PARAMS.
@@ -131,9 +148,13 @@ def parse_args():
     '''Parses arguments.'''
     parser = argparse.ArgumentParser(description="Train unsupervised GraphSAGE over a saved virtual graph.")
     parser.add_argument('--input', nargs='?', default='input/cora.edgelist', help='Original graph (features + node set)')
-    parser.add_argument('--virtual', nargs='?', default=None, help='Virtual edgelist (default: output/<ds>/k<K>/virtual_<sim>.edgelist)')
-    parser.add_argument('--output', nargs='?', default=None, help='Output .emb (default: output/<ds>/k<K>/sage_<sim>_s<seed>.emb)')
-    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality'], help='Virtual-graph variant. Default psi.')
+    parser.add_argument('--virtual', nargs='?', default=None,
+                        help='Virtual edgelist (default: output/notebook2_create_vir_graph/virtual_graphs/<ds>/k<K>/<sim>/virtual_graph.edgelist)')
+    parser.add_argument('--output', nargs='?', default=None,
+                        help='Output .emb (default: output/notebook3_gnn_encoder/node_classification/<ds>/k<K>/<sim>/<encoder>_s<seed>.emb; '
+                             'trains on the full graph -> for link-prediction embeddings pass a train graph via --input and set --output)')
+    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality', 'original', 'hybrid'],
+                        help='Virtual-graph variant (original=copy of input graph, hybrid=original + psi top-K union). Default psi.')
     parser.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
     parser.add_argument('--epochs', type=int, default=50, help='Training epochs. Default 50.')
     parser.add_argument('--lr', type=float, default=0.01, help='Adam learning rate. Default 0.01.')
@@ -141,8 +162,13 @@ def parse_args():
     parser.add_argument('--dimensions', type=int, default=64, help='Embedding size (matches I2V). Default 64.')
     parser.add_argument('--layers', type=int, default=2, help='GraphSAGE layers. Default 2.')
     parser.add_argument('--negatives', type=int, default=5, help='Negatives per positive (matches Word2Vec negative=5). Default 5.')
-    parser.add_argument('--positives', default='walk', choices=['walk', 'edge'],
-                        help='Ablation A: walk=A1 walk co-occurrence (bridge-comparable), edge=A2 direct virtual edges. Default walk.')
+    parser.add_argument('--positives', default='edge', choices=['walk', 'edge'],
+                        help='Ablation A: edge=A2 direct virtual edges (winner, default), walk=A1 walk co-occurrence (bridge-comparable).')
+    parser.add_argument('--agg', default='mean', choices=['mean', 'weighted', 'sum', 'max'],
+                        help='Ablation B neighbor aggregation: mean | weighted (Ψ-weighted mean) | sum | max. Default mean.')
+    parser.add_argument('--features', default='all', choices=['all', 'degree', 'deg_cent', 'psi', 'random', 'const'],
+                        help='Ablation D input features: all=D0 [deg,Ω,ψ,clustering] | degree=D1 | deg_cent=D2 | psi=D3 | '
+                             'random=D4 control (no structural signal) | const=D5 floor. Default all.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility. Default 42.')
     return parser.parse_args()
 

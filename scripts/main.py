@@ -62,7 +62,7 @@ def main():
     print("  result:", "  ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"
                                   for k, v in metrics.items()))
     if not args.no_save:
-        save_result(RESULTS_DIR, dataset, task, metrics, settings)
+        save_result(RESULTS_DIR / "notebook1_reproduce_i2v", dataset, task, metrics, settings)
 
 
 if __name__ == "__main__":

@@ -31,8 +31,8 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 **Phase 2 — Virtual-graph creation. ✅ core built** _(the core study)_
 - [x] `virtual_graph.py`: top-K virtual-graph builder, 3 variants (Poisson/KL **Ψ**, degree-only, centrality-only), deterministic, CLI + notebook.
 - [x] Phase-2 notebook (`notebooks/2-phase_2_virtual_graph.ipynb`): build → verify constraints → K sweep → NC/LP comparison under a fixed DeepWalk bridge encoder (leakage-free LP).
-- [x] Graph-health table auto-logged for every graph built → `results/vir_graph_stats/virtual_graph_stats.csv` (dataset × sim × K: edges, components, isolates…).
-- [x] First comparison (Cora, K=10, 3 seeds → `results/vir_graph_variants/`): **best virtual graph is task-dependent** — centrality wins node classification, degree wins link prediction; Ψ not best on Cora under the bridge (indicative only).
+- [x] Graph-health table auto-logged for every graph built → `results/graph_health.csv` (dataset × sim × K: edges, components, isolates…).
+- [x] First comparison (Cora, K=10, 3 seeds → `results/snapshots/` + master table `results/scoreboard.csv`): **best virtual graph is task-dependent** — centrality wins node classification, degree wins link prediction; Ψ not best on Cora under the bridge (indicative only).
 - [ ] Full scoring of K ∈ {5, 20} + the 3 remaining datasets — **deliberately deferred** until the Phase-3 GNN replaces the DeepWalk bridge (4 datasets total for the published comparison).
 
 **Phase 3 — Modern GNN encoder (ViRGo-SAGE).** ← current _(replace walk + Skipgram with **unsupervised GraphSAGE**, Skipgram-analog loss; full design: `docs/phase3_gnn_design.md`)_
@@ -42,7 +42,7 @@ Two nodes can play the **same role** even if they sit far apart — both might b
 - [x] 2. Feature builder — structural X = [degree, eigenvector centrality Ω, ψ, clustering], z-normalized (`SageEncoder.features()`; SAGE needs input features, I2V never did).
 - [x] 3. Walk-corpus positives — same walk generation as the Phase-2 bridge (I2V params, seeded) on the virtual graph ⇒ Phase-2 vs Phase-3 differ in **one component only** (Skipgram lookup vs message passing) (`SageEncoder.corpus()`).
 - [x] 4. `encoder.py` — `SageEncoder` default spine: virtual edgelist → PyG → 2-layer mean GraphSAGE → unsupervised loss → `train(epochs)` → 64-d `.emb` (+ CLI mirroring `virtual_graph.py`).
-- [x] 5. Verify the spine once — **done 2026-07-06** (enzymes, Ψ, K=10, 3 seeds: loss falls, evals read the `.emb`, outputs in `output/enzymes/k10/`).
+- [x] 5. Verify the spine once — **done 2026-07-06** (enzymes, Ψ, K=10, 3 seeds: loss falls, evals read the `.emb`, outputs in `output/notebook3_gnn_encoder/`).
 
 *Variant tests (flag flips over the working spine):*
 - [ ] Stage 1 — lock the encoder: **A** positives ✅ implemented + first result (`--positives {walk,edge}`; enzymes Ψ K=10, 3 seeds: A2 edge ≥ A1 walk → **A2 default**, cora repeat pending) · **B** aggregation (mean vs Ψ-weighted) next.
@@ -86,10 +86,13 @@ identity2vec/
 ├── CLAUDE.md                 # instructions for agentic coding
 │
 ├── input/                    # original graphs (.edgelist) — ⚠️ NEVER edit these
-├── output/                   # trained embeddings (.emb): cora.emb (author), webkb.emb (trained)
+├── output/                   # everything generated, notebook-first; each path reads notebook → task → dataset → K → variant:
+│   ├── notebook1_reproduce_i2v/<dataset>/{node_classification | link_prediction}/<model>_s<seed>.emb
+│   ├── notebook2_create_vir_graph/{virtual_graphs | node_classification | link_prediction}/<dataset>/k<K>/<variant>/…
+│   └── notebook3_gnn_encoder/{node_classification | link_prediction}/<dataset>/k<K>/<variant>/<encoder>_s<seed>.emb
 ├── labels/                   # node categories for classification (cora.labels)
-├── splits/                   # 70/30 edge splits for link prediction (no leakage)
-├── results/                  # scores (numbered .csv) + plots (.png); Phase-2 subfolders: vir_graph_stats/ (graph-health table), vir_graph_variants/ (variant task-score CSVs)
+├── splits/                   # link_prediction/{original_graph | virtual_graph_study}/<dataset>/seed_<s>/ — 4 files per seed folder (no leakage; NC needs no split files)
+├── results/                  # scoreboard.csv (★ master table) · graph_health.csv · snapshots/ (per-run comparison CSVs) · notebook1_reproduce_i2v/ (Phase-1 tables + benchmark/)
 ├── logs/                     # training run logs
 ├── docs/                     # papers (PDFs), notes.md (lab notebook), paper_log.md (curated paper-worthy log), phase3_gnn_design.md (Phase-3 design)
 │
@@ -177,7 +180,7 @@ Make our own embedding from a graph (the **fast cached** path):
 python train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42
 ```
 
-Results are saved to `results/NNN.<dataset>.<task>.csv` with a settings header.
+Results are saved to `results/notebook1_reproduce_i2v/NNN.<date>.<dataset>.<task>.csv` with a settings header.
 
 ---
 

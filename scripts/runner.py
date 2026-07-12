@@ -11,7 +11,7 @@ for _p in (str(_ROOT), str(_HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from benchmark_config import OUTPUT_DIR, PROJECT_ROOT, REPRO, SPLITS_DIR, I2V_PARAMS, dataset
+from benchmark_config import NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARAMS, dataset
 from utils import set_seed
 
 
@@ -43,15 +43,16 @@ def run_linkpred(name, emb=None, retrain=False, params=None, seed=None):
     from prepare_linkpred import prepare              # lazy: keeps --list working without sklearn
     from eval_linkpred import evaluate as linkpred_eval
 
-    counts = prepare(dataset(name)["edgelist"], name, SPLITS_DIR, REPRO["linkpred_test_frac"], seed)
+    split_dir = LP_SPLITS_ORIG / name / f"seed_{seed}"          # splits/link_prediction/original_graph/<ds>/seed_<s>/
+    counts = prepare(dataset(name)["edgelist"], split_dir, REPRO["linkpred_test_frac"], seed)
     if retrain:
-        emb = OUTPUT_DIR / f"{name}_lp.emb"
-        embed(SPLITS_DIR / f"{name}_train.edgelist", emb, params)
+        emb = NB1_DIR / name / "link_prediction" / f"i2v_s{seed}.emb"
+        embed(split_dir / "train.edgelist", emb, params)
     elif emb is None:
-        emb = OUTPUT_DIR / f"{name}.emb"
+        emb = NB1_DIR / name / "node_classification" / f"i2v_s{seed}.emb"
         print(f"  ! no --retrain: using full-graph {Path(emb).name} (LEAKAGE — plumbing check, not a paper number)")
 
-    auc = linkpred_eval(emb, SPLITS_DIR, name, REPRO["linkpred_op"], seed, REPRO["linkpred_score"])
+    auc = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], seed, REPRO["linkpred_score"])
     metrics = {"auc": auc}
     settings = {"seed": seed, "op": REPRO["linkpred_op"], "test_frac": REPRO["linkpred_test_frac"],
                 "retrain": retrain, "emb": Path(emb).name, **counts}
@@ -69,7 +70,7 @@ def run_nodeclass(name, emb=None, seed=None):
     if labels is None or not Path(labels).exists():
         raise FileNotFoundError(
             f"No labels for '{name}' (expected {labels}). See labels/README.md — node classification is blocked.")
-    emb = emb or OUTPUT_DIR / f"{name}.emb"
+    emb = emb or NB1_DIR / name / "node_classification" / f"i2v_s{seed}.emb"
     f1s, n_nodes, n_classes = nodeclass_eval(emb, labels, REPRO["nodeclass_train_frac"], seed)
     metrics = {"micro_f1": f1s["micro"], "macro_f1": f1s["macro"], "weighted_f1": f1s["weighted"],
                "n_nodes": n_nodes, "n_classes": n_classes}
@@ -84,12 +85,12 @@ def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None, model="identit
     from eval_nodeclass import evaluate as nodeclass_eval
     from embedding_models import get_model
     mdl = get_model(model)
-    out_dir = OUTPUT_DIR / info["safe"] / "i2v_main"             # Phase-1 reproduction embeddings: output/<dataset>/i2v_main/
+    out_dir = NB1_DIR / info["safe"] / "node_classification"     # output/notebook1_reproduce_i2v/<dataset>/node_classification/
     out_dir.mkdir(parents=True, exist_ok=True)
-    prefix = "" if model == "identity2vec" else f"{model}_"      # keep I2V filenames stable so existing embeddings are reused
+    short = "i2v" if model == "identity2vec" else model          # folder names the dataset+task; file names the model+seed
     rows = []
     for s in seeds:
-        emb = out_dir / f"{prefix}{info['base']}_nc_{info['version']}_s{s}.emb"
+        emb = out_dir / f"{short}_s{s}.emb"
         if emb.exists():
             print(f"  [{model} nc s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
@@ -109,22 +110,20 @@ def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity
     from eval_linkpred import evaluate as linkpred_eval
     from embedding_models import get_model
     mdl = get_model(model)
-    sp_dir = SPLITS_DIR / info["safe"]                          # per-dataset subfolders
-    out_dir = OUTPUT_DIR / info["safe"] / "i2v_main"            # Phase-1 reproduction embeddings: output/<dataset>/i2v_main/
-    sp_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = NB1_DIR / info["safe"] / "link_prediction"        # output/notebook1_reproduce_i2v/<dataset>/link_prediction/
     out_dir.mkdir(parents=True, exist_ok=True)
-    prefix = "" if model == "identity2vec" else f"{model}_"      # split is model-independent; only the emb carries the model
+    short = "i2v" if model == "identity2vec" else model         # split is model-independent; only the emb carries the model
     rows = []
     for s in seeds:
-        name = f"{info['base']}_lp_{info['version']}_s{s}"      # one shared split per (dataset, seed) -> fair across models
-        prepare(info["edge_path"], name, sp_dir, REPRO["linkpred_test_frac"], s)   # deterministic: recreates same split cheaply
-        emb = out_dir / f"{prefix}{name}.emb"
+        split_dir = LP_SPLITS_ORIG / info["safe"] / f"seed_{s}"  # one shared split per (dataset, seed) -> fair across models
+        prepare(info["edge_path"], split_dir, REPRO["linkpred_test_frac"], s)   # deterministic: recreates same split cheaply
+        emb = out_dir / f"{short}_s{s}.emb"
         if emb.exists():
             print(f"  [{model} lp s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
-            mdl.train(sp_dir / f"{name}_train.edgelist", emb, s, params)
-        auc_logreg = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, "logreg")   # main: Hadamard + logreg
-        auc_cosine = linkpred_eval(emb, sp_dir, name, REPRO["linkpred_op"], s, "cosine")   # second column: unsupervised similarity
+            mdl.train(split_dir / "train.edgelist", emb, s, params)
+        auc_logreg = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], s, "logreg")   # main: Hadamard + logreg
+        auc_cosine = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], s, "cosine")   # second column: unsupervised similarity
         auc = auc_logreg if REPRO["linkpred_score"] == "logreg" else auc_cosine            # headline AUC = configured scorer
         rows.append({"model": model, "dataset": info["base"], "version": info["version"], "task": "linkpred", "seed": s,
                      "auc": auc, "auc_logreg": auc_logreg, "auc_cosine": auc_cosine})
