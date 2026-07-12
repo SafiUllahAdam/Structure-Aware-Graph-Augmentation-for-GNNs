@@ -10,6 +10,16 @@ SPLITS_DIR = PROJECT_ROOT / "splits"
 LABELS_DIR = PROJECT_ROOT / "labels"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
+# Notebook-first output zones (2026-07-08 layout): every path reads notebook -> content -> dataset -> K -> variant.
+NB1_DIR = OUTPUT_DIR / "notebook1_reproduce_i2v"        # Phase-1 embeddings: <dataset>/<task>/<model>_s<seed>.emb
+NB2_DIR = OUTPUT_DIR / "notebook2_create_vir_graph"     # virtual_graphs/ + bridge embeddings per task folder
+NB3_DIR = OUTPUT_DIR / "notebook3_gnn_encoder"          # GraphSAGE embeddings per task folder
+LP_SPLITS_ORIG = SPLITS_DIR / "link_prediction" / "original_graph"       # Phase-1 splits: <dataset>/seed_<s>/
+LP_SPLITS_VG = SPLITS_DIR / "link_prediction" / "virtual_graph_study"    # shared Phase-2/3 splits: <dataset>/seed_<s>/
+SCOREBOARD_CSV = RESULTS_DIR / "scoreboard.csv"         # THE master table (one row per dataset x encoder x graph x K x task)
+GRAPH_HEALTH_CSV = RESULTS_DIR / "graph_health.csv"     # one row per virtual graph built
+SNAPSHOTS_DIR = RESULTS_DIR / "snapshots"               # per-run comparison CSVs
+
 # Dataset registry: name -> edgelist + label file (labels may not exist yet -> None or a path to be filled).
 DATASETS = {
     "cora":     {"edgelist": INPUT_DIR / "cora.edgelist",     "labels": LABELS_DIR / "cora.labels"},
@@ -33,17 +43,30 @@ I2V_PARAMS = {
 }
 
 # Virtual-graph study (Phase 2): variants + K sweep. SAME K across variants + SAME seeds = fair comparison.
-VG_SIMS = ["psi", "degree", "centrality"]   # psi = I2V KL->Poisson Ψ; degree/centrality = simpler baselines ("which graph best?")
+VG_SIMS = ["psi", "degree", "centrality", "original", "hybrid"]   # psi = I2V Ψ; degree/centrality = simpler baselines; original = unchanged-graph control (K unused); hybrid = original ∪ psi top-K
 VG_K = [5, 10, 20]                          # top-K sweep (sparsity vs over-smoothing tradeoff)
 VG_SEEDS = [42, 43, 44]                     # deterministic build; extra seeds cover the downstream walk/GNN encoder
 
 # ViRGo-SAGE encoder (Phase 3): unsupervised GraphSAGE over the virtual graph, Skipgram-analog loss.
 # Walk corpus for the positives reuses I2V_PARAMS (num_walks/walk_length/window) -> only the encoder changes vs the Phase-2 bridge.
 GNN_PARAMS = {
-    "hidden": 64, "dimensions": 64, "layers": 2, "agg": "mean",
+    "hidden": 64, "dimensions": 64, "layers": 2,
+    "agg": "mean",                                        # ablation B: "mean" | "weighted" (Ψ-weighted mean) | "sum" | "max"
     "lr": 0.01, "epochs": 50, "negatives": 5,             # Q=5 matches the bridge's Word2Vec negative=5
     "pairs_per_epoch": 100_000, "max_pairs": 2_000_000,   # deterministic corpus caps (runtime/memory on large graphs)
-    "positives": "walk",                                  # ablation A: "walk" = A1 walk co-occurrence (bridge-comparable), "edge" = A2 direct virtual edges
+    "positives": "edge",                                  # ablation A DECIDED 2026-07-07: "edge" (A2) won LP, tied NC; "walk" = A1 bridge-comparable
+    "features": "all",                                    # ablation D baseline (D0): all four structural input features
+}
+
+# Ablation D (input features): does the GNN win come from the structural features or from message passing?
+# "random" (D4) is THE control — message passing with zero structural signal; compare it against the deepwalk bridge.
+D_FEATURES = {
+    "all":      ("D0 all",       "degree + centrality + psi + clustering"),
+    "degree":   ("D1 degree",    "degree only"),
+    "deg_cent": ("D2 deg+cent",  "degree + eigenvector centrality"),
+    "psi":      ("D3 psi",       "psi only (confounded: the psi graph was built from it)"),
+    "random":   ("D4 random",    "seeded random features - control: message passing alone"),
+    "const":    ("D5 constant",  "identical rows -> z-norm zeros - floor, expect AUC ~ 0.50"),
 }
 
 # Reproduction defaults — fixed for every run so results are repeatable.

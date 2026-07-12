@@ -35,7 +35,7 @@ def save_result(results_dir, dataset, task, metrics, settings):
 
 # Upserts one scoreboard row (key: dataset x encoder x graph_variant x top_K_neighbors x task); accumulates every variant ever scored.
 def record_score(dataset, encoder, graph_variant, top_k, task, seeds, scores,
-                 csv_path="results/vir_graph_variants/scoreboard.csv"):
+                 csv_path="results/scoreboard.csv"):
     """Add/refresh one (dataset, encoder, graph_variant, top_K_neighbors, task) row in the accumulating scoreboard CSV."""
     row = {"dataset": dataset, "encoder": encoder, "graph_variant": graph_variant, "top_K_neighbors": top_k,
            "task": task, "seeds": "|".join(str(s) for s in seeds),

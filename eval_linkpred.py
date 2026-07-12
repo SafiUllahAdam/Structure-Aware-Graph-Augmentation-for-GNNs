@@ -17,12 +17,12 @@ OPERATORS = {
 }
 
 
-# Defines command-line options: embedding file, splits dir, dataset name, edge operator, seed.
+# Defines command-line options: embedding file, split seed-folder, edge operator, seed.
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate link prediction (AUC) from embeddings.")
     parser.add_argument('--emb', required=True, help='Embedding trained on the TRAIN graph (no leakage)')
-    parser.add_argument('--splits', default='splits', help='Directory holding the split files')
-    parser.add_argument('--name', default='cora', help='Dataset name (prefix of split files)')
+    parser.add_argument('--splits', default='splits/link_prediction/original_graph/cora/seed_42',
+                        help='Seed folder holding train.edgelist + train_neg/test_pos/test_neg.txt')
     parser.add_argument('--op', default='hadamard', choices=list(OPERATORS), help='Edge feature operator (logreg mode only). Default hadamard.')
     parser.add_argument('--score', default='cosine', choices=['cosine', 'dot', 'logreg'],
                         help="Scoring: cosine/dot = paper-faithful unsupervised similarity; logreg = supervised classifier. Default cosine.")
@@ -46,13 +46,14 @@ def edge_features(kv, pairs, op):
 
 
 # Scores held-out edges vs non-edges -> test AUC. Importable by the runner.
-def evaluate(emb, splits, name, op='hadamard', seed=42, score='cosine'):
-    '''score='cosine'|'dot' = paper-faithful UNSUPERVISED embedding-similarity ranking (no classifier);
+def evaluate(emb, split_dir, op='hadamard', seed=42, score='cosine'):
+    '''split_dir = seed folder with train.edgelist + train_neg/test_pos/test_neg.txt.
+       score='cosine'|'dot' = paper-faithful UNSUPERVISED embedding-similarity ranking (no classifier);
        score='logreg' = supervised edge classifier (--op feature -> logistic regression).'''
     kv = KeyedVectors.load_word2vec_format(str(emb))
-    p = os.path.join(str(splits), name)
-    test_pos = load_pairs(f"{p}_test_pos.txt")
-    test_neg = load_pairs(f"{p}_test_neg.txt")
+    p = str(split_dir)
+    test_pos = load_pairs(os.path.join(p, "test_pos.txt"))
+    test_neg = load_pairs(os.path.join(p, "test_neg.txt"))
 
     if score in ('cosine', 'dot'):                       # paper-style: rank test edges by embedding similarity, no training
         def sim(u, v):
@@ -67,7 +68,7 @@ def evaluate(emb, splits, name, op='hadamard', seed=42, score='cosine'):
         return roc_auc_score(y, s)
 
     # supervised alternative: edge feature (--op, default Hadamard) -> logistic regression trained on the 70% split
-    sets = {k: load_pairs(f"{p}_{k}.txt") if k != 'train_pos' else load_pairs(f"{p}_train.edgelist")
+    sets = {k: load_pairs(os.path.join(p, f"{k}.txt")) if k != 'train_pos' else load_pairs(os.path.join(p, "train.edgelist"))
             for k in ['train_pos', 'train_neg', 'test_pos', 'test_neg']}
     feats = {k: edge_features(kv, pairs, op)[0] for k, pairs in sets.items()}
     X_train = np.vstack([feats['train_pos'], feats['train_neg']])
@@ -80,8 +81,8 @@ def evaluate(emb, splits, name, op='hadamard', seed=42, score='cosine'):
 
 # Runs the evaluation from the command line and prints the AUC.
 def main(args):
-    auc = evaluate(args.emb, args.splits, args.name, args.op, args.seed, args.score)
-    print(f"{args.name} link prediction | score={args.score} seed={args.seed} | AUC={auc:.4f}")
+    auc = evaluate(args.emb, args.splits, args.op, args.seed, args.score)
+    print(f"{args.splits} link prediction | score={args.score} seed={args.seed} | AUC={auc:.4f}")
 
 
 if __name__ == "__main__":

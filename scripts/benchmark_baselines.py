@@ -72,7 +72,7 @@ def benchmark_table(rows, task, metric):
 # Builds both final tables, saves them + the raw per-seed rows under results/benchmark/.
 def save_benchmark(rows, out_dir=None):
     """Write per-seed rows + Table 1 (node-class weighted F1) + Table 2 (link-pred AUC). Returns the two tables."""
-    out_dir = Path(out_dir or RESULTS_DIR / "benchmark")
+    out_dir = Path(out_dir or RESULTS_DIR / "notebook1_reproduce_i2v" / "benchmark")
     out_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(out_dir / "benchmark_per_seed.csv", index=False)
     nc = benchmark_table(rows, "nodeclass", "weighted_f1")

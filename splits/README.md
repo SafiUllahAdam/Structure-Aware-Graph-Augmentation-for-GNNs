@@ -1,22 +1,30 @@
 # splits/
 
-Exact, repeatable link-prediction splits produced by `prepare_linkpred.py` (seed=42).
-Generated files — do not edit by hand.
+Exact, repeatable link-prediction splits produced by `prepare_linkpred.py`.
+Generated files — do not edit by hand. (Node classification needs no split files — its 70/30 split happens in memory from the labels.)
 
-Per dataset `{name}`:
+Layout — one folder per dataset per seed:
+
+```
+splits/link_prediction/
+├── original_graph/<dataset>/seed_<seed>/       # Phase-1 splits (I2V vs baselines)
+└── virtual_graph_study/<dataset>/seed_<seed>/  # Phase-2/3 shared splits (bridge vs GNN, fair comparison)
+```
+
+Each seed folder holds exactly 4 files:
 
 | file | contents |
 |------|----------|
-| `{name}_train.edgelist` | 70% positive edges — **retrain I2V/ViRGo on this graph only** (no leakage) |
-| `{name}_train_neg.txt`  | non-edges, same count as train positives (classifier negatives) |
-| `{name}_test_pos.txt`   | 30% held-out positive edges |
-| `{name}_test_neg.txt`   | non-edges, same count as test positives |
+| `train.edgelist` | 70% positive edges — **retrain I2V/ViRGo on this graph only** (no leakage) |
+| `train_neg.txt`  | non-edges, same count as train positives (classifier negatives) |
+| `test_pos.txt`   | 30% held-out positive edges |
+| `test_neg.txt`   | non-edges, same count as test positives |
 
-All files are `u v` node-id pairs, one per line.
+All files are `u v` node-id pairs, one per line. Same seed → byte-identical split (deterministic rebuild).
 
 Pipeline:
 ```
-python prepare_linkpred.py --input input/cora.edgelist --name cora     # writes splits/
-python train.py --input splits/cora_train.edgelist --output output/cora_lp.emb
-python eval_linkpred.py --emb output/cora_lp.emb --name cora           # reports AUC
+python prepare_linkpred.py --input input/cora.edgelist --seed 42   # writes splits/link_prediction/original_graph/cora/seed_42/
+python train.py --input splits/link_prediction/original_graph/cora/seed_42/train.edgelist --output output/cora_lp.emb --cached
+python eval_linkpred.py --emb output/cora_lp.emb --splits splits/link_prediction/original_graph/cora/seed_42   # reports AUC
 ```

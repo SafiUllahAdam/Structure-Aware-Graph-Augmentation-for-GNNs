@@ -356,3 +356,70 @@ Project flow locked into 5 phases (Phase 1 done):
 - **RESULTS (user-run A2 pass, enzymes ψ K10, seeds 42/43/44) → full entry in `docs/paper_log.md`:** A1 NC 0.5405±0.0014 / LP 0.6632±0.0114; **A2 NC 0.5413±0.0011 / LP 0.6909±0.0156**; bridge 0.4971 / 0.5110. FINDING: NC tie, LP A2 +0.028 (≈2σ) — walks unnecessary once similarity is explicit in the graph. DECISION: **A2 = default objective** going forward; A1 kept/reported as the bridge-comparable config. DEVIATION: Stage-1 A ran on enzymes, design doc said cora — repeat pending. Artifacts: `output/enzymes/k10/sage_edge_{nc,lp}_psi_s4{2,3,4}.emb`, `results/vir_graph_variants/enzymes_encoder_comparison_K10_edge.csv`, scoreboard rows `graphsage_edge`.
 - GAP (minor, logged for later): notebook 3 reads its own `POSITIVES` knob, not `GNN_PARAMS["positives"]` — config entry currently informational only; unify to one source of truth. Notebook intro markdown still A1-worded ("same walk corpus") — stale for A2 runs.
 - TODO next (Stage 1): **B** aggregation — wire `agg` (mean vs Ψ-weighted) into `SAGEConv` (currently hardcoded `aggr='mean'`, `GNN_PARAMS["agg"]` unused); then repeat A×B on cora.
+
+### 2026-07-07 — Ablation B implemented (aggregation: mean | weighted | sum | max) + A2 default locked
+
+- `encoder.py`: `SageEncoder(..., agg="mean")` — `mean`/`sum`/`max` = native `SAGEConv(aggr=...)`; `weighted` = `GraphConv(aggr='add')` (same root+neighbor form as SAGE but edge-weight-aware; SAGEConv ignores edge weights) fed the Ψ edge weights from the virtual edgelist, normalized per target node → Ψ-weighted mean. `forward()` passes `edge_weight` only when set. CLI `--agg {mean,weighted,sum,max}`; file tag now `sage_edge[_<agg>]_...` (mean keeps existing names → A2 rows stay the B baseline). Weights exist on both paths: saved edgelists carry `1/(1+dist)` and the LP train-virtual rebuild uses the same builder.
+- **A decision applied:** `--positives` CLI default `walk` → `edge`; `GNN_PARAMS["positives"] = "edge"`; header comment + notebook §2/§8 markdown updated. Closes the "config entry informational only" note above in spirit (notebook still owns its knobs).
+- `scripts/benchmark_config.py`: `GNN_PARAMS["agg"]` now live (was decorative), default `"mean"` until B decides.
+- `notebooks/3-phase3_gnn_encoder.ipynb`: Setup gained `AGG` knob; `TAG`/`ENCODER` extended with `_<agg>` when non-mean (e.g. `sage_edge_weighted_*` files, `graphsage_edge_weighted` scoreboard rows — nothing overwrites); §2/§5 pass `agg=AGG`; §6 snapshot CSV suffix includes agg; §8 status updated.
+- Protocol: freeze enzymes ψ K=10 seeds 42/43/44 positives=edge; `mean` already in the scoreboard (= A2 rows); run `weighted` → `sum` → `max` one by one via the knob; §7 picks the winner.
+- **RESULTS (user-run, enzymes ψ K=10 seeds 42/43/44, positives=edge):** mean NC 0.5413 / LP 0.6909 · weighted 0.5399 / 0.6528 · max 0.5284 / 0.6378 · sum 0.5114 / 0.5063. Ranking **mean > weighted > max > sum on BOTH tasks**.
+- **DECISION — `agg=mean` locked** (weighted lost → Ψ edge-weights uninformative beyond top-K ranking; sum degenerate = unnormalized degree blowup, LP at chance + ×4 variance; max lossy). **Finalized ViRGo-SAGE = edge positives (A2) + mean agg (B)** — already the code/`GNN_PARAMS` default, no change needed. Full table + reasoning → `docs/paper_log.md`.
+- **NOT deleted:** all 4 agg rows kept in `scoreboard.csv` + the `sage_edge_{weighted,sum,max}_*` embeddings / `enzymes_encoder_comparison_K10_edge_{weighted,sum,max}.csv` snapshots — they ARE the ablation evidence for choosing mean (Deliverable #5).
+- TODO next: repeat A/B on cora (confirm mean+edge hold on a 2nd graph); then C depth / E graph-variant sweep.
+- **B results (user-run, enzymes ψ K10):** mean wins both tasks (NC 0.5413 / LP 0.6909) > weighted > max > sum (LP 0.5063 near-random) → `agg="mean"` stays default, encoder locked (edge + mean). Full table in `docs/paper_log.md`. No code change needed.
+
+### 2026-07-07 — E-study sweep cell added (notebook 3 §8)
+
+- New §8 in `notebooks/3-phase3_gnn_encoder.ipynb` (old §8 status → §9): loops `SWEEP_SIMS = [psi, degree, centrality]` × `SWEEP_KS = [10]` (add 5/20 for the full grid) under the LOCKED encoder (edge + mean). Per config/seed: reuse-or-train NC emb (saved virtual edgelist) + LP emb (train-virtual rebuilt from the shared 70% split), score with shared evals, `record_score` under `graphsage_edge`. No Phase-2 bridge dependency → degree/centrality need no Phase-2 rerun (all 9 virtual edgelists already on disk for enzymes). §7 visualizes after.
+- Setup `AGG` reset "max" (user's last B run) → "mean" (B winner); knob comments now say DECIDED for A + B.
+- Kept the user's §7 `DROP` display filter (hides losing B-agg rows; scoreboard untouched).
+- Backend untouched (encoder.py / results_io / evals / config unchanged).
+
+### 2026-07-07 — §8 sweep now also records the deepwalk baseline rows
+
+- Grid target (user): {psi, degree, centrality} × {deepwalk, graphsage, graphsage_edge} × K=10 × seeds 42/43/44. Scoreboard had 5/9 cells; missing: deepwalk × {degree, centrality} (bridge `vg_*` embs already on disk from Phase 2, just never scored into the scoreboard) + graphsage(walk) × {degree, centrality} (needs training).
+- `notebooks/3-phase3_gnn_encoder.ipynb` §8: after each config's encoder rows, now scores the SAVED Phase-2 bridge embeddings (`vg_nc/lp_<sim>_s<seed>.emb`) and `record_score`s them under `deepwalk`. Never trains the bridge; records only complete seed sets, else prints "run notebook 2" hint (k5/k20 have no `vg_*` files yet → skipped there).
+- Fill procedure (one run): Setup `POSITIVES="walk"` → run Setup + §1 + §8 (trains 12 sage walk embs for degree/centrality, reuses psi; records graphsage + deepwalk rows) → reset `POSITIVES="edge"` → §7 for the table. graphsage_edge rows already recorded.
+- Backend untouched.
+
+### 2026-07-08 — Repository layout redesign: notebook-first zones (user-requested, applied)
+
+- **Why.** User (beginner) found `output/<ds>/k<K>/` unnavigable — 60+ mixed files (`virtual_*`, `vg_*`, `sage_edge_weighted_lp_*`) in one folder. New rule: **every path reads as a sentence** — notebook → content/task → dataset → K → variant → `<encoder>_s<seed>.emb`.
+- **New layout.** `output/notebook1_reproduce_i2v/<ds>/{node_classification|link_prediction}/<model>_s<seed>.emb` · `output/notebook2_create_vir_graph/{virtual_graphs|node_classification|link_prediction}/<ds>/k<K>/<sim>/…` (graphs named `virtual_graph.edgelist`) · `output/notebook3_gnn_encoder/{node_classification|link_prediction}/<ds>/k<K>/<sim>/<encoder>_s<seed>.emb`. Splits: `splits/link_prediction/{original_graph|virtual_graph_study}/<ds>/seed_<s>/{train.edgelist,train_neg.txt,test_pos.txt,test_neg.txt}` (fixed names, no prefixes). Results: `results/scoreboard.csv` (master), `results/graph_health.csv` (was vir_graph_stats/virtual_graph_stats.csv), `results/snapshots/` (was vir_graph_variants/ comparison CSVs), `results/notebook1_reproduce_i2v/{benchmark,cora,…}` (Phase-1 tables).
+- **Renames.** Files: `vg_*` → `deepwalk_s<seed>.emb`, `sage_*` → `graphsage_walk_*`, `sage_edge_*` → `graphsage_edge_*` (agg suffixes kept); Phase-1 `<base>_nc_orig_s42.emb` → `i2v_s42.emb` (folder now carries dataset+task). Scoreboard encoder `graphsage` → `graphsage_walk` (rows edited in place; `graphsage_edge*` unchanged); graph_health `path` column refreshed.
+- **Migration.** 190 items moved (idempotent script, scratchpad); splits moved with `git mv` (tracked), output/results plain moves (gitignored). Old dirs removed. No retraining — all `.emb`/edgelists byte-identical, only relocated.
+- **Code follows folders** (project rule): `prepare_linkpred.prepare(input, outdir, …)` now writes the 4 fixed-name files into a seed folder (dropped `name` prefix); `eval_linkpred.evaluate(emb, split_dir, …)` reads fixed names (dropped `name`); `runner.py` uses `NB1_DIR`/`LP_SPLITS_ORIG`; `benchmark_config.py` gained zone constants (NB1/NB2/NB3_DIR, LP_SPLITS_*, SCOREBOARD_CSV, GRAPH_HEALTH_CSV, SNAPSHOTS_DIR); `results_io.record_score` default → `results/scoreboard.csv`; `main.py` saves numbered CSVs under `results/notebook1_reproduce_i2v/`; `benchmark_baselines.save_benchmark` → its `benchmark/` subfolder; `virtual_graph.py`/`encoder.py` CLI defaults → new zones (encoder CLI tag now `graphsage_walk`/`graphsage_edge`).
+- **Notebooks.** All three updated to the zones; notebook 3's `TAG` removed (single `ENCODER` = filename prefix = scoreboard name) and Setup `POSITIVES` reset `"walk"` → `"edge"` (the locked A-winner; was left on walk from the grid-fill run). Notebook 1 Step 6 candidate-path search rewritten for the new zones.
+- **Docs.** README (roadmap paths + tree + results path), splits/README.md (new layout + 4-file table), scripts/README.md.
+- Verification: all moved files re-inventoried (18 virtual graphs, 96 embeddings, 64 split files, 8 snapshot CSVs); smoke evals on moved artifacts reproduce the recorded scores (see same-day entry below if run).
+
+## 2026-07-09 — Notebook 3 §7 scoreboard: two display modes (presentation only, no data change)
+
+- **Mode 1 (§7, `96eec70e`) — MAIN RESULTS:** filters the scoreboard to `deepwalk` vs `graphsage_edge` (the locked ViRGo encoder) only; two pivot tables (NC first, then LP), rows = graph_variant × K in psi→degree→centrality order, plus `improvement` (= graphsage_edge − deepwalk) and `winner` columns; completeness line on top (rows = encoders × graphs × tasks, gaps show as NaN); charts restricted to the same two encoders. Rationale (user): choose best encoder → lock it → then study graphs/K; main results = 2 encoders only.
+- **Mode 2 (§7b, new cells `ed2b1ea5`+`539b2172`) — ABLATION HISTORY:** same table layout but ALL encoders in the scoreboard (graphsage_walk, B-agg variants); one knob `SHOW = "all"` or an encoder list; winner column only (no improvement). Documents how the encoder was locked (A: edge>walk, B: mean>others).
+- Both modes are display-only; `results/scoreboard.csv` untouched, old DROP filter replaced by the mode split. "How to read" markdown (`0cda9c5c`) unchanged, serves both modes.
+- Earlier same day: §7 rewritten from raw CSV dump to per-task pivot tables (the "17 rows" confusion = 0-based index, grid was complete); NB2 task folders restored from manual `_smoke_test` rename.
+
+## 2026-07-09 — Ablation D plumbing (feature knob)
+
+- `encoder.py`: `SageEncoder(..., feats="all")` + one branch in `features()`; `--features {all,degree,deg_cent,psi,random,const}` CLI flag; run tag gains `_feat_<set>` when != all. `dims` derive from `X.shape[1]`, so 1/2/4-column inputs need no further change.
+- `scripts/benchmark_config.py`: `GNN_PARAMS["features"]="all"` + `D_FEATURES` registry (id → label, description).
+- `notebooks/3-phase3_gnn_encoder.ipynb`: `FEATURES` knob in Setup (feeds `ENCODER` name); `feats=FEATURES` threaded into the §2, §5 and §8 training calls; new **§8b** markdown + code cell runs the D loop, records to the scoreboard and prints/saves the D table. §7 Mode 1 hides the `_feat_*` rows automatically (its `MAIN` filter); §7b `SHOW="all"` surfaces them.
+- Verified: six feature sets build with dims 4/1/2/1/4/1, all finite; `const` → all-zeros X and identical embeddings (cosine LP has a `+1e-12` guard, so AUC = 0.5, no crash); `random` reproducible per seed and different across seeds; `degree` column == `all[:, 0:1]`; D0 embeddings on disk re-score to 0.5413 / 0.6909 (unchanged by the refactor).
+
+## 2026-07-12 — Cora extended to the 5-variant E-grid + cross-dataset cell
+
+- **Built** `original` + `hybrid` virtual graphs for cora K=10 via `virtual_graph.py` CLI (original: 2708 nodes / 5278 edges = exact copy; hybrid: 21399 edges = original ∪ Ψ top-K) → `output/notebook2_create_vir_graph/virtual_graphs/cora/k10/{original,hybrid}/`. Unblocked the §8 sweep assert (`virtual_graph.edgelist missing`).
+- **DeepWalk bridge fill** for cora original/hybrid, both tasks, seeds 42/43/44 — scratchpad script with the exact notebook-2 recipe (plain edgelist → DeepWalk, I2V_PARAMS; LP from the shared 70% train splits). 12 `.emb` into notebook-2 zones; 4 scoreboard rows.
+- **§8 sweep run on cora** (user): GraphSAGE NC+LP for all 5 variants recorded. Cora K=10 grid now complete: 5 variants × 2 encoders × 2 tasks = 20 rows.
+- **Notebook 3 §10 added** (cells `7da74cbe` + `b9e6a690`): cross-dataset view — one pivot per task, columns = dataset × encoder, rows = graph variant; `XD_K` knob; reads scoreboard directly, independent of `DATASET`. Display only.
+- Findings → paper_log.md same-day entry (headline: story inverts on cora — DeepWalk + original graph wins both tasks 0.81/0.90).
+
+## 2026-07-13 — Notebook 3 §11: research-question view (presentation only)
+
+- New cells `03228a47` + `f1ce4139` after §10: PRIMARY table (graph variants × dataset·task, cell = best-over-encoders score, ★ winner), ANSWER table (best graph + achieving encoder per dataset × task), SECONDARY table (Δ = graphsage_edge − deepwalk within each graph). `RQ_K` knob; reads scoreboard directly; display only.
+- Framing per professor: virtual graph = primary variable; encoder = secondary within-graph comparison.
+- Revised same day (user): §11 reduced from 3 tables to 2 — Table 1 = best graph + winning encoder per dataset × task; Table 2 = biggest GraphSAGE gain/loss vs DeepWalk per dataset × task ("no loss" when all Δ positive). Big per-variant pivot dropped (duplicated §10).
+- Revised again (user): §11 = Table 1 best NON-original graph per dataset × task + Table 2 control check (original vs best virtual, meaning column; thresholds: Δ>0.05 much / >0 slightly / <0 virtual better). `original` framed as control baseline, not ViRGo contribution.
