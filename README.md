@@ -48,7 +48,12 @@ Everything is seeded (42/43/44) and cached by filename — rerunning reuses what
 
 - **Phase 1 — reproduce I2V. Done.** Cached I2V byte-identical and ~200× faster; Cora scores within ±0.05 of the paper; compared against DeepWalk / node2vec / struc2vec (baselines used as published, not tuned).
 - **Phase 2 — build virtual graphs. Done.** Builder with all five variants, deterministic, saved to disk; every graph logs a health row (size, components, isolates) to `results/graph_health.csv`.
-- **Phase 3 — GNN encoder. Done (K=10, cora + enzymes).** Encoder settings locked by ablations: positives = direct virtual edges (A), aggregation = mean (B); feature ablation (D) run on enzymes. Full 5-variant × 2-encoder grid scored on cora and enzymes.
+- **Phase 3 — GNN encoder. Ongoing (K=10, cora + enzymes).** We tested each design choice of the encoder one at a time (ablations A–E):
+  - **A — where training pairs come from:** virtual edges directly vs random walks → **edges won**, and they're cheaper (no walks needed).
+  - **B — how a node combines its neighbors:** mean vs weighted vs sum vs max → **plain mean won** on both tasks.
+  - **C — network depth (1–3 layers):** knob exists in the code, **not yet run**.
+  - **D — which input features the GNN gets:** all four structural features vs degree-only vs random (control) → the **structural features carry most of the gain**; random features fall back to DeepWalk level.
+  - **E — which graph to learn on (the main study):** all five graph variants × both encoders, scored on cora and enzymes → the results tables below.
 - **Phase 4 — remaining datasets, K = 5/20 sweep, anomaly detection.** Next.
 - **Phase 5 — embeddings as graph summaries for LLMs.** Stretch, not started.
 
