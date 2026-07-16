@@ -21,7 +21,7 @@ Maintained automatically: a new entry is added whenever something research-signi
 - **Cached I2V.** I2V recomputes the structural signal (degree + eigenvector centrality) inside the walk loop — per neighbor, per step, per walk — which dominates cost. For a static graph these are constant, so we compute them once and cache. Result: embeddings **byte-identical** to the original, **~200× faster** (Deliverable #1).
 - **Reproduction bar.** A metric counts as reproduced only within **±0.05** of the paper. Cora I2V lands in the paper's range on both tasks under a 3-seed harness (seeds 42/43/44).
 - **Hyperparameters (I2V, `I2V_PARAMS`).** dimensions=64, walk_length=40, num_walks=10, window_size=10, epochs=1, sg=1 (Skipgram), e=2.7182. **DEVIATION:** paper text states walk_length=80; we use the repo default 40 (matches the author's released `cora.emb`), recorded as a deliberate deviation.
-- **Evaluation protocol.** Node classification = one-vs-rest logistic regression on embeddings, weighted F1, stratified split. Link prediction = 70:30 edge split, embedding retrained on the 70% train graph only (no leakage), Hadamard edge features → logistic regression → test AUC.
+- **Evaluation protocol.** Node classification = one-vs-rest logistic regression on embeddings, weighted F1, stratified split. Link prediction = 70:30 edge split, embedding retrained on the 70% train graph only (no leakage), test edges vs sampled non-edges ranked by **cosine similarity** of embeddings → test AUC (unsupervised, I2V-paper-faithful; this is the protocol every recorded LP number uses). A supervised alternative (Hadamard edge features → logistic regression) exists in `eval_linkpred.py` as an optional robustness check only — an earlier version of this entry wrongly named it as the main protocol.
 - **FINDING (baseline comparison).** On homophilous Cora, proximity methods beat structural ones: node2vec (NC ≈0.82 / LP ≈0.91) > I2V (NC ≈0.69 / LP ≈0.80). This is expected — proximity embeddings suit community/homophily labels — and indicates the original paper's "I2V beats all" reflects under-tuned baselines. I2V's advantage is on **structural** tasks. This motivates studying the virtual graph rather than the encoder alone.
 
 ---
@@ -134,6 +134,20 @@ Same graph, features, architecture, negatives, splits, seeds — positives fixed
 - **DECISION.** `agg = "mean"` locked as default (already was). Encoder now fully locked for Stage 2: **edge positives + mean aggregation**.
 - **CAVEATS.** Same as ablation A: single dataset (enzymes), single variant/K (Ψ, 10), 3 seeds, cosine LP.
 
+### Ablation C results — encoder depth / over-smoothing — Enzymes, Ψ, K=10, edge positives, mean agg, seeds 42/43/44 (logged 2026-07-16)
+
+Design axis from the Phase-3 variant list ("C depth 1-3 — over-smoothing: virtual graphs near-connected at K=10"). Same graph, features, positives, aggregation, negatives, splits, seeds — **only the number of message-passing layers differs**. Encoder names `graphsage_edge_l1` / `graphsage_edge_l3`; depth 2 is the locked default (`graphsage_edge`, `GNN_PARAMS["layers"]=2`), re-scored from its existing embeddings, not retrained.
+
+| depth | NC (weighted F1) | LP (AUC) |
+|---|---|---|
+| 1 layer | 0.4971 ± 0.0018 | 0.6678 ± 0.0075 |
+| **2 layers (default)** | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+| 3 layers | 0.4506 ± 0.0187 | 0.4983 ± 0.0407 |
+
+- **FINDING — the over-smoothing prediction is confirmed, and it is sharp.** Depth 2 wins both tasks. Depth 3 does not merely degrade: LP falls to **0.4983, i.e. chance**, and NC drops below the DeepWalk bridge (0.4506 vs 0.4971). The design's stated mechanism holds — the Ψ virtual graph is near-connected at K=10 (10 components, avg degree 11.44 on enzymes), so a 3-hop receptive field averages a large fraction of the graph and node embeddings converge. Depth 1 is under-powered on NC (0.4971, exactly at the bridge) while retaining most of the LP signal (0.6678), consistent with LP depending mostly on 1-hop role neighbourhoods.
+- **DECISION.** Depth **2** confirmed as the ViRGo-SAGE default. No code change — the default was already 2; this ablation converts an assumption into evidence and supplies the over-smoothing curve for the paper.
+- **CAVEATS.** enzymes only, Ψ graph only, K=10, 3 seeds, cosine LP; depth not swept at other K (a denser graph at K=20 should over-smooth *earlier* — untested). Like ablations A/B/D, the choice is made on a single dataset and inherited by cora, where the E-study story inverts; a cora depth repeat is not run. Depth 3's LP std (0.0407) is the largest in the C set, as expected once embeddings collapse toward a common vector.
+
 ### E-study first results — virtual-graph variants, locked encoder — Enzymes, K=10, seeds 42/43/44 (2026-07-07, INDICATIVE)
 
 Locked ViRGo-SAGE (edge positives + mean agg, ablations A/B) run over all three virtual-graph constructions at K=10 (notebook 3 §8 sweep; user-run):
@@ -193,3 +207,137 @@ Second dataset for the E-study (first: enzymes). Same protocol: locked ViRGo-SAG
 - **Headline tables locked to the fixed encoder (2026-07-13, user decision).** Notebook 3 §11 Table 1 (best virtual graph per dataset × task) and Table 2 (control vs original) now use **`graphsage_edge` only** — previously "best over both encoders", which confounded graph choice with encoder choice. Rationale: the virtual graph is the variable under study, so the encoder must be held fixed; the GraphSAGE-vs-DeepWalk comparison stays in §7 as the secondary question (same graph, encoders differ). K=10 answers under the locked encoder: cora NC → hybrid 0.3109; cora LP → centrality 0.5708; enzymes NC → degree 0.5536; enzymes LP → centrality 0.7197. Control check (graphsage both sides): original wins cora NC 0.4504 / cora LP 0.6212 and enzymes NC 0.5671; best virtual wins enzymes LP 0.7197 vs 0.6459 — per-data/per-task story unchanged, now unconfounded.
 
 - **`original` repositioned as CONTROL baseline (2026-07-13, user decision).** The original graph stays in every sweep but is not a ViRGo contribution — headline tables now report the **best virtual/derived graph** (Ψ, degree, centrality, hybrid) per dataset × task, with a separate control-check table original-vs-best-virtual. K=10 answers: cora LP → hybrid+DeepWalk 0.6699; cora NC → hybrid+DeepWalk 0.4526; enzymes LP → centrality+DeepWalk 0.7382; enzymes NC → degree+GraphSAGE 0.5536. Control check: original much better on both cora tasks (0.9007/0.8100), virtual better on enzymes LP (0.7382 vs 0.6574), original slightly better on enzymes NC (0.5671 vs 0.5536). Honest headline: rewiring wins only enzymes LP at K=10 so far — the per-data/per-task story carries the paper, not a blanket "virtual graphs win".
+
+- **ABLATION D RESULTS (2026-07-16) — the Phase-3 win is the FEATURES, not message passing.** enzymes, Ψ graph, K=10, seeds 42/43/44, edge positives + mean agg, cosine LP; only the GNN's input features change.
+
+| id | features | dims | NC F1 | LP AUC |
+|---|---|---|---|---|
+| **D0** | all (degree, Ω, ψ, clustering) | 4 | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+| D2 | degree + centrality | 2 | 0.5151 ± 0.0052 | 0.6805 ± 0.0302 |
+| D1 | degree | 1 | 0.5203 ± 0.0014 | 0.5975 ± 0.0432 |
+| *deepwalk (bridge reference)* | *none* | — | *0.4971 ± 0.0057* | *0.5110 ± 0.0297* |
+| D5 | constant (floor) | 1 | 0.3277 ± 0.0000 | 0.5046 ± 0.0905 |
+| D3 | ψ *(confounded)* | 1 | 0.4933 ± 0.0017 | 0.4983 ± 0.0251 |
+| **D4** | **random (control)** | 4 | **0.4814 ± 0.0060** | **0.4798 ± 0.0349** |
+
+- **DECIDING ROW ANSWERED — D4 lands BELOW the bridge on both tasks** (LP 0.4798 vs 0.5110; NC 0.4814 vs 0.4971), and its LP is indistinguishable from chance (0.48 ≈ 0.50, within its own 0.035 σ). Per the pre-registered reading in the ablation-D design entry, this is the "at the bridge ⇒ the Phase-3 win was the features" branch — in fact worse. **Message passing over the Ψ virtual graph, stripped of structural input features, carries no usable signal on enzymes: the structural features are NECESSARY.** ⚠️ **This does NOT establish that message passing contributes nothing.** The design's two-branch reading was under-specified: D4 tests only whether message passing is *sufficient alone*. Attributing the +0.18 LP win to the features requires the arm **structural features WITHOUT message passing** (D6, below), which is **not yet run**.
+- **Revises the earlier indicative claim.** The Phase-3 entry "message passing over the virtual graph beats the Skipgram lookup … supports the technical contribution: GNN > walk+Skipgram on the *same* virtual graph" survives only in the weaker form **"GNN + structural features > walks"**. The isolated claim "message passing helps *by itself*" is **not supported** by this control. Report D4 alongside any GraphSAGE-vs-DeepWalk headline.
+- **MISSING ARM — D6 `features, no message passing` (identified 2026-07-16, user challenge).** The ablation-D grid tests only two of four cells: *random features + MP* (D4 = 0.4798 LP) and *structural features + MP* (D0 = 0.6909 LP). The cell **structural features, no MP** is untested, so the split between "features" and "aggregation" is **not yet decidable**. D6 = feed the raw 4-dim [degree, Ω, ψ, clustering] vectors (computed on the original graph, z-normed, 70% train graph for LP) straight to the shared eval protocol — cosine for LP, one-vs-rest logistic regression for NC — no GNN, no training. Reading: **D6 ≈ D0** ⇒ message passing adds nothing and the Phase-3 win is purely the features; **D6 « D0** ⇒ message passing contributes the gap *on top of* the features, and the technical contribution stands in the form "MP amplifies structural features". Until D6 runs, the only defensible claims are: (1) structural features are **necessary** (D4 collapses without them); (2) message passing is **not sufficient alone**.
+- **D3 (ψ alone) collapses to chance** (LP 0.4983 / NC 0.4933) — below the bridge — even though it is *confounded in ViRGo's favour* (ψ is both the feature and the signal the Ψ graph was built from). The I2V scalar is not a sufficient input feature.
+- **Prediction partly wrong: D1 ≈ D2 held for NC, failed for LP.** The design entry expected D1 ≈ D2 because eigenvector centrality is degenerate on enzymes (96.9% of nodes < 1e-6, 640 disconnected molecules). NC matches (0.5203 vs 0.5151, D1 marginally higher), but LP shows a real gap (**D2 0.6805 vs D1 0.5975, +0.083**): the near-zero centrality column still carries link-predictive signal despite the degeneracy. Degree alone (D1) already beats the bridge on both tasks; degree+centrality (D2) recovers ~98% of full-feature LP (0.6805 / 0.6909), so ψ + clustering add little.
+- **CAVEATS.** enzymes only, Ψ graph only, K=10, 3 seeds, cosine LP. The cora repeat is not run — given the cora inversion (DeepWalk+original wins by a landslide there), D4 on cora may read differently and must not be assumed. D5's NC 0.3277 is the majority-class floor by construction (identical rows → z-norm zeros), not an experiment. Notebook 3 §8b holds this ablation but its code cell is currently **commented out**; its markdown still points to the deleted §7b view.
+
+---
+
+## Ablation study — consolidated (paper-ready, 2026-07-16)
+
+Single reference for the paper's ablation section. The dated entries above remain the provenance trail; this section is the writing surface. Every number below is read from `results/scoreboard.csv`.
+
+### Common protocol
+
+All of A–D: **enzymes**, **Ψ** virtual graph, **K=10**, seeds **42/43/44**, cosine link prediction, shared 70/30 splits. One axis changes per ablation; graph, features, architecture, negatives (∝ deg^0.75, Q=5), splits and seeds are otherwise identical, so each comparison is one-component. LP features/graphs are built from the 70% train edges only ⇒ no leakage. Reference bar throughout = the Phase-2 DeepWalk bridge: **NC 0.4971 ± 0.0057 · LP 0.5110 ± 0.0297**. Every variant is retained in the scoreboard as evidence; none are deleted.
+
+**A–D purpose:** lock the encoder so it stops being a confound in E. **E purpose:** the research question itself.
+
+### A — positives: are walks still needed? · DECIDED: `edge`
+
+| id | positives | NC (F1) | LP (AUC) |
+|---|---|---|---|
+| A1 | walk co-occurrence (window 10, = bridge corpus) | 0.5405 ± 0.0014 | 0.6632 ± 0.0114 |
+| **A2** | **direct virtual edges** | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+
+NC is a tie (Δ 0.0008, within seed noise). LP favours direct edges (**Δ +0.0277**, ≈2σ vs the seed stds — likely real, borderline at 3 seeds). **Interpretation:** I2V ran walks to *discover* role-similar nodes; the virtual graph already enumerates them, so walks are redundant once similarity is explicit in the graph — and dropping them removes walk generation entirely (cheaper). **Cost of the choice:** the "Phase 2 and Phase 3 differ in exactly one component" claim holds only under A1, which is retained and reported as the bridge-comparable configuration.
+
+### B — aggregation: does similarity *strength* matter? · DECIDED: `mean`
+
+| id | aggregation | NC (F1) | LP (AUC) |
+|---|---|---|---|
+| **B0** | **mean (equal neighbors)** | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+| B1 | Ψ-weighted mean *(the only variant reading edge weights)* | 0.5399 ± 0.0020 | 0.6528 ± 0.0240 |
+| B2 | max | 0.5284 ± 0.0041 | 0.6378 ± 0.0353 |
+| B3 | sum | 0.5114 ± 0.0017 | 0.5063 ± 0.0596 |
+
+Plain `mean` wins both tasks. **The reportable finding:** `weighted` — the sole configuration that consumes the similarity strengths ViRGo computes (`1/(1+dist)`) — *loses* to discarding them (LP −0.038). **Edge existence carries the signal; edge strength does not.** Once top-K has selected the neighbourhood, how similar each member is adds nothing. `sum` collapses to chance on LP (0.5063): unnormalized neighbourhood magnitude swamps the embedding.
+
+### C — depth: over-smoothing · DECIDED: `2 layers`
+
+| id | depth | NC (F1) | LP (AUC) |
+|---|---|---|---|
+| C1 | 1 layer | 0.4971 ± 0.0018 | 0.6678 ± 0.0075 |
+| **C2** | **2 layers** | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+| C3 | 3 layers | 0.4506 ± 0.0187 | 0.4983 ± 0.0407 |
+
+Depth 2 wins both. **The over-smoothing prediction is confirmed and sharp:** at depth 3 LP falls to **0.4983 = chance**, and NC drops below the bridge. Mechanism as designed — the Ψ graph is near-connected at K=10 (enzymes: 10 components, avg degree 11.44), so a 3-hop receptive field averages a large fraction of the graph and embeddings converge (C3 also carries the largest LP variance, 0.0407, consistent with collapse). Depth 1 is under-powered on NC (0.4971, exactly at the bridge) yet keeps most LP signal (0.6678) — LP depends mostly on 1-hop role neighbourhoods. No code change: 2 was already the default; this converts an assumption into evidence and supplies the depth curve.
+
+### D — features vs message passing · PARTLY OPEN
+
+| id | features | msg passing | dims | NC (F1) | LP (AUC) |
+|---|---|---|---|---|---|
+| **D0** | all four | ✔ | 4 | **0.5413 ± 0.0011** | **0.6909 ± 0.0156** |
+| D2 | degree + centrality | ✔ | 2 | 0.5151 ± 0.0052 | 0.6805 ± 0.0302 |
+| D1 | degree | ✔ | 1 | 0.5203 ± 0.0014 | 0.5975 ± 0.0432 |
+| — | *deepwalk bridge (reference)* | ✘ | — | *0.4971 ± 0.0057* | *0.5110 ± 0.0297* |
+| D3 | ψ *(confounded)* | ✔ | 1 | 0.4933 ± 0.0017 | 0.4983 ± 0.0251 |
+| D4 | random **(control)** | ✔ | 4 | 0.4814 ± 0.0060 | 0.4798 ± 0.0349 |
+| D5 | constant (floor) | ✔ | 1 | 0.3277 ± 0.0000 | 0.5046 ± 0.0905 |
+| **D6** | **all four (control)** | **✘ `layers=0`** | 4 | **pending** | **pending** |
+
+**Motivation.** ViRGo-SAGE beats the bridge with two advantages simultaneously — message passing *and* four structural features the lookup-table bridge cannot consume — so "GraphSAGE > DeepWalk" currently reads "GNN + structural features > walks". D isolates them.
+
+**What D4 establishes.** Random-feature SAGE lands **below** the bridge on both tasks, its LP indistinguishable from chance (0.4798, σ 0.035). Therefore: **(1) the structural features are necessary; (2) message passing is not sufficient alone.** Both claims are supported.
+
+**What D4 does NOT establish (correction, 2026-07-16).** It does not license "the win is *mostly* the features". The design's original two-branch reading of D4-vs-deepwalk was under-specified: the attribution needs the fourth cell of the 2×2 — *features without message passing* (**D6**). Decision rule, pre-registered: **D6 ≈ D0 ⇒ message passing adds nothing, the Phase-3 win is the features; D6 « D0 ⇒ message passing contributes on top of the features and the technical contribution stands.** Until D6 runs, only the two claims above may be stated.
+
+**Secondary findings.** D3: the I2V ψ scalar alone collapses to chance (0.4983) despite being confounded *in ViRGo's favour* (ψ is both the feature and the signal the Ψ graph was built from) — ψ is not a sufficient input feature. D1: degree alone already clears the bridge on both tasks. D2: degree + centrality recovers **98% of D0's LP** (0.6805 vs 0.6909) — **ψ and clustering together add ≈0.01**. The prediction "D1 ≈ D2 because eigenvector centrality is degenerate on enzymes (96.9% of nodes < 1e-6, 640 disconnected molecules)" **holds for NC** (0.5203 vs 0.5151) but **fails for LP** (Δ +0.083): the near-degenerate centrality column still carries link-predictive signal. D5 NC 0.3277 is the majority-class floor by construction, not an experiment.
+
+**D6 implementation (2026-07-16).** `layers=0` in `SageEncoder` ⇒ no convolutions; `forward()` returns the z-normed features unchanged (verified bit-identical to raw X), so D6 reuses **the identical feature builder as D0** and the only difference between the rows is message passing. Nothing is trained (`train()` asserts at `layers=0`); the virtual graph is unused. Artifacts `features_only_s<seed>.emb`, scoreboard encoder `features_only`; notebook 3 §8b, `RUN_D6` knob. **Reporting caveat:** D6 is 4-dimensional against D0's 64 — the contrast is "these features scored directly" vs "these features expanded and smoothed by a GNN", which is the intended question but is *not* dimension-matched; state this in the paper. D6 is deterministic across seeds, so its std reflects split variation only.
+
+### E — which virtual graph? (the research question)
+
+Locked encoder `graphsage_edge` (= A2 + B0 + C2 + D0) vs the DeepWalk bridge; K=10, seeds 42/43/44. Variants: `psi` (I2V Poisson/KL), `degree`, `centrality`, `original` (**control** — untouched input graph, not a ViRGo contribution), `hybrid` (original ∪ Ψ top-K).
+
+**Enzymes, K=10**
+
+| graph | DW NC | GS NC | DW LP | GS LP |
+|---|---|---|---|---|
+| psi | 0.4971 | 0.5413 | 0.5110 | **0.6909** |
+| degree | 0.5136 | 0.5536 | 0.6240 | 0.5998 |
+| centrality | 0.4903 | 0.5411 | **0.7382** | 0.7197 |
+| original *(control)* | 0.5086 | **0.5671** | 0.6574 | 0.6459 |
+| hybrid | 0.4906 | 0.5485 | 0.5087 | 0.6967 |
+
+**Cora, K=10**
+
+| graph | DW NC | GS NC | DW LP | GS LP |
+|---|---|---|---|---|
+| psi | 0.2378 | 0.2757 | 0.5114 | 0.5246 |
+| degree | 0.1592 | 0.2722 | 0.5547 | 0.5283 |
+| centrality | 0.3830 | 0.3067 | 0.5507 | 0.5708 |
+| original *(control)* | **0.8100** | 0.4504 | **0.9007** | 0.6212 |
+| hybrid | 0.4526 | 0.3109 | 0.6699 | 0.5572 |
+
+**HEADLINE — the story inverts across datasets.** Enzymes rewards role-rewiring: centrality gives the best LP (0.7382), beating the real graph, and GraphSAGE wins nearly everywhere. Cora does the opposite: the untouched graph with DeepWalk wins both tasks by a landslide (0.8100 / 0.9007) and every rewired graph destroys the signal. **This is the thesis, evidenced: which graph is best is a property of the data, not a universal answer.**
+
+**Why cora inverts.** Cora's labels are research topics — a *community* property carried by real citation edges, so proximity walks over them are near-optimal and role-rewiring discards exactly the needed signal. GraphSAGE is additionally handicapped by construction: its inputs are *role* features (degree, centrality, ψ, clustering), not topic features. Hence "GraphSAGE loses on cora" = "a role-feature GNN loses on a homophily task", **not** a general GNN result. Enzymes' molecular structure is precisely what roles describe.
+
+**Consistent cross-dataset patterns.** (1) `hybrid` is DeepWalk's best *rewired* graph on both tasks (it contains the original edges), yet mixing role edges still halves cora NC (0.81 → 0.45). (2) GraphSAGE > DeepWalk on the pure role graphs' NC (Ψ, degree) on both datasets. (3) The GNN's LP advantage exists **only** on role-augmented graphs, never on the original graph (enzymes original: DW 0.6574 vs GS 0.6459). (4) On hybrid LP, DeepWalk collapses (0.5087) while GraphSAGE holds 0.6967 — walks get lost mixing physical and role edges; message passing does not.
+
+**The honest headline.** Best configuration per dataset × task cell: **DeepWalk wins 3 of 4** (cora NC 0.8100, cora LP 0.9007, enzymes LP 0.7382); GraphSAGE takes only enzymes NC (0.5671) — and on the *control* graph. Under the locked encoder with `original` excluded as control, the best virtual graphs are: cora NC → hybrid 0.3109 · cora LP → centrality 0.5708 · enzymes NC → degree 0.5536 · enzymes LP → centrality 0.7197. Control check (GraphSAGE both sides): original wins cora NC (0.4504), cora LP (0.6212) and enzymes NC (0.5671); the best virtual graph wins **only enzymes LP** (0.7197 vs 0.6459). **Rewiring wins exactly one of four cells.** The per-data story carries the paper; a blanket "virtual graphs win" does not.
+
+### Locked configuration — ViRGo-SAGE
+
+| axis | locked to | evidence |
+|---|---|---|
+| A positives | `edge` | LP +0.028 over walks; NC tie; removes walk generation |
+| B aggregation | `mean` | beat weighted / max / sum on both tasks; edge weights unhelpful |
+| C depth | `2 layers` | 1 under-powered; 3 over-smooths to chance |
+| D features | `all four` | best of every set tested; features shown necessary (D4) |
+| K | `10` | only K with a complete grid on every dataset |
+
+### Threats to validity — state these in the paper
+
+1. **A, B, C and D were each decided on enzymes alone** (one dataset, Ψ only, K=10, 3 seeds); that locked encoder was then applied to cora, **where the entire E story inverts**. Nothing guarantees cora would select the same settings, and the cora repeat of A/B/C/D is **not run**. Any claim of the form "we selected X because it performed best" must carry "on enzymes".
+2. **D6 not yet run** ⇒ the features-vs-message-passing attribution is undecided; the technical contribution currently stands only as "GNN + structural features > walks".
+3. **D4 on cora not run.** Given the inversion, the random-feature control may read differently there; do not extrapolate.
+4. **Scale:** 2 datasets, 3 seeds, K=10, cosine LP throughout; no per-dataset encoder tuning (locked from enzymes); baselines used as published, not fine-tuned (scope guard).
+5. **A2 side-effect:** the one-component Phase-2-vs-Phase-3 comparison is only valid under A1.
