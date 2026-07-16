@@ -67,6 +67,7 @@ D_FEATURES = {
     "psi":      ("D3 psi",       "psi only (confounded: the psi graph was built from it)"),
     "random":   ("D4 random",    "seeded random features - control: message passing alone"),
     "const":    ("D5 constant",  "identical rows -> z-norm zeros - floor, expect AUC ~ 0.50"),
+    "none_mp":  ("D6 features only", "raw features, no message passing (layers=0) - control: features alone"),
 }
 
 # Reproduction defaults — fixed for every run so results are repeatable.
@@ -74,8 +75,8 @@ REPRO = {
     "seed": 42,
     "linkpred_test_frac": 0.30,    # 70:30 edge split
     "nodeclass_train_frac": 0.70,  # stratified split (paper sweeps 30-70%)
-    "linkpred_op": "hadamard",     # edge operator for the logreg edge features (node2vec protocol)
-    "linkpred_score": "cosine",    # main result: Hadamard edge features -> logistic regression (paper's node2vec link-pred protocol); 'cosine' = unsupervised similarity, kept as a second column
+    "linkpred_op": "hadamard",     # edge operator, only used when linkpred_score='logreg' (node2vec protocol)
+    "linkpred_score": "cosine",    # main result: unsupervised cosine similarity ranking (I2V-paper-faithful, basis of the Phase-1 repro); 'logreg' = supervised Hadamard->logistic-regression alternative, optional robustness check only
 }
 
 

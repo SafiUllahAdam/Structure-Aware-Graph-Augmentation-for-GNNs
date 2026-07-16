@@ -2,6 +2,7 @@
 # Phase 3 (ViRGo-SAGE). Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
 # Positives = direct virtual edges by default (ablation-A winner); "walk" kept as the Phase-2-bridge-comparable option.
 # Ablation D: the `feats` knob selects which structural features enter the GNN ("random" = the no-structure control).
+# Ablation D6: layers=0 -> no convolutions, embeddings ARE the z-normed features (features without message passing; nothing to train).
 
 import argparse
 from pathlib import Path
@@ -22,6 +23,7 @@ class SageEncoder():
     '''2-layer GraphSAGE trained with Skipgram-style positives/negatives; neighbor aggregation mean/weighted/sum/max (ablation B).'''
 
     def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2, agg="mean", feats="all"):
+        # layers=0 (D6) -> no convs: forward() returns the features unchanged, V is unused, train() is invalid.
         self.G, self.V, self.seed, self.feats = G, V, seed, feats
         torch.manual_seed(seed); np.random.seed(seed)         # CPU-only + seeded -> bit-reproducible
         self.nodes = list(G.nodes)
@@ -88,6 +90,7 @@ class SageEncoder():
 
     def train(self, epochs, lr=0.01, negatives=5, pairs_per_epoch=100_000, max_pairs=2_000_000, positives="walk"):
         '''Skipgram-analog objective: pull positive pairs together, push deg^0.75 negatives apart.'''
+        assert len(self.convs) > 0, "layers=0 (D6) has no parameters to train — save() the features directly instead"
         pairs = self.corpus(max_pairs, positives)
         deg = torch.tensor([d for _, d in self.V.degree(self.nodes)], dtype=torch.float) ** 0.75
         neg_dist = deg / deg.sum() if deg.sum() > 0 else torch.full((len(self.nodes),), 1.0 / len(self.nodes))
@@ -129,7 +132,8 @@ def build_graph(path):
 # Runs the whole pipeline: load original + virtual graph -> train ViRGo-SAGE -> save .emb.
 def main(args):
     ds = Path(args.input).stem
-    tag = (("graphsage_walk" if args.positives == "walk" else "graphsage_edge") + ("" if args.agg == "mean" else f"_{args.agg}")
+    tag = ("features_only" if args.layers == 0 else                          # D6: no message passing -> not a graphsage row
+           ("graphsage_walk" if args.positives == "walk" else "graphsage_edge") + ("" if args.agg == "mean" else f"_{args.agg}")
            + ("" if args.features == "all" else f"_feat_{args.features}"))   # each ablation writes its own files
     virtual = args.virtual or f"output/notebook2_create_vir_graph/virtual_graphs/{ds}/k{args.k}/{args.sim}/virtual_graph.edgelist"
     output = args.output or f"output/notebook3_gnn_encoder/node_classification/{ds}/k{args.k}/{args.sim}/{tag}_s{args.seed}.emb"
@@ -138,7 +142,8 @@ def main(args):
     V.add_nodes_from(G.nodes)                                  # edgelists omit isolated nodes -> restore the full node set
     enc = SageEncoder(G, V, args.seed, hidden=args.hidden, dimensions=args.dimensions, layers=args.layers,
                       agg=args.agg, feats=args.features)
-    enc.train(args.epochs, lr=args.lr, negatives=args.negatives, positives=args.positives)
+    if args.layers:                                            # D6 (layers=0): the features are the embedding, nothing to train
+        enc.train(args.epochs, lr=args.lr, negatives=args.negatives, positives=args.positives)
     print(f"virgo-sage | sim={args.sim} k={args.k} positives={args.positives} agg={args.agg} feats={args.features} "
           f"seed={args.seed} -> {enc.save(output)}")
 
@@ -160,7 +165,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.01, help='Adam learning rate. Default 0.01.')
     parser.add_argument('--hidden', type=int, default=64, help='Hidden width. Default 64.')
     parser.add_argument('--dimensions', type=int, default=64, help='Embedding size (matches I2V). Default 64.')
-    parser.add_argument('--layers', type=int, default=2, help='GraphSAGE layers. Default 2.')
+    parser.add_argument('--layers', type=int, default=2,
+                        help='GraphSAGE layers (ablation C depth 1-3; 0=D6 features-only, no message passing). Default 2.')
     parser.add_argument('--negatives', type=int, default=5, help='Negatives per positive (matches Word2Vec negative=5). Default 5.')
     parser.add_argument('--positives', default='edge', choices=['walk', 'edge'],
                         help='Ablation A: edge=A2 direct virtual edges (winner, default), walk=A1 walk co-occurrence (bridge-comparable).')
