@@ -25,7 +25,7 @@ def read_edgelist(path):
     edges = set()
     for line in open(path):
         if line.strip():
-            a, b = map(int, line.split()[:2])
+            a, b = map(int, line.replace(",", " ").split()[:2])   # some networkrepository edgelists are comma-delimited (proteins)
             edges.add(tuple(sorted((a, b))))
     return edges
 
@@ -168,6 +168,29 @@ def make_enzymes():
         "https://nrvis.com/download/data/labeled/ENZYMES.zip", "ENZYMES.edges", "ENZYMES.node_labels")
 
 
+# Builds Proteins labels + a whitespace copy of the comma-delimited author edgelist, both from the same networkrepository source.
+def make_proteins():
+    """input/proteins.edgelist is comma-delimited (every reader here expects whitespace) -> rebuild graph+labels from its own source; ids align by construction."""
+    edges_txt, labels_txt = _fetch_nr(
+        "https://nrvis.com/download/data/labeled/PROTEINS.zip", "proteins.edges", "proteins.node_labels")
+    edges = sorted(_parse_edges(edges_txt))
+    labels = [ln.split(",")[-1].strip() for ln in labels_txt.splitlines()
+              if ln.strip() and not ln.startswith("%")]           # PROTEINS ships "node_id,label"; ENZYMES ships a bare label per line
+    overlap = len(set(edges) & read_edgelist("input/proteins.edgelist")) / len(edges)
+    print(f"proteins: source_nodes={len(labels)} classes={len(set(labels))} edge_overlap={overlap:.4f}")
+    assert overlap == 1.0, f"source != input/proteins.edgelist (overlap {overlap:.4f}); refusing to write unverified labels"
+    Path("input").mkdir(exist_ok=True)
+    with open("input/proteins_nr.edgelist", "w") as f:            # author file untouched: the copy only swaps commas for spaces
+        for u, v in edges:
+            f.write(f"{u} {v}\n")
+    Path("labels").mkdir(exist_ok=True)
+    with open("labels/proteins_nr.labels", "w") as f:
+        for node_id, lab in enumerate(labels, start=1):
+            f.write(f"{node_id} {lab}\n")
+    print(f"WROTE input/proteins_nr.edgelist ({len(edges)} edges) + labels/proteins_nr.labels ({len(labels)} nodes)")
+    return "proteins_nr"
+
+
 # Politics node-class labels are unavailable for input/politics.edgelist (rt-pol): no verifiable same-dataset source. STOPs (LP-only).
 def make_politics():
     """rt-pol ships no labels; the original Conover retweet source is offline/unmappable -> NO fabrication. NC unavailable, LP still works."""
@@ -201,9 +224,9 @@ def ensure_labels(dataset):
         print("Label file already exists:", path)
         return path
 
-    if dataset in ("enzymes", "politics"):                       # networkrepository: verify-or-fall-back to <name>_nr
+    if dataset in ("enzymes", "politics", "proteins"):           # networkrepository: verify-or-fall-back to <name>_nr
         return f"labels/{_ensure_nr(dataset)}.labels"
-    if dataset in ("enzymes_nr", "politics_nr"):
+    if dataset in ("enzymes_nr", "politics_nr", "proteins_nr"):
         return f"labels/{_ensure_nr(dataset[:-3])}.labels"
 
     if dataset in {"cora", "citeseer"}:
@@ -235,17 +258,19 @@ _VERSIONS = {
     "enzymes":        ("enzymes", "orig", "enzymes"),            # networkrepository ids expected to align
     "enzymes_nr":     ("enzymes", "nr", "enzymes_nr"),           # self-aligned fallback if they don't
     "politics":       ("politics", "orig", "politics"),          # rt-pol; no verifiable labels -> link-pred only
+    "proteins":       ("proteins", "nr", "proteins_nr"),         # author edgelist is comma-delimited -> the rebuilt whitespace pair is the only safe version
+    "proteins_nr":    ("proteins", "nr", "proteins_nr"),
 }
 
 
 # Ensures networkrepository labels exist; returns the version actually aligned ('<name>' or '<name>_nr').
 def _ensure_nr(name):
-    """Build/verify enzymes|politics labels; return the safe version name."""
+    """Build/verify enzymes|politics|proteins labels; return the safe version name."""
     if os.path.exists(f"labels/{name}.labels"):
         return name
     if os.path.exists(f"labels/{name}_nr.labels"):
         return f"{name}_nr"
-    return {"enzymes": make_enzymes, "politics": make_politics}[name]()   # builds + returns the aligned version
+    return {"enzymes": make_enzymes, "politics": make_politics, "proteins": make_proteins}[name]()   # builds + returns the aligned version
 
 
 # One call to resolve + build a dataset: returns base/version/safe + edge/label paths. Author files stay untouched.
@@ -257,7 +282,7 @@ def prepare_dataset(name):
     base, version, safe = _VERSIONS[name]
     if name == "citeseer":                                      # author graph = paper's own file, no aligned labels -> link-pred only
         print("Using author 'citeseer' graph (paper's own file) -> link prediction only (no aligned labels).")
-    elif name in ("enzymes", "politics"):                       # may resolve to the self-aligned <name>_nr version
+    elif name in ("enzymes", "politics", "proteins"):           # may resolve to the self-aligned <name>_nr version
         safe = _ensure_nr(name)
         base, version, _ = _VERSIONS[safe]
     else:
