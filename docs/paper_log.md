@@ -341,3 +341,48 @@ Locked encoder `graphsage_edge` (= A2 + B0 + C2 + D0) vs the DeepWalk bridge; K=
 3. **D4 on cora not run.** Given the inversion, the random-feature control may read differently there; do not extrapolate.
 4. **Scale:** 2 datasets, 3 seeds, K=10, cosine LP throughout; no per-dataset encoder tuning (locked from enzymes); baselines used as published, not fine-tuned (scope guard).
 5. **A2 side-effect:** the one-component Phase-2-vs-Phase-3 comparison is only valid under A1.
+
+## 2026-07-17 — Proteins added as a third study dataset (provenance + properties)
+
+**Source and verification.** Proteins (networkrepository `PROTEINS`, nrvis.com/download/data/labeled/PROTEINS.zip). Graph and node labels are taken from the **same** archive member set (`proteins.edges` + `proteins.node_labels`), so node ids align by construction. The repo's pre-existing `input/proteins.edgelist` is **md5-identical** to the archive's `proteins.edges`; the rebuilt graph was checked against it at **edge overlap = 1.0000** before any label file was written. No labels were inferred or fabricated (same policy that keeps politics link-prediction-only).
+
+**Graph properties** (`input/proteins_nr.edgelist`): **43,466 nodes / 81,044 edges**, mean degree 3.73, max degree 25, no self-loops, **1,195 connected components, largest component 620 nodes** — a disjoint union of many small protein graphs, i.e. structurally the *same family as enzymes* (19,474 nodes / 640 components), at ~2.2× the scale.
+
+**Labels:** 3 classes, heavily imbalanced — 21,151 / 20,931 / 1,389 (the minority class is 3.2% of nodes). 43,471 label lines vs 43,466 graph nodes: 5 ids carry a label but no edge; `eval_nodeclass.evaluate` intersects on nodes present in the embedding, so they drop out. Enzymes has the identical situation (19,580 labels vs 19,474 nodes) — no new handling.
+- *Implication for reporting:* with a 3.2% minority class, **weighted F1 is majority-dominated**; a trivial two-class predictor already scores well. Report macro F1 alongside weighted for proteins, or the NC numbers will overstate.
+
+**Why this dataset earns its place in the study.** The E-story so far rests on two datasets that disagree (enzymes: role graphs + GNN win; cora: DeepWalk + original graph landslide), which makes "it depends on the data" a two-point claim. Proteins is a *same-family replicate of enzymes* — if role graphs win on proteins too, the enzymes result generalizes to the graph family rather than to one dataset, which is the weakest link in the current per-data thesis.
+
+**Expected caveat, recorded before the run** (so it is not a post-hoc excuse): eigenvector centrality is degenerate on proteins — **76.9% of nodes < 1e-6**, driven by the 1,195 components. Enzymes is worse (96.9%). The `centrality` variant is therefore built on a near-constant signature on both, and any `centrality` result on proteins should be read as such, not as evidence that centrality-based rewiring works.
+
+**Status:** wiring only — config, label builder, registries, and a build smoke test (psi/degree/centrality all build at K=10, 0 isolated nodes). **No proteins scores exist yet**; the virtual graphs, LP splits, DeepWalk bridge and GraphSAGE runs are unrun.
+
+## 2026-07-17 — The `degree` virtual-graph variant degenerates into a star on tie-heavy graphs (measured)
+
+**Finding.** The `degree` variant does not build a role graph on proteins. It builds a **star centred on ~10 arbitrary low-id nodes**. Measured on `proteins` K=10:
+
+| variant | edges | max virtual degree | Σdeg² (drives node2vec runtime) | DeepWalk time / seed |
+|---|---|---|---|---|
+| psi | 250,223 | 91 | 6.03e6 | **2m23s** |
+| centrality | 249,794 | 79 | 5.96e6 | ~2m |
+| hybrid | 327,456 | 93 | 1.02e7 | ~3m |
+| original | 81,044 | 25 | 6.62e5 | ~1m |
+| **degree** | 434,111 | **14,644** | **4.89e9** | **~2h27m** |
+
+**Mechanism** (`virtual_graph.py:67-79`). The `degree` signature is a **1-D integer**. Proteins has **43,466 nodes but only 16 distinct degree values** (range 1–25); **14,645 nodes share degree 3**. Every one of those nodes is at **distance exactly 0** from every other, so `NearestNeighbors.kneighbors` breaks the tie by **index order** and returns the *same* ~11 low-id nodes for all 14,645 queries. `V.add_edge` symmetrises, so those few nodes absorb an edge from every member of the tie group → verified: node 1 has virtual degree **14,644**, base degree 3, and **100% of its 14,644 virtual neighbours have base degree exactly 3**. Top-5 virtual degrees are all 14,644, all base-degree 3.
+
+**Why the checks missed it.** The `added >= k` cap bounds only a node's *outgoing* picks; *incoming* picks are unbounded. Notebook 2 §4 asserts `min(degree) >= K` and never inspects the maximum — a star passes every constraint in the report.
+
+**This is not proteins-only — it scales with tie density, and it already affects a published row:**
+
+| dataset | nodes | distinct base degrees | max virtual degree (`degree`, K=10) | Σdeg² |
+|---|---|---|---|---|
+| cora | 2,708 | 37 | 582 | 1.16e7 |
+| enzymes | 19,474 | **9** | **6,724** | 9.92e8 |
+| proteins | 43,466 | 16 | **14,644** | 4.89e9 |
+
+⚠️ **Threat to an existing claim.** `degree` currently **wins enzymes node classification (F1 0.5136, the best of the five variants)** — and the enzymes `degree` graph has a 6,724-degree hub from the same defect. That number is therefore **not evidence that degree-based role rewiring works**; it is a score obtained on a star graph whose hubs were selected by node id. The E-ablation `degree` arm on **both** enzymes and proteins must be re-read in this light, and the enzymes NC winner is in question.
+
+**Interpretation.** Tie-breaking by index makes the graph a function of **node id**, which carries no structural meaning — and in proteins the ids are ordered by protein membership, so every degree-3 node in the dataset is wired to a handful of nodes from the *first* protein. Random tie-breaking would still be arbitrary per-edge but would spread degree ≈ 2K with no hub, keeping the construction's intent ("connect to K role-similar nodes") intact. `psi` and `centrality` are continuous-valued and do not tie at scale, which is exactly why their max degree stays at ~90.
+
+**Status:** measured and recorded; **no fix applied and no result recomputed** — deliberate, pending a decision on tie handling. Runtime is the visible symptom (the ~810× Σdeg² gap = 2h27m vs 2m23s per DeepWalk seed), but the validity problem is the reason this matters.

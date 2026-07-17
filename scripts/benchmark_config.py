@@ -28,6 +28,8 @@ DATASETS = {
     "politics": {"edgelist": INPUT_DIR / "politics.edgelist", "labels": None},  # rt-pol ships no labels -> link-pred only (no verifiable NC source)
     "enzymes":  {"edgelist": INPUT_DIR / "enzymes.edgelist",  "labels": LABELS_DIR / "enzymes.labels"},  # labels built+verified by make_labels.make_enzymes
     "enzymes_nr": {"edgelist": INPUT_DIR / "enzymes_nr.edgelist", "labels": LABELS_DIR / "enzymes_nr.labels"},  # aligned fallback if enzymes ids mismatch
+    "proteins": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # author input/proteins.edgelist is comma-delimited -> make_labels.make_proteins rebuilds a whitespace copy + labels from the same source (edge overlap 1.0)
+    "proteins_nr": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # explicit alias: same rebuilt pair
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
