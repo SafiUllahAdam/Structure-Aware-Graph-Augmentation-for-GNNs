@@ -1,5 +1,6 @@
 """Single source of truth: paths, dataset registry, I2V hyperparameters, reproduction defaults."""
 
+import sys
 from pathlib import Path
 
 # Project root = one level above scripts/. Everything else is derived from it.
@@ -25,7 +26,7 @@ DATASETS = {
     "cora":     {"edgelist": INPUT_DIR / "cora.edgelist",     "labels": LABELS_DIR / "cora.labels"},
     "citeseer": {"edgelist": INPUT_DIR / "citeseer.edgelist", "labels": None},  # author's own graph (paper's file) -> link-pred only, no aligned labels
     "citeseer_linqs": {"edgelist": INPUT_DIR / "citeseer_linqs.edgelist", "labels": LABELS_DIR / "citeseer_linqs.labels"},  # aligned (graph+labels from LINQS)
-    "politics": {"edgelist": INPUT_DIR / "politics.edgelist", "labels": None},  # rt-pol ships no labels -> link-pred only (no verifiable NC source)
+    "politics": {"edgelist": INPUT_DIR / "politics.edgelist", "labels": None, "directed_source": True},  # rt-pol ships no labels -> link-pred only; retweet = DIRECTED relation, loaded undirected (recorded deviation)
     "enzymes":  {"edgelist": INPUT_DIR / "enzymes.edgelist",  "labels": LABELS_DIR / "enzymes.labels"},  # labels built+verified by make_labels.make_enzymes
     "enzymes_nr": {"edgelist": INPUT_DIR / "enzymes_nr.edgelist", "labels": LABELS_DIR / "enzymes_nr.labels"},  # aligned fallback if enzymes ids mismatch
     "proteins": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # author input/proteins.edgelist is comma-delimited -> make_labels.make_proteins rebuilds a whitespace copy + labels from the same source (edge overlap 1.0)
@@ -71,6 +72,11 @@ D_FEATURES = {
     "const":    ("D5 constant",  "identical rows -> z-norm zeros - floor, expect AUC ~ 0.50"),
     "none_mp":  ("D6 features only", "raw features, no message passing (layers=0) - control: features alone"),
 }
+
+# THE graph policy (defined in graph_io.py, the module that owns graph semantics) re-exported so config lives at one import.
+# How every stage treats ANY dataset: self-loops, directed sources, centrality mode, signature ties, LP negatives.
+sys.path.insert(0, str(PROJECT_ROOT))
+from graph_io import GRAPH_POLICY, I2V_BASELINE_POLICY   # noqa: E402  (path must be set first)
 
 # Reproduction defaults — fixed for every run so results are repeatable.
 REPRO = {

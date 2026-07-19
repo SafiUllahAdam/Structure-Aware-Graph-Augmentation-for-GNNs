@@ -8,17 +8,19 @@ from pathlib import Path
 import numpy as np
 import networkx as nx
 from scipy.special import gammaln
-from sklearn.neighbors import NearestNeighbors
 
+import graph_io
 import identity2vec_cached
 
 
 class VirtualGraph():
     '''Connects each node to its top-K structurally most-similar nodes under a chosen similarity.'''
 
-    def __init__(self, nx_Graph, e=2.7182):
+    def __init__(self, nx_Graph, e=2.7182, seed=42, policy=None):
+        self.seed = seed                                     # ties are sampled, not ordered -> the build needs a seed
+        self.policy = graph_io.policy_of(policy)             # centrality mode + tie tolerance come from THE graph policy
         self.G = nx_Graph
-        self.core = identity2vec_cached.Graph(nx_Graph, e)   # cached degree / Δ / eigenvector centrality (computed once)
+        self.core = identity2vec_cached.Graph(nx_Graph, e, per_component=self.policy["centrality"] == "per_component")
 
     # Reference-free I2V identity score: KL(Δ_neigh || Ω_neigh) -> Poisson, dropping the walk shortest-path term.
     def psi_signature(self, node, neigh_map, deg_dist, ev, deg):
@@ -66,36 +68,62 @@ class VirtualGraph():
             return V
         nodes, X = self.signatures(sim)
         k = min(k, len(nodes) - 1)
-        nn = NearestNeighbors(n_neighbors=k + 1).fit(X)       # +1: the nearest match is the node itself
-        dist, idx = nn.kneighbors(X)
+        n = len(nodes)
+        vals = X[:, 0]
+        span = float(vals.max() - vals.min())
+        tol = self.policy["sig_tol"]
+        keys = np.round(vals / (span * tol)) if span > 0 else np.zeros(n)       # equal key = tied signature = interchangeable role
+        order = np.argsort(keys, kind='stable')               # tie classes contiguous, ordered by signature value
+        pos = np.empty(n, dtype=int)
+        pos[order] = np.arange(n)                             # where each node sits in that order
+        starts = np.flatnonzero(np.r_[True, keys[order][1:] != keys[order][:-1]])
+        ends = np.r_[starts[1:], n]
+        cls = np.searchsorted(starts, pos, side='right') - 1  # node -> its tie class
+        rng = np.random.default_rng(self.seed)
+
         V = nx.Graph()
         V.add_nodes_from(nodes)                               # keep ALL original nodes, even isolated ones -> none missing
         for i, node in enumerate(nodes):
-            added = 0
-            for j, d in zip(idx[i], dist[i]):
-                if j == i or added >= k:                      # skip self (no self-loops); cap at exactly K for fair comparison
-                    continue
-                V.add_edge(node, nodes[j], weight=1.0 / (1.0 + float(d)))   # similarity in (0,1], always finite
-                added += 1
+            lo, hi = int(starts[cls[i]]), int(ends[cls[i]])
+            picked = []
+            if hi - lo - 1 >= k:                              # class alone can fill K: members are tied, so "nearest" is undefined -> sample
+                seen = set()
+                while len(picked) < k:
+                    j = int(order[rng.integers(lo, hi)])
+                    if j != i and j not in seen:
+                        seen.add(j)
+                        picked.append(j)
+            else:                                             # class too small: take it all, then widen to the nearest signature values
+                picked = [int(j) for j in order[lo:hi] if j != i]
+                left, right = lo - 1, hi
+                while len(picked) < k:
+                    dl = abs(vals[order[left]] - vals[i]) if left >= 0 else np.inf
+                    dr = abs(vals[order[right]] - vals[i]) if right < n else np.inf
+                    if dl <= dr:
+                        picked.append(int(order[left])); left -= 1
+                    else:
+                        picked.append(int(order[right])); right += 1
+            for j in picked:                                  # exactly K per node, no self-loops
+                V.add_edge(node, nodes[j], weight=1.0 / (1.0 + abs(float(vals[i] - vals[j]))))   # similarity in (0,1], always finite
         assert V.number_of_nodes() == self.G.number_of_nodes(), "node set changed"
         assert np.all(np.isfinite([w for _, _, w in V.edges(data='weight')])), "non-finite edge weight"
         return V
 
 
-# Reads the input edgelist file into a networkx graph.
+# Reads the input edgelist file into a networkx graph (shared loader: one graph definition for every stage).
 def build_graph():
     '''Read input network.'''
-    return nx.read_edgelist(args.input, nodetype=int, create_using=nx.Graph())
+    return graph_io.load_graph(args.input)
 
 
 # Runs the whole pipeline: build graph -> build virtual graph -> save weighted edgelist.
 def main(args):
-    np.random.seed(args.seed)                                # build is deterministic; seed kept for API parity + reproducibility
+    np.random.seed(args.seed)                                # build is deterministic given the seed (tied signatures are sampled)
     if args.output is None:
         ds = Path(args.input).stem
         args.output = f"output/notebook2_create_vir_graph/virtual_graphs/{ds}/k{args.k}/{args.sim}/virtual_graph.edgelist"
     G = build_graph()
-    V = VirtualGraph(G, args.e).build(args.sim, args.k)
+    V = VirtualGraph(G, args.e, args.seed).build(args.sim, args.k)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)   # auto-create per-dataset subfolder
     nx.write_weighted_edgelist(V, args.output)               # "u v weight" -> readable by NetworkX & PyG
     isolated = sum(1 for _, d in V.degree if d == 0)

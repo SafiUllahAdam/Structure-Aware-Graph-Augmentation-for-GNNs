@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, GraphConv
 
+import graph_io
 from virtual_graph import VirtualGraph
 
 # Walk-corpus settings mirror I2V_PARAMS (scripts/benchmark_config.py) — the Phase-2 bridge corpus.
@@ -123,10 +124,10 @@ class SageEncoder():
         return out
 
 
-# Reads an edgelist file into a networkx graph.
+# Reads an edgelist file into a networkx graph (shared loader: one graph definition for every stage).
 def build_graph(path):
     '''Read input network.'''
-    return nx.read_edgelist(path, nodetype=int, create_using=nx.Graph())
+    return graph_io.load_graph(path)
 
 
 # Runs the whole pipeline: load original + virtual graph -> train ViRGo-SAGE -> save .emb.

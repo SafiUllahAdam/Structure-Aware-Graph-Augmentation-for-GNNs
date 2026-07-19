@@ -451,3 +451,42 @@ Project flow locked into 5 phases (Phase 1 done):
 - `cost` = `sum(d*d for _, d in virtual.degree())` — node2vec precomputes 2nd-order transition tables, so runtime tracks **Σdeg², not edge count**. Flags `<- SLOW` above 1e8. This is what makes `degree` 2h27m vs `psi` 2m23s per seed on proteins (see paper_log 2026-07-17: the degree variant degenerates into a star; the runtime is the symptom, the validity problem is the point).
 - **Kernel state at the time:** no ipykernel process alive — the run had already died mid-`degree` seed 43; the visible bar was a stale snapshot. `psi` s42/43/44 and `degree` s42 are on disk; nothing else.
 - **Not changed:** `embedding_models._RandomWalkModel` still calls node2vec with `p=q=1`. DeepWalk is first-order uniform, so the entire 2nd-order precompute is wasted work — a plain uniform walker would cut `degree` from hours to seconds. Left alone because it would shift the RNG stream and break comparability with every scoreboard row already recorded.
+
+## 2026-07-18 — Virtual-graph tie-break fix (`virtual_graph.py`)
+
+- **Bug:** 1-D signature + `sklearn.NearestNeighbors` = query-independent tie-break, so every node in a degree tie class got the same K winners → disjoint stars (enzymes hub 6,724; proteins 14,644; cora 582). Full analysis + invalidated results in `docs/paper_log.md` 2026-07-18.
+- **Fix:** dropped `NearestNeighbors`. Signatures quantized at `SIG_TOL = 1e-9 × spread` → exact-tie classes → each node samples K from its own class with a seeded RNG; classes smaller than K+1 widen outward to the nearest values (preserves old kNN semantics where signatures are near-unique, and the exact-K contract everywhere).
+- **`VirtualGraph.__init__` gained `seed=42`** (3rd positional arg, after `e`). Callers using `VirtualGraph(G)` are unaffected; `main()` passes `--seed`, notebook 2 passes `REPRO["seed"]`. Build is deterministic per seed, and differs across seeds by design.
+- **`graph_health.csv` gained `max_degree`** (notebook 2 `record_stats`) — `avg_degree` is blind to a star, which is why the defect survived 3 datasets. Existing rows lack the column until rebuilt.
+- Notebook 2 `embed()` warning reworded: it blamed "degree ties make a giant hub", now points at `max_degree`.
+- **`sklearn.neighbors` import removed** from `virtual_graph.py` (no longer used; sklearn is still a dep via the eval scripts).
+- Verified: all 5 variants × cora/enzymes pass the section-4 constraint report; notebook-3 train-virtual path (`VirtualGraph(Gt).build`) unaffected; rebuild with the same seed is byte-identical.
+- **Not done (needs a compute run, user-driven):** regenerating the virtual graphs, embeddings and scoreboard rows. Old artifacts left in place on purpose — deleting them would strand the scoreboard in a half-state.
+
+## 2026-07-18 — LP splits no longer restricted to the largest component (`prepare_linkpred.py`)
+
+- **Bug:** `build_graph()` returned `G.subgraph(largest_connected_component)`. Enzymes LP ran on 125/19,474 nodes (17 test edges), proteins on 620/43,466. Analysis + superseded results in `docs/paper_log.md` 2026-07-18.
+- **Fix:** return the whole graph. `split_edges` needed no change — `nx.minimum_spanning_tree` yields a spanning forest on disconnected input, so per-component connectivity already held; comments/docstrings updated to say "forest".
+- Verified seeds 42 on cora/enzymes/proteins: 100% node coverage, test fraction exactly 30.0%, train component count == graph component count, no train/test overlap, negatives are real non-edges.
+- **All LP splits on disk are stale** (`splits/link_prediction/**`), cora included. Not deleted — regenerating is a user-driven run.
+- **Not fixed (deliberate, logged):** negatives are sampled uniformly across all pairs, so on many-component graphs they are mostly cross-component and inflate AUC. Left as-is for I2V comparability.
+- **Also noted, not fixed:** `split_edges` and `sample_non_edges` are both seeded with the same `seed` value — different draw types, so no direct collision, but the streams are correlated by construction.
+
+## 2026-07-18 — LP negatives sampled within-component (`prepare_linkpred.py`)
+
+- **Bug:** negatives drawn uniformly over all node pairs while positives are always within-component ⇒ enzymes/proteins negatives were 99.8-99.9% cross-component, so "same component?" alone separated the classes. Full analysis in `docs/paper_log.md` 2026-07-18.
+- **Fix:** `sample_non_edges(..., negatives='component')` is the new default — both endpoints from one component, component chosen with cumulative weights = exact within-component non-edge capacity (`n(n-1)/2 - m`), complete/1-node components skipped, assert if capacity < k.
+- **`negatives='uniform'` keeps the old protocol** (`--negatives uniform`), threaded through `prepare()`; Phase-1 numbers were made under `uniform` and must be regenerated with it.
+- Also: `sample_non_edges` now seeds with `seed + 1` (was reusing `split_edges`' seed — correlated streams).
+- Verified all 3 datasets both modes: 100% within-component under the default, 0 invalid pairs, 0 duplicates, deterministic.
+- Added stdlib `itertools` import. No new dependency.
+- **All LP splits stale again** (on top of the largest-CC fix). Expect enzymes/proteins AUC to fall — artefact removal, not regression.
+
+## 2026-07-18 — Per-component Omega + one graph policy
+
+- **`identity2vec_cached.Graph(..., per_component=)`**: Ω computed inside each component, clamped non-negative, rescaled to max=1. Default stays `False` = baseline-identical (Phase-1 / Deliverable #1 verified `True` after every change). `VirtualGraph` opts in via policy.
+- **`graph_io.py` (new)**: `GRAPH_POLICY` (self_loops / directed / centrality / sig_tol / lp_negatives) + `I2V_BASELINE_POLICY`, `policy_of()` (rejects unknown keys), `load_graph()` (auto delimiter, self-loops per policy), `properties()`, `check()` (+`strict`).
+- **Single reader**: `virtual_graph`, `encoder`, `prepare_linkpred` all call `graph_io.load_graph` — self-loop inconsistency is now structurally impossible. Verified identical graphs out of each.
+- `SIG_TOL` moved out of `virtual_graph.py` into the policy; `prepare_linkpred` negatives default to the policy; `benchmark_config` re-exports the policy (`sys.path` insert of PROJECT_ROOT, no circular import — `graph_io` imports nothing from config).
+- **Caught a false positive before shipping**: auto-detected directedness flagged proteins 81,044/81,044 (it counts storage format, not direction). Now declared per dataset — `politics.directed_source = True` — never inferred. `properties()` key renamed `asymmetric_edges` → `single_direction_edges` to stop implying direction.
+- Notebooks NOT wired to `check()` yet (notebook 2 was mid-run).

@@ -10,8 +10,9 @@ import identity2vec
 class Graph(identity2vec.Graph):
     """Drop-in Graph that caches the structural signals the baseline recomputes per step."""
 
-    def __init__(self, nx_Graph, e):
+    def __init__(self, nx_Graph, e, per_component=False):
         super().__init__(nx_Graph, e)
+        self.per_component = per_component   # False = baseline-identical global Ω (Phase-1 repro); True = per-component Ω (see eigenvector_centrality)
         self._deg = None
         self._deg_dist = None
         self._ev = None
@@ -43,9 +44,30 @@ class Graph(identity2vec.Graph):
         return self._deg_dist
 
     # Eigenvector centrality, computed once (deterministic power iteration).
+    # per_component: Ω is a GLOBAL eigenvector, so on a disjoint union it is supported only on the component with the
+    # largest spectral radius and every other component underflows toward 0 (enzymes: 81.6% of nodes below 1e-12, min 1e-115).
+    # Computing it inside each component keeps Ω defined everywhere. Each component is then rescaled to max=1, so Ω reads
+    # "how central am I relative to my component's most central node" — comparable ACROSS components, which is what a role
+    # graph compares. NetworkX's own L2=1 normalization would instead make Ω depend on component SIZE (corr -0.92 on cora:
+    # a leaf in a 2-node fragment would outrank a real hub).
     def eigenvector_centrality(self):
         if self._ev is None:
-            self._ev = nx.eigenvector_centrality(self.G, max_iter=1000)
+            if not self.per_component:
+                self._ev = nx.eigenvector_centrality(self.G, max_iter=1000)
+                return self._ev
+            self._ev = {}
+            for c in nx.connected_components(self.G):
+                sub = self.G.subgraph(c)
+                if sub.number_of_edges() == 0:
+                    self._ev.update({n: 0.0 for n in c})          # isolated node: Ω undefined, no neighbors to borrow centrality from
+                    continue
+                try:
+                    ev = nx.eigenvector_centrality(sub, max_iter=1000)
+                except nx.PowerIterationFailedConvergence:
+                    ev = nx.eigenvector_centrality_numpy(sub)     # exact eigensolver fallback (bipartite/regular components)
+                ev = {n: max(0.0, v) for n, v in ev.items()}      # the eigensolver can return ~-1e-18; Ω is non-negative, and psi's q>0 test would drop those nodes
+                top = max(ev.values())
+                self._ev.update({n: v / top for n, v in ev.items()} if top > 0 else ev)   # rescale to max=1 per component
         return self._ev
 
     # Neighbor lists, looked up once; returns fresh copies because callers mutate them (skip_visited).
