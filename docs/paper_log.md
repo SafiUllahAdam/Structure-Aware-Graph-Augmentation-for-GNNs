@@ -386,3 +386,99 @@ Locked encoder `graphsage_edge` (= A2 + B0 + C2 + D0) vs the DeepWalk bridge; K=
 **Interpretation.** Tie-breaking by index makes the graph a function of **node id**, which carries no structural meaning — and in proteins the ids are ordered by protein membership, so every degree-3 node in the dataset is wired to a handful of nodes from the *first* protein. Random tie-breaking would still be arbitrary per-edge but would spread degree ≈ 2K with no hub, keeping the construction's intent ("connect to K role-similar nodes") intact. `psi` and `centrality` are continuous-valued and do not tie at scale, which is exactly why their max degree stays at ~90.
 
 **Status:** measured and recorded; **no fix applied and no result recomputed** — deliberate, pending a decision on tie handling. Runtime is the visible symptom (the ~810× Σdeg² gap = 2h27m vs 2m23s per DeepWalk seed), but the validity problem is the reason this matters.
+
+## 2026-07-18 — METHOD FIX: tie collapse in the top-K virtual-graph construction (invalidates prior `degree` and `centrality` results)
+
+**The defect.** `virtual_graph.py` gives every node a **1-D** structural signature (`signatures()` returns an `(N, 1)` matrix) and connects it to its top-K nearest nodes via `sklearn.NearestNeighbors`. For the `degree` variant that signature is a single integer, and real graphs have very few distinct degrees: **enzymes has 9 distinct degrees across 19,474 nodes; proteins has 16 across 43,466.** Thousands of nodes are therefore *exactly coincident points* at distance 0, and "top-K nearest" is **ill-posed** — there is no nearest neighbour to find.
+
+`NearestNeighbors` resolved these ties **deterministically and query-independently**: every member of a tie class received the *same* K winners (the first K in the BallTree's internal layout — verified *not* node-id order). The resulting graph is not a role graph but a set of **disjoint stars**:
+
+| dataset | tie class | class size | virtual hub degree (K=10 requested) |
+|---|---|---|---|
+| enzymes | degree = 4 | 6,725 | **6,724** |
+| proteins | degree = 3 | 14,645 | **14,644** |
+| cora | — | — | **582** |
+
+Measured on enzymes: 19,392 of 19,474 nodes had virtual degree exactly 10, while **70 nodes (7 classes × 10 winners)** absorbed everything. All of a class's information was routed through 10 arbitrary representatives — a severe message-passing bottleneck and an artefact of the tie-break, not of structural role.
+
+**A second, quieter instance.** `centrality` showed no hub (max degree 23) but **89.1% of its enzymes virtual edges had distance < 1e-12**, median distance exactly 0.0: eigenvector centrality is degenerate there (96.9% of nodes < 1e-6), so neighbour selection was driven by **float noise** below any meaningful precision.
+
+**The fix (implemented).** Tied signatures mean the nodes are *genuinely interchangeable under that role definition*, so the principled operation is to **sample, not to order**:
+1. Quantize signatures to `SIG_TOL = 1e-9 × spread` so noise-level differences collapse into exact ties (this is what makes `centrality` well-posed).
+2. Group nodes into exact-tie classes; each node draws K neighbours **uniformly at random from its own class**, via a `seed`-derived RNG (`VirtualGraph(..., seed=42)`).
+3. If a class holds fewer than K+1 members, take it whole and widen outward to the nearest signature values — so `psi`-like near-unique signatures keep the original nearest-neighbour semantics and the exact-K contract holds for every variant.
+
+**Effect.** Enzymes degree max virtual degree **6,724 → 36**; proteins **14,644 → 35**; cora **582 → 30**. Mean degree ≈ 2K with a tight spread, zero isolates, all construction rules pass. Build is deterministic across reruns and genuinely varies with the seed.
+
+**Side effect — this was also a compute bug.** DeepWalk/node2vec cost tracks `sum(deg²)`. Enzymes degree: 9.92e8 → 7.95e6 (**125× cheaper**); proteins: 4.89e9 → 1.78e7 (**275× cheaper**). The proteins `degree` run had been abandoned after 26 minutes at 26% of a single seed.
+
+**Results invalidated — must be regenerated.** Jaccard overlap between the old saved graphs and the corrected builds:
+
+| dataset | psi | degree | centrality | hybrid |
+|---|---|---|---|---|
+| cora | 0.824 | **0.047** | 0.765 | 0.864 |
+| enzymes | 0.984 | **0.004** | **0.029** | 0.988 |
+
+Every variant except `original` changed. **All non-`original` scoreboard rows are stale**, most critically the two enzymes E-study headlines: **NC `degree`+`graphsage_edge` = 0.5536** (Table 1 winner) and **LP `centrality`+`deepwalk` = 0.7382**. Neither is currently valid evidence. The cora `hybrid`/`psi` winners moved less but still changed and must be rerun before quoting.
+
+**Why `graph_health.csv` did not catch it.** It logged `avg_degree`, `components`, `isolates` — enzymes degree K=10 read `avg_degree 19.95, isolates 0, components 8`, which looks healthy, because **a star has a perfectly normal mean degree**. A `max_degree` column has been added; the detector is max/skew, never the mean.
+
+**Paper framing.** State this as a methodological point, not an erratum: *for a low-cardinality structural signature, top-K nearest-neighbour selection is ill-posed, and any deterministic tie-break silently manufactures hub artefacts.* Sampling within the tie class is the correct definition of the construction, and the `degree` variant is precisely the case where the signature is coarsest. Whether `degree` still wins enzymes NC after the fix is **open** — the star may have been hurting it.
+
+## 2026-07-18 — METHOD FIX 2: link-prediction splits were restricted to the largest connected component
+
+**The defect.** `prepare_linkpred.build_graph()` ended with `largest = max(nx.connected_components(G), key=len); return G.subgraph(largest).copy()`. Every link-prediction split — train edges, test positives, negatives — was therefore drawn from **one component only**. On a connected graph that is harmless; on the disjoint-union datasets central to this study it discards almost the entire dataset:
+
+| dataset | full graph | largest component | LP actually covered | test positives (seed 42) |
+|---|---|---|---|---|
+| cora | 2,708 nodes | 2,485 | 91.8% | 1,521 |
+| enzymes | 19,474 nodes | **125** | **0.6%** | **17** |
+| proteins | 43,466 nodes | **620** | **1.4%** | 315 |
+
+**Enzymes link prediction was measured on 125 of 19,474 nodes with 17 held-out positive edges.** An AUC over ~17 positives moves in steps of roughly 0.06 and carries enormous variance, so the recorded enzymes LP numbers — including the E-study headline **`centrality`+`deepwalk` = 0.7382** — describe a 125-node fragment, not the dataset. Node classification always used the full graph, so **NC and LP were never measured on the same node set**, and any per-dataset comparison between the two tasks was invalid.
+
+**The fix.** `build_graph` now returns the whole graph (self-loops still dropped). No other change was needed: `nx.minimum_spanning_tree` returns a spanning **forest** on disconnected input, so the existing "spanning-tree edges stay in train" rule already preserves connectivity *per component* — no component can be split off by the holdout.
+
+**Verified after the fix** (seeds 42, all three datasets): split covers 100% of nodes; test fraction exactly 30.0%; train component count equals graph component count (nothing disconnected); no train/test edge overlap; negatives are genuine non-edges with no self-pairs. Enzymes test positives **17 → 11,185**; proteins **315 → 24,313**; cora **1,521 → 1,583**.
+
+**Consequence.** Every LP number ever recorded is superseded, cora included (its split changes too, 91.8% → 100%). This is independent of the tie-break fix: it lives in the split code, so it affects all LP results regardless of virtual-graph variant or encoder. LP splits must be regenerated before any LP result is quoted.
+
+**Known remaining caveat (not fixed, state in the paper).** `sample_non_edges` draws negatives uniformly at random from all node pairs. On graphs with many components (enzymes 640, proteins 1,195) a random pair is almost always cross-component while every positive is within-component, so "same component?" alone is a strong predictor and AUC is inflated. This is the standard protocol and was left unchanged for comparability with I2V, but LP AUC on disjoint-union datasets should be read as an optimistic bound. A within-component negative sampler would be the stricter alternative.
+
+## 2026-07-18 — METHOD FIX 3: link-prediction negatives are now sampled within a component
+
+**The defect.** `sample_non_edges` drew negative pairs uniformly from all node pairs. Test **positives are within-component by construction** (an edge cannot cross components), so on a many-component graph the two classes were separable by a rule that has nothing to do with link structure:
+
+| dataset | components | negatives that were within-component (old) | positives |
+|---|---|---|---|
+| cora | 78 | 84.2% | 100% |
+| enzymes | 640 | **0.1%** | 100% |
+| proteins | 1,195 | **0.2%** | 100% |
+
+On enzymes and proteins, **99.8-99.9% of negatives were cross-component**, so a classifier answering only "are these two nodes in the same component?" separates the classes almost perfectly. Every LP AUC on those datasets was dominated by component membership rather than by the structural signal under study — which is exactly the quantity the virtual-graph comparison is supposed to isolate.
+
+**The fix.** `sample_non_edges(..., negatives='component')` is now the default: both endpoints are drawn from the *same* connected component, so a negative pair is as hard as a real edge and the "same component?" shortcut carries zero information. Component choice is weighted by each component's **exact count of available non-edges** (`n(n-1)/2 - m`, accumulated into cumulative weights), which makes the draw uniform over all within-component non-edges rather than biased toward large components; components that are complete or single-node are excluded since they offer no non-edge. An assert fires if within-component capacity is below the requested count, pointing at `negatives='uniform'`.
+
+`negatives='uniform'` retains the old behaviour and is exposed as `--negatives uniform`, so the **Phase-1 / I2V protocol stays reproducible** — Phase-1 numbers were produced under `uniform` and must be regenerated with `uniform` if ever re-run.
+
+**Verified** (cora / enzymes / proteins, seed 42, both modes): negatives 100% within-component under the new default, zero invalid pairs (no real edges, no self-pairs), zero duplicates, deterministic across repeated calls.
+
+**Secondary fix in the same function.** `sample_non_edges` was seeded with the *same* value as `split_edges`; it now uses `seed + 1` so the two draws are independent streams rather than correlated by construction.
+
+**Consequence.** Combined with the largest-component fix, **all LP splits and therefore all LP results are superseded**, cora included. Expect measured AUC to *drop* on enzymes and proteins — that is the artefact being removed, not a regression. Because the old protocol made the task partly trivial, any previous claim that a virtual-graph variant "wins link prediction" on those datasets carries no weight until rerun.
+
+## 2026-07-18 — METHOD FIX 4 + unified graph policy
+
+**Omega per component, rescaled to max=1.** I2V's Ω is a *global* eigenvector, so on a disjoint union it is supported only on the component with the largest spectral radius and every other component underflows: enzymes reached **1.2e-115**, with **96.9%** of nodes below 1e-6 and 81.6% below 1e-12. That is power-iteration underflow, not centrality. It contaminated more than the `centrality` variant — psi's `q` term *is* Ω, so on enzymes psi correlated **+0.51 with log₁₀ Ω** versus only +0.25 with degree, i.e. psi tracked numerical underflow depth more strongly than structure. (On cora, psi correlated −0.80 with degree — behaving as intended — which is why this never surfaced.)
+
+Ω is now computed inside each connected component. Degenerate share: enzymes 96.9% → **0.2%**, proteins 76.9% → **3.0%**, cora 17.9% → 8.2%. A numerical guard was added: the eigensolver fallback returned values like −8.6e-18, and psi's `q > 0` test would have silently dropped those nodes.
+
+Each component is then rescaled to **max = 1**, so Ω reads "centrality relative to my component's most central node". Under NetworkX's native L2 = 1 the *scale* depended on component size (a 2-node fragment's nodes got 0.707, the maximum possible, while a 2,485-node component's hub got ~0.35), making cross-component comparison meaningless — and cross-component comparison is exactly what a role graph does.
+
+**Honest limitation.** Max-normalization does **not** remove the correlation between Ω and component size (cora −0.92 → −0.94). Measured means by component size on cora: size 2485 → mean Ω 0.008; size 9 → 0.714; size 2 → 1.000. Every component's top node is 1.0 by construction, so in a 2-node component *both* nodes are maximally central — which is locally true, not an artefact. The consequence to state in the paper: **Ω partly encodes "am I in a fragment or in the giant component"**, strongly so on cora. Max-normalization fixes the arbitrary scale distortion; the distributional effect is inherent to any per-component normalization.
+
+**Unified graph policy (`graph_io.GRAPH_POLICY`, re-exported as `benchmark_config.GRAPH_POLICY`).** All six cross-dataset decisions now live in one dict instead of four files: `self_loops`, `directed`, `centrality`, `sig_tol`, `lp_negatives`. `I2V_BASELINE_POLICY` names the Phase-1 contract (`centrality='global'`, `lp_negatives='uniform'`) under which Deliverable #1's byte-identical guarantee is valid — verified still `True` after every change. Unknown policy keys raise rather than being silently ignored.
+
+`graph_io.load_graph()` is the single reader for every stage (splits, virtual graphs, encoder features), so they cannot disagree about the graph — verified `encoder.build_graph` and `prepare_linkpred.build_graph` return identical graphs. `graph_io.check()` reports the properties that silently broke earlier runs — disconnection, coarse degree signature, isolates — with `strict=True` converting them to a hard failure.
+
+**A false positive caught before it shipped.** The first version of `check()` inferred directedness by counting edges with no reverse edge, and flagged **proteins as 81,044/81,044 directed** — proteins is a molecular graph rebuilt from sorted unique pairs, i.e. undirected. The metric was measuring *storage format*: a normal undirected edgelist lists each edge once and is **indistinguishable from a directed one**. Directedness is now declared as dataset metadata (`DATASETS["politics"]["directed_source"] = True`, a retweet relation) and never guessed. Recorded because a warning that fires on every dataset trains its reader to ignore it.
