@@ -2,7 +2,7 @@
 
 import sys
 import numpy as np
-import networkx as nx
+import graph_io
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -13,7 +13,7 @@ emb_file, edge_file, out_png = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # Load the trained node embeddings and the original graph.
 kv = KeyedVectors.load_word2vec_format(emb_file)
-G = nx.read_edgelist(edge_file, nodetype=int)
+G = graph_io.load_graph(edge_file)   # shared loader: the degree colouring must match the graph every other stage saw
 
 # Stack every node's vector into a matrix and subtract the mean so the data is centered at zero.
 X = np.array([kv[k] for k in kv.index_to_key])

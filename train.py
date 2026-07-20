@@ -4,7 +4,8 @@ Email: muhammadsafi2299@gmail.com
 '''
 
 import argparse
-from gensim.models import Word2Vec 
+from gensim.models import Word2Vec
+import graph_io
 import identity2vec
 import identity2vec_cached
 import networkx as nx
@@ -66,7 +67,7 @@ def parse_args():
 def build_graph():
     '''Read input network'''
     
-    G = nx.read_edgelist(args.input, nodetype=int, create_using=nx.Graph())
+    G = graph_io.load_graph(args.input)   # shared loader: same delimiter + self-loop policy as splits and virtual graphs
     for e in G.edges:
         G.edges[e]['weight'] = 1 
         

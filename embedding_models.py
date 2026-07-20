@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import networkx as nx
+import graph_io
 
 _ROOT = Path(__file__).resolve().parent
 
@@ -41,7 +41,7 @@ class _RandomWalkModel(EmbeddingModel):
 
     def train(self, edgelist, out_emb, seed, params):
         from node2vec import Node2Vec
-        G = nx.read_edgelist(str(edgelist), nodetype=int, create_using=nx.Graph())
+        G = graph_io.load_graph(str(edgelist))     # shared loader: one graph definition for every model
         n2v = Node2Vec(G, dimensions=params["dimensions"], walk_length=params["walk_length"],
                        num_walks=params["num_walks"], p=self.p, q=self.q, workers=1, seed=seed, quiet=False)
         model = n2v.fit(window=params["window_size"], min_count=0, sg=params["sg"],
@@ -75,7 +75,7 @@ class Struc2VecModel(EmbeddingModel):
         pdir = src.parent / "pickles"                                # struc2vec caches distances/walks under FIXED names here
         shutil.rmtree(pdir, ignore_errors=True); pdir.mkdir(parents=True, exist_ok=True)   # clear so each graph is fresh (no cross-dataset reuse)
         (src / "random_walks.txt").unlink(missing_ok=True)
-        n_nodes = nx.read_edgelist(str(edgelist), nodetype=int).number_of_nodes()
+        n_nodes = graph_io.load_graph(str(edgelist)).number_of_nodes()
         opt = "True" if n_nodes > 10000 else "False"   # exact struc2vec on small graphs (cora/citeseer/webkb); optimizations only for large (enzymes ~19.5k -> memory)
         cmd = [sys.executable, str(src / "main.py"),
                "--input", str(Path(edgelist).resolve()), "--output", str(Path(out_emb).resolve()),

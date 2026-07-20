@@ -99,10 +99,12 @@ class VirtualGraph():
                 while len(picked) < k:
                     dl = abs(vals[order[left]] - vals[i]) if left >= 0 else np.inf
                     dr = abs(vals[order[right]] - vals[i]) if right < n else np.inf
-                    if dl <= dr:
-                        picked.append(int(order[left])); left -= 1
-                    else:
-                        picked.append(int(order[right])); right += 1
+                    c = int(cls[order[left if dl <= dr else right]])   # widen a WHOLE tie class at a time, never one index at a time:
+                    a, b = int(starts[c]), int(ends[c])               # its members are equidistant, so pick among them by sampling
+                    cand = [int(j) for j in order[a:b] if j != i]
+                    need = k - len(picked)
+                    picked += cand if len(cand) <= need else [cand[j] for j in rng.choice(len(cand), need, replace=False)]
+                    left, right = (a - 1, right) if dl <= dr else (left, b)
             for j in picked:                                  # exactly K per node, no self-loops
                 V.add_edge(node, nodes[j], weight=1.0 / (1.0 + abs(float(vals[i] - vals[j]))))   # similarity in (0,1], always finite
         assert V.number_of_nodes() == self.G.number_of_nodes(), "node set changed"
