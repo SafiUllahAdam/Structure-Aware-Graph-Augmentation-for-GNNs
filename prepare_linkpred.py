@@ -39,7 +39,9 @@ def split_edges(G, test_frac, seed):
     n_test = min(int(round(test_frac * G.number_of_edges())), len(removable))
     test_pos = removable[:n_test]
     train_pos = list(tree) + removable[n_test:]
-    return [tuple(sorted(e)) for e in train_pos], [tuple(sorted(e)) for e in test_pos]   # clean sorted 2-tuples
+    # sorted, not set-iteration order: the written row order decides node insertion order downstream, so it must not
+    # depend on the interpreter's set hashing. Which edge is train vs test is already fixed by the seed above.
+    return sorted(tuple(sorted(e)) for e in train_pos), sorted(tuple(sorted(e)) for e in test_pos)
 
 
 # Samples k node pairs that are not real edges and not already used (the fake/negative pairs).
@@ -50,37 +52,47 @@ def sample_non_edges(G, k, seed, exclude, negatives=None):
        None -> GRAPH_POLICY["lp_negatives"].'''
     negatives = negatives or graph_io.GRAPH_POLICY["lp_negatives"]
     rng = random.Random(seed + 1)                       # +1: split_edges already consumed this seed, keep the streams independent
-    neg = set()
+    neg, seen = [], set()                               # list, not set: prepare() slices this into train/test, so draw order must be
+                                                        # deterministic. Kept in RNG draw order - sorting here would put every low-id
+                                                        # pair in train and every high-id pair in test.
     if negatives == 'uniform':
         nodes = list(G.nodes())
         while len(neg) < k:
             u, v = rng.choice(nodes), rng.choice(nodes)
             e = frozenset((u, v))
-            if u != v and not G.has_edge(u, v) and e not in exclude and e not in neg:
-                neg.add(e)
-        return [tuple(sorted(e)) for e in neg]          # clean sorted 2-tuples
+            if u != v and not G.has_edge(u, v) and e not in exclude and e not in seen:
+                seen.add(e); neg.append(tuple(sorted(e)))
+        return neg
 
     comps = [sorted(c) for c in nx.connected_components(G)]
     free = [len(c) * (len(c) - 1) // 2 - G.subgraph(c).number_of_edges() for c in comps]   # non-edges available inside each component
     pools = [c for c, f in zip(comps, free) if f > 0]   # a complete (or 1-node) component offers no non-edge
-    weights = list(itertools.accumulate(f for f in free if f > 0))                          # cumulative -> exact uniform over within-component non-edges
+    # Components are drawn in proportion to their free non-edge capacity, then a pair is drawn inside the chosen one and
+    # re-drawn if it hits an edge. That is NOT exactly uniform over all within-component non-edges: rejection makes a
+    # denser component slightly less likely to yield an accepted pair, and the weights are not decremented as pairs are
+    # consumed. The residual tilt toward sparser components is a few percent and does not affect which component is reachable.
+    weights = list(itertools.accumulate(f for f in free if f > 0))                          # cumulative weights for rng.choices
     assert weights and weights[-1] >= k, \
         f"only {weights[-1] if weights else 0} within-component non-edges available, need {k} -> use negatives='uniform'"
     while len(neg) < k:
         pool = rng.choices(pools, cum_weights=weights)[0]
         u, v = rng.choice(pool), rng.choice(pool)
         e = frozenset((u, v))
-        if u != v and not G.has_edge(u, v) and e not in exclude and e not in neg:
-            neg.add(e)
-    return [tuple(sorted(e)) for e in neg]   # clean sorted 2-tuples
+        if u != v and not G.has_edge(u, v) and e not in exclude and e not in seen:
+            seen.add(e); neg.append(tuple(sorted(e)))
+    return neg
 
 
-# Writes node-pair lines "u v" to a file.
+# Writes node-pair lines "u v" to a file, leaving it untouched when the content is unchanged.
 def write_pairs(path, pairs):
-    '''Save one "u v" pair per line.'''
+    '''Save one "u v" pair per line. An unchanged file is not rewritten, so its mtime means "this split changed".'''
+    text = "".join(f"{u} {v}\n" for u, v in pairs)
+    if os.path.exists(path):
+        with open(path) as f:
+            if f.read() == text:
+                return                      # keep the mtime: reuse checks compare an embedding's mtime against this file
     with open(path, 'w') as f:
-        for u, v in pairs:
-            f.write(f"{u} {v}\n")
+        f.write(text)
 
 
 # Builds and writes the 4 split files into one seed folder; returns the counts. Importable by the runner.

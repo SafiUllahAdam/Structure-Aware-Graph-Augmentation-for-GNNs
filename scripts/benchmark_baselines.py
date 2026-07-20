@@ -16,7 +16,7 @@ for _p in (str(_ROOT), str(_HERE)):
         sys.path.insert(0, _p)
 
 import pandas as pd
-from benchmark_config import BENCH_DATASETS, BENCH_MODELS, RESULTS_DIR
+from benchmark_config import BENCH_DATASETS, BENCH_MODELS, RESULTS_DIR, REPRO
 from make_labels import prepare_dataset
 from runner import run_nodeclass_repeated, run_linkpred_repeated
 
@@ -71,16 +71,18 @@ def benchmark_table(rows, task, metric):
 
 # Builds both final tables, saves them + the raw per-seed rows under results/benchmark/.
 def save_benchmark(rows, out_dir=None):
-    """Write per-seed rows + Table 1 (node-class weighted F1) + Table 2 (link-pred AUC). Returns the two tables."""
+    """Write per-seed rows + Table 1 (node-class weighted F1) + Table 2 (link-pred AUC, one file per scorer). Returns the two tables."""
     out_dir = Path(out_dir or RESULTS_DIR / "notebook1_reproduce_i2v" / "benchmark")
     out_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(out_dir / "benchmark_per_seed.csv", index=False)
+    head = REPRO["linkpred_score"]                                   # headline scorer, named in the filename so the two tables can never be confused
+    other = "logreg" if head == "cosine" else "cosine"
     nc = benchmark_table(rows, "nodeclass", "weighted_f1")
-    lp = benchmark_table(rows, "linkpred", "auc")                    # headline = logreg (the main result)
-    lp_cosine = benchmark_table(rows, "linkpred", "auc_cosine")      # second column: unsupervised cosine
+    lp = benchmark_table(rows, "linkpred", "auc")                    # headline AUC = whichever scorer REPRO selects
+    lp_other = benchmark_table(rows, "linkpred", f"auc_{other}")     # the alternative scorer: never a duplicate of the headline
     nc.to_csv(out_dir / "table1_nodeclass_weighted_f1.csv")
-    lp.to_csv(out_dir / "table2_linkpred_auc.csv")
-    lp_cosine.to_csv(out_dir / "table2_linkpred_auc_cosine.csv")
+    lp.to_csv(out_dir / f"table2_linkpred_auc_{head}.csv")
+    lp_other.to_csv(out_dir / f"table2_linkpred_auc_{other}.csv")
     return nc, lp
 
 
@@ -89,5 +91,5 @@ if __name__ == "__main__":
     nc, lp = save_benchmark(rows)
     print("\n=== Table 1: Node Classification (weighted F1, mean ± std) ===")
     print(nc.to_string())
-    print("\n=== Table 2: Link Prediction (AUC, mean ± std) ===")
+    print(f"\n=== Table 2: Link Prediction (AUC via {REPRO['linkpred_score']}, mean ± std) ===")
     print(lp.to_string())

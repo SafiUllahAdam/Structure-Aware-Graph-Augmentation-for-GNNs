@@ -37,9 +37,11 @@ def save_result(results_dir, dataset, task, metrics, settings):
 def record_score(dataset, encoder, graph_variant, top_k, task, seeds, scores,
                  csv_path="results/scoreboard.csv"):
     """Add/refresh one (dataset, encoder, graph_variant, top_K_neighbors, task) row in the accumulating scoreboard CSV."""
+    # sample std (ddof=1) so this matches runner.summarize_seed_results and pandas .agg("std"): every reported std is comparable.
+    std = float(np.std(scores, ddof=1)) if len(scores) > 1 else 0.0
     row = {"dataset": dataset, "encoder": encoder, "graph_variant": graph_variant, "top_K_neighbors": top_k,
            "task": task, "seeds": "|".join(str(s) for s in seeds),
-           "mean": round(float(np.mean(scores)), 4), "std": round(float(np.std(scores)), 4)}
+           "mean": round(float(np.mean(scores)), 4), "std": round(std, 4)}
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     board = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=list(row))

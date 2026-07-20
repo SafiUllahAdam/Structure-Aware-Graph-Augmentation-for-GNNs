@@ -1,8 +1,10 @@
 '''Train logistic regression on node embeddings and report weighted F1 for node classification.'''
 
 import argparse
+import warnings
 import numpy as np
 from gensim.models import KeyedVectors
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
@@ -43,7 +45,11 @@ def evaluate(emb, labels_path, train_frac=0.7, seed=42):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, train_size=train_frac, stratify=y, random_state=seed)
     clf = OneVsRestClassifier(LogisticRegression(max_iter=300, solver="lbfgs", random_state=seed))   # paper protocol: one-vs-rest LBFGS, 300 iters (L2 is sklearn's default penalty)
-    pred = clf.fit(X_train, y_train).predict(X_test)
+    with warnings.catch_warnings(record=True) as caught:   # the notebooks call filterwarnings("ignore"), which would otherwise
+        warnings.simplefilter("always", ConvergenceWarning)   # hide non-convergence and make a too-low F1 look like a real result
+        pred = clf.fit(X_train, y_train).predict(X_test)
+    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+        print("  warning: logreg stopped at max_iter=300 without converging -> this F1 is a lower bound, not the protocol number")
     f1s = {avg: f1_score(y_test, pred, average=avg) for avg in ("micro", "macro", "weighted")}
     if len(ids) < len(labels):
         print(f"  warning: {len(labels) - len(ids)} labelled nodes had no embedding (skipped)")

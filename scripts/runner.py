@@ -11,7 +11,8 @@ for _p in (str(_ROOT), str(_HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from benchmark_config import NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARAMS, dataset
+from benchmark_config import (NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARAMS,
+                              I2V_BASELINE_POLICY, dataset)
 from utils import set_seed
 
 
@@ -44,7 +45,8 @@ def run_linkpred(name, emb=None, retrain=False, params=None, seed=None):
     from eval_linkpred import evaluate as linkpred_eval
 
     split_dir = LP_SPLITS_ORIG / name / f"seed_{seed}"          # splits/link_prediction/original_graph/<ds>/seed_<s>/
-    counts = prepare(dataset(name)["edgelist"], split_dir, REPRO["linkpred_test_frac"], seed)
+    counts = prepare(dataset(name)["edgelist"], split_dir, REPRO["linkpred_test_frac"], seed,
+                     negatives=I2V_BASELINE_POLICY["lp_negatives"])   # Phase-1 contract: I2V's own uniform negatives, not GRAPH_POLICY's
     if retrain:
         emb = NB1_DIR / name / "link_prediction" / f"i2v_s{seed}.emb"
         embed(split_dir / "train.edgelist", emb, params)
@@ -116,12 +118,16 @@ def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity
     rows = []
     for s in seeds:
         split_dir = LP_SPLITS_ORIG / info["safe"] / f"seed_{s}"  # one shared split per (dataset, seed) -> fair across models
-        prepare(info["edge_path"], split_dir, REPRO["linkpred_test_frac"], s)   # deterministic: recreates same split cheaply
+        prepare(info["edge_path"], split_dir, REPRO["linkpred_test_frac"], s,      # deterministic: recreates same split cheaply
+                negatives=I2V_BASELINE_POLICY["lp_negatives"])                     # Phase-1 contract: I2V's own uniform negatives
+        train_edges = split_dir / "train.edgelist"
         emb = out_dir / f"{short}_s{s}.emb"
-        if emb.exists():
+        if emb.exists() and emb.stat().st_mtime >= train_edges.stat().st_mtime:
             print(f"  [{model} lp s{s}] reuse existing {emb.name}")   # delete file to force rebuild
         else:
-            mdl.train(split_dir / "train.edgelist", emb, s, params)
+            if emb.exists():          # the split changed after this embedding was trained; reusing it would score an embedding
+                print(f"  [{model} lp s{s}] {emb.name} is older than the split -> retraining")   # against a test set it never saw
+            mdl.train(train_edges, emb, s, params)
         auc_logreg = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], s, "logreg")   # main: Hadamard + logreg
         auc_cosine = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], s, "cosine")   # second column: unsupervised similarity
         auc = auc_logreg if REPRO["linkpred_score"] == "logreg" else auc_cosine            # headline AUC = configured scorer

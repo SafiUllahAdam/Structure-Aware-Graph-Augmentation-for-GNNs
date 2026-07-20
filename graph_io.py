@@ -82,8 +82,9 @@ def check(G, name="graph", path=None, policy=None, strict=False, directed_source
     if p["distinct_degrees"] < 0.01 * p["nodes"]:   # coarse signature -> "top-K nearest" is ill-posed, ties are sampled
         flags.append(f"COARSE DEGREE SIGNATURE: {p['distinct_degrees']} distinct degrees over {p['nodes']} nodes"
                      f" -> degree top-K is sampled inside tie classes (sig_tol={pol['sig_tol']:g}), never ordered")
-    if p["isolates"]:
-        flags.append(f"{p['isolates']} isolated nodes: no virtual edges, Omega 0, dropped from node-classification scoring")
+    if p["isolates"]:                           # degree 0 and Omega 0 -> they all land in ONE tied signature class
+        flags.append(f"{p['isolates']} isolated nodes: they DO get K virtual edges (sampled inside that tie class), but carry"
+                     f" no link-prediction pairs; on graph_variant='original' they get no edges and so no embedding at all")
 
     assert not (strict and flags), f"{name}: strict=True and " + " | ".join(flags)
     print(f"{name}: {p['nodes']} nodes, {p['edges']} edges, max degree {p['max_degree']}")
