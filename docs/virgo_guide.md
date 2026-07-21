@@ -15,22 +15,26 @@
 
 ## 2. Goal, contributions, methodology
 
-**Research question:** which **virtual graph** (a graph that links nodes by *structural similarity*, not real edges) is best for a given dataset/task, and does a modern **GNN** over it beat I2V's walk method?
+**Research question:** when is a graph's own structure enough for a GNN, and when does adding structural "role" edges/features help — and can we predict which case from the graph's properties? We build a **virtual graph** (links nodes by *structural role*, not real edges), compare it against the untouched graph, and characterize datasets to explain the difference. **Immediate target: the LoG conference; the thesis reuses it.**
+
+**Honest headline:** across four datasets the original graph wins or ties everywhere. Role graphs come close only for node classification on molecular graphs, and never help link prediction. So this is a *study* — a "when to augment" guide — not "our graph always wins".
 
 | # | Contribution | Status |
 |---|---|---|
-| 1 | **Virtual-graph study** — build virtual graphs from I2V's Poisson/KL similarity; test on node classification, link prediction, anomaly detection; compare vs simpler graphs. | main work |
-| Tech | **GNN encoder** (GraphSAGE/GIN/GAT) over the virtual graph, replacing walk+Word2Vec. | Phase 3 |
-| 2 | **Embeddings as graph summaries for LLMs.** | stretch, do **not** start yet |
+| 1 | **"When to augment" study** — compare graph variants under a fixed GNN across many datasets; characterize each dataset (homophily first) → predict when augmentation helps. | main work |
+| Tech | **GNN encoder** — GraphSAGE over the virtual graph, then GIN — replacing I2V's walk + Word2Vec. | done (SAGE) / GIN next |
+| Future | Learnable alpha (auto-blend original vs virtual; needs synthetic data) · embeddings as LLM graph summaries. | not yet |
+
+**Stay purely structural:** never use a dataset's built-in node attributes (e.g. OGB text features). Showing what structure alone can do is the whole point.
 
 **Project phases:**
-1. **Phase 1 — reproducibility (match the I2V paper). ✅ done** — cached I2V + cross-model baseline comparison (baselines used as-is, **not fine-tuned**); within ±0.05 of the paper.
-2. **Phase 2 — virtual-graph creation (the core study)** ← next — build the virtual-graph system, then test variants (top-K Poisson/KL Ψ, degree-only, centrality-only). The virtual graph, *not* the encoder, is the variable under study: **which virtual graph makes a GNN perform best** per task? I2V's Poisson/KL graph is one generic option.
-3. **Phase 3 — modern GNN encoder** — run different encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram (encoder choice secondary to the virtual graph).
-4. **Phase 4 — downstream tasks** — node classification, link prediction, anomaly detection (new); virtual-graph ablation (which graph best per data/task).
-5. **Phase 5 — LLM context-window issue** — compact structural embeddings as a large-graph summary (stretch; not yet).
+1. **Phase 1 — reproduce I2V. ✅ done** — cached I2V + cross-model baselines (used as-is, **not fine-tuned**); within ±0.05 of the paper.
+2. **Phase 2 — build the virtual graphs. ✅ done** — five variants: psi (Poisson/KL), degree, centrality, original (control), hybrid.
+3. **Phase 3 — GraphSAGE encoder. ✅ done** — design locked by ablations A–D (edge pairs, mean, 2 layers, all four features, K=10; tuned on enzymes).
+4. **Phase 4 — the study + more data ← current** — (1) run the pipeline on small/medium **OGB** datasets (ogbn-arxiv, ogbl-collab, ogbl-ddi), structural only; (2) build the characterization table (properties → original-vs-augmented gap); (3) swap GraphSAGE → **GIN**.
+5. **Future work** — learnable alpha + synthetic datasets; LLM graph summaries. Anomaly detection is set aside for now.
 
-**Pipeline (the method):** `graph → structural signal (degree + eigenvector centrality, cached) → KL-divergence λ → Poisson Ψ similarity → [virtual graph + GNN = future] → embedding → evaluation`.
+**Pipeline (the method):** `graph → structural signal (degree + eigenvector centrality, cached) → virtual graph (top-K role-similar nodes) → GraphSAGE encoder → 64-number embedding → evaluation`.
 Out of scope: hyperbolic/non-Euclidean space (a second paper).
 
 
@@ -95,7 +99,9 @@ python scripts/main.py --task linkpred  --dataset cora --retrain
 
 ## 6. Datasets
 
-Registered in `scripts/benchmark_config.py` (`DATASETS`). Labelled & verified: **cora** (7 classes), **enzymes**, **webkb_wisc** (5 classes). The author **citeseer** graph has no aligned labels — use **`citeseer_linqs`** for node classification (author `citeseer` = link-pred only). **politics** ships no labels (link-pred only). The cross-model benchmark (`BENCH_DATASETS`) sweeps **cora · citeseer_linqs · enzymes · webkb_wisc**.
+Registered in `scripts/benchmark_config.py` (`DATASETS`). The **four study datasets** (node classification + link prediction) are **cora** (7 classes, citation), **citeseer_linqs** (6 classes, citation), **enzymes** (3 classes, molecular), **proteins** (3 classes, molecular). Next we add small-to-medium **OGB** datasets — **ogbn-arxiv** (node property), **ogbl-collab** and **ogbl-ddi** (link property) — using their graphs only, never their built-in text features. Skip the huge 100M-node OGB graphs (too slow before the deadline).
+
+Notes: the author **citeseer** graph has no aligned labels, so the study uses **`citeseer_linqs`** (the Phase-1 benchmark used author `citeseer` for link prediction only). **politics** ships no labels (link-pred only). Proteins' 3 classes are imbalanced, so report macro F1 alongside weighted.
 
 ## 7. Evaluation — splits, settings, metrics
 
@@ -154,15 +160,16 @@ Registered in `scripts/benchmark_config.py` (`DATASETS`). Labelled & verified: *
 
 | Deliverable | State | Next action |
 |---|---|---|
-| 1. Cached I2V (identical + faster) | ✅ done · Phase 1 | — |
-| —. I2V reproduction + cross-model baseline comparison | ✅ done · Phase 1 | baselines used as-is, **not fine-tuned** |
-| 2. `virtual_graph.py` (top-K Poisson/KL builder) | 🔵 **next · Phase 2** | top-K Ψ graph + degree-only / centrality-only comparison graphs |
-| 3. GNN encoder (GraphSAGE/GIN/GAT) over the virtual graph | ⏳ Phase 3 | design + compare architecture variants (add torch + torch-geometric) |
-| 4. Anomaly detection eval (AUC/AP) | ⏳ Phase 4 | with node-class + link-pred; + virtual-graph ablation |
-| 5. Benchmark table + ablation (vs I2V, over graph & K) | ⏳ Phase 4 | extend `results/` |
-| 6. Paper draft | ⏳ | — |
+| 1. Cached I2V (identical + faster) | ✅ done | — |
+| —. I2V reproduction + cross-model baselines | ✅ done | used as-is, **not fine-tuned** |
+| 2. `virtual_graph.py` (five-variant builder) | ✅ done | — |
+| 3. GraphSAGE encoder over the virtual graph | ✅ done | GIN next (swap in after SAGE) |
+| 4. Node-class + link-pred eval on 4 datasets | ✅ done | numbers in `results/scoreboard.csv` |
+| 5. Characterization table + "when to augment" rule | 🔵 **current** | add small/medium OGB, compute graph properties, relate to the gap |
+| 6. GIN results | 🔵 next | after the GraphSAGE + OGB runs |
+| 7. LoG paper draft | 🔵 | thesis reuses it |
 
-**Where to start as the new intern:** (1) run the notebook on **cora** end-to-end and confirm the 3-seed mean ± std in `results/` sits in the paper's range; (2) read `identity2vec.py` and `train.py` to see how walks become embeddings; (3) skim `docs/notes.md` for history; (4) then start **Phase 2** — build `virtual_graph.py` (top-K Ψ + degree/centrality comparison graphs); **Phase 3** (the GNN encoder, GraphSAGE / GIN / GAT) follows.
+**Where to start as the new intern:** (1) open `notebooks/3-phase3_gnn_encoder.ipynb` and read its result tables (§7 encoder comparison, §8 variant sweep, §10 research-question view) against `results/scoreboard.csv`; (2) read `virtual_graph.py` and `encoder.py` to see how a virtual graph and its GraphSAGE embedding are built; (3) skim `docs/paper_log.md` for the findings and `docs/notes.md` for history; (4) then start **Phase 4** — add a small OGB dataset through the `DATASETS` registry (graph only, no text features), run the pipeline, and help build the characterization table.
 
 ## 13. Mini-glossary
 

@@ -1,8 +1,10 @@
 # ViRGo — Virtual Role-Graph Embedding for Structural Identity
 
-ViRGo is a research project that extends **Identity2Vec** (I2V, Oluigbo et al.). It investigates a single question:
+ViRGo is a research project that extends **Identity2Vec** (I2V, Oluigbo et al.). It investigates one practical question:
 
-> **Which graph should a GNN learn on?** We rewire a graph so that nodes playing the *same structural role* become neighbors — a "virtual graph" — and then measure which rewiring works best for each dataset and each task.
+> **When does a GNN need a rewired graph, and when is the original graph already enough?** We rewire a graph so that nodes playing the *same structural role* become neighbors — a "virtual graph" — compare it against the untouched graph, and try to predict which one wins from the graph's own properties.
+
+The immediate target is the **LoG (Learning on Graphs) conference**; the thesis reuses the same content. Throughout we stay **purely structural** — we never use a dataset's built-in text or attribute features, because the whole point is to show what structure alone can do.
 
 ---
 
@@ -47,37 +49,33 @@ Every run is seeded (42/43/44) and cached by filename, so rerunning reuses whate
 ## Status
 
 - **Phase 1 — Reproduce I2V. Done.** The cached implementation returns byte-identical embeddings around 200× faster, and Cora scores land within ±0.05 of the published paper. We also compare against DeepWalk, node2vec and struc2vec (baselines are used as published, not tuned).
-- **Phase 2 — Build the virtual graphs. Done.** The builder covers all five variants, runs deterministically, and saves each graph to disk. Every graph also records a health row (size, components, isolates) in `results/graph_health.csv`.
-- **Phase 3 — GNN encoder. Ongoing (K=10, cora + enzymes).** We tested each encoder design choice one at a time. Ablations A–D were all decided **on enzymes only**, which matters because the Phase-3 story reverses on cora.
-  - **A — Where training pairs come from.** Virtual edges directly, versus random walks. **Edges won**, and they are cheaper because no walks are generated at all.
-  - **B — How a node combines its neighbors.** Mean, weighted, sum or max. **Plain mean won** on both tasks. Notably, the weighted variant is the only one that reads ViRGo's similarity strengths, and it lost — so edge existence carries the signal while edge strength does not.
-  - **C — Network depth (1–3 layers).** **Two layers won** both tasks. Three layers collapsed link prediction to 0.50, which is pure chance, confirming the over-smoothing we expected on a densely connected virtual graph.
-  - **D — Which input features the GNN receives.** With random features the model falls to chance, *below* DeepWalk, so the structural features are **necessary** and message passing alone is **not sufficient**. Whether message passing adds anything *on top of* those features is still open: the deciding run (D6, features with no message passing) is implemented but has not been executed yet.
-  - **E — Which graph to learn on (the main study).** All five graph variants across both encoders, scored on cora and enzymes. See the results tables below.
-- **Phase 4 — Remaining datasets, the K = 5/20 sweep, and anomaly detection.** This is the next step.
-- **Phase 5 — Embeddings as graph summaries for LLMs.** A stretch goal; not started.
+- **Phase 2 — Build the virtual graphs. Done.** The builder covers all five variants, runs deterministically, and saves each graph to disk. Every graph also records a health row (size, components, isolates, max degree) in `results/graph_health.csv`.
+- **Phase 3 — GraphSAGE encoder. Done.** We tuned each design choice one at a time (all on enzymes): training pairs come from the **virtual edges** (A), a node combines its neighbors with a **plain mean** (B), **two layers** work best — three over-smooth link prediction to chance (C), and the **structural input features are necessary** — with random features the GNN drops below DeepWalk (D). K is fixed at **10**.
+- **Phase 4 — The study + more data. ← current.** Three steps, in order: (1) run the same pipeline on small-to-medium **OGB** datasets (structural features only); (2) build the **characterization table** that links a graph's properties (homophily first) to whether augmentation helps; (3) swap GraphSAGE for **GIN** and re-check.
+- **Future work.** A learnable weight to auto-blend the original and virtual graphs (needs synthetic data), and embeddings as graph summaries for LLMs. Not started.
 
 ---
 
 ## Results so far (K=10, 3 seeds)
 
-**Main finding: the best graph depends on the data.**
+**Main finding: the original graph is a very strong baseline — it wins or ties everywhere.** After fixing several bugs in how the graphs and edge-splits were built, and re-running every dataset, no rewired graph beats the untouched graph on any dataset × task. (Best score per cell shown; every cell's winner is the original graph.)
 
-- **Cora** (a citation network with community-like labels): the **original graph wins everything**. DeepWalk on the real edges reaches NC 0.81 and LP 0.90, while every rewired graph scores far lower. Cora's labels are research topics, which is a community property carried by real citation edges, so rewiring by role discards exactly the signal the task needs.
-- **Enzymes** (molecular graphs): rewiring **helps link prediction**. The centrality virtual graph (0.72–0.74 AUC) beats the original graph (0.65), and node classification stays close to the control.
+| dataset | node classification (F1) | link prediction (AUC) |
+|---|---|---|
+| cora | **original 0.81** | **original 0.90** |
+| citeseer | **original 0.55** | **original 0.92** |
+| enzymes | **original 0.56** | **original 0.90** |
+| proteins | **original 0.58** | **original 0.94** |
 
-**Headline answers, with GraphSAGE held fixed** (notebook 3, section 10):
+**But the size of the gap depends on the data — and that gap is the real result:**
 
-| dataset | task | best virtual graph | score | original (control) |
-|---|---|---|---|---|
-| cora | NC (F1) | hybrid | 0.31 | **0.45** |
-| cora | LP (AUC) | centrality | 0.57 | **0.62** |
-| enzymes | NC (F1) | degree | 0.55 | **0.57** |
-| enzymes | LP (AUC) | **centrality** | **0.72** | 0.65 |
+- On the **molecular graphs** (enzymes, proteins), the role-based graphs land within **0.01–0.02** of the original on node classification — structure alone is nearly enough to label a node.
+- On the **citation graphs** (cora, citeseer), they trail by a lot — the labels are topics carried by real citations, which role-rewiring throws away.
+- On **link prediction**, role graphs fail everywhere (0.50–0.66 vs 0.90–0.94). Sharing a role does not make two nodes likely to be connected.
 
-So far, rewiring clearly wins only on enzymes link prediction. The honest story is *per-data and per-task*, not "virtual graphs always win".
+So the paper is an honest **study**: a guide for *when* structural augmentation helps, not a claim that our virtual graph always wins.
 
-**Encoder comparison** (secondary, section 7). GraphSAGE beats DeepWalk on the pure role graphs (psi, degree), while DeepWalk wins on the original graph. The feature ablation (D) shows that the structural input features are necessary — replace them with random values and the GNN drops below DeepWalk — but whether message passing contributes anything beyond those features is not yet decided.
+**Encoder comparison (secondary).** On the same role graph, GraphSAGE (message passing) beats DeepWalk (walks) in almost every cell; on the original graph the reverse holds for link prediction. Message passing helps when the graph encodes role; walks win when the graph encodes real connections.
 
 All numbers live in `results/scoreboard.csv` (the master table, one row per dataset × encoder × graph × K × task). The full research log is `docs/paper_log.md`.
 

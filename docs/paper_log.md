@@ -572,3 +572,19 @@ No virtual graph beats the original graph anywhere. The best non-original varian
 **g. Ablation D on cora — best features are degree + centrality, not all four.** D2 (deg+cent) reaches 0.2460 NC against D0 (all four) at 0.2354, while D3 (psi only) is worst at 0.1754 — below the D4 random-feature control on NC. psi as an input feature is confounded (the psi graph was built from it) and adds nothing once the graph already encodes it.
 
 **Caveats on all of the above.** K=10 only; three seeds; the virtual-graph build seed is fixed at 42, so the reported ±std covers split and encoder-init variance but not tie-sampling variance. Encoder settings are the previously locked A2 (`positives="edge"`) and B-mean, whose ablations were decided on pre-fix enzymes runs and were deliberately not re-validated.
+
+## 2026-07-21 — Research direction locked for LoG: a "when to augment" characterization study
+
+Supervisor meeting. The post-fix results (original graph wins all 8 dataset × task cells; role graphs fail link prediction; role graphs approach the original only on molecular node classification) were presented and accepted as the honest result — no attempt to rescue a "virtual graph wins" headline.
+
+**Reframed contribution.** ViRGo is a **study**: given a graph and a task, when is the original topology enough, and when do structural augmented features help? The deliverable is a **characterization** — connect each dataset's properties (homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement) to the original-vs-best-augmented gap, so the paper can say "for graphs like this, keep the original; for graphs like that, add these features." This is the supervisors' framing, offered as a conjecture for the community, not a proof.
+
+**Scope decisions (locked).**
+- **Purely structural.** No external node attributes anywhere, including OGB's text features. The value of structural identity *without* attributes is the inherited I2V premise and the whole point.
+- **Datasets.** Current four (cora, citeseer_linqs, enzymes, proteins) + small-to-medium OGB: ogbn-arxiv (node property), ogbl-collab and ogbl-ddi (link property). Large-scale OGB (100M-node) is out — too slow before the deadline.
+- **Encoder order.** GraphSAGE results first; then swap in GIN to test whether its stronger isomorphism (WL) power helps. GIN is in scope for this paper, after GraphSAGE.
+- **Future work (not now):** the learnable-alpha graph (a single learned weight that blends original vs virtual per dataset) needs many synthetic datasets to train, so it is a paper/thesis extension; plus the LLM graph-summary stretch. Anomaly detection is dropped from the immediate plan.
+
+**Venue + timeline.** Immediate target LoG (Learning on Graphs), abstract ~end of July, full paper ~start of August; published via JMLR/PMLR. Thesis (~one month) reuses the same content.
+
+**Threats to validity to carry into the paper** (unchanged): the A–D encoder ablations were decided on pre-fix enzymes and not re-validated; K=10 only; 3 seeds; the virtual-graph build seed is fixed at 42; baselines used as published.

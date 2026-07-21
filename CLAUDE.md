@@ -8,29 +8,31 @@ Research project extending Identity2Vec (I2V, Oluigbo et al.). Target: a publish
 
 ## 1. Goal & Contribution
 
-Study **the impact of the virtual-graph construction on GNN performance** across downstream tasks. The virtual graph — not the encoder choice — is the variable under study. I2V's Poisson/KL similarity graph is the *generic* baseline construction; we test whether it is well-suited per data and task.
+Study a simple, practical question: **when does a GNN need a rewired "virtual" graph, and when is the original graph already enough?** — and predict the answer from the graph's own properties (starting with homophily). The virtual graph (role-based rewiring), not the encoder, is the thing we vary.
 
-**Research question:** which virtual graph is best for given data, and does GNN message passing over it beat walk+Skipgram on structural-identity embeddings?
+**Honest headline finding (post-fix, 4 datasets).** The original graph is a very strong baseline — it wins or ties every dataset × task cell. Role-based virtual graphs only get close for node classification on the molecular graphs, and they never help link prediction (two nodes that share a role are not more likely to be linked). So the paper is a **study / characterization** — a guide for *when* structural augmentation helps — not a claim that our virtual graph always wins.
 
-Non-Euclidean / hyperbolic latent space for the virtual graph is **out of scope** (reserved for a second paper). Do not implement it.
+**Immediate target:** the LoG (Learning on Graphs) conference. The thesis reuses the same content.
+
+**Hard scope rule — stay purely structural.** Never use a dataset's built-in node attributes (e.g. OGB's text features). The whole point, inherited from I2V, is to show what *structure alone* can do; adding attributes would change the method.
+
+Non-Euclidean / hyperbolic latent space is out of scope (reserved for a second paper). Do not implement it.
 
 ## Research Contributions
 
-**1st (research) contribution — Virtual-graph study.**
-- *What:* Study which virtual graph is best for different data and tasks. A virtual graph connects nodes by structural similarity, not only by original edges.
-- *Why:* Normal GNNs pass messages only through physical neighbors, but two far-apart nodes may share a role (both hubs, both bridges). The virtual graph lets role-similar nodes communicate.
-- *How:* Build virtual graphs from I2V's Poisson/KL structural similarity; test their effect on node classification, link prediction, and anomaly detection. Compare against simpler virtual graphs (degree-only, centrality-only) to answer "which graph is best for given data?".
+**1st (main) contribution — a "when to augment" study.**
+- *What:* Work out when the original graph is already enough for a GNN, and when adding structural "role" edges/features helps — then predict which case you are in from the graph's properties.
+- *Why:* People reach for graph rewiring without knowing whether it helps. A clear rule — "for graphs like this, keep the original; for graphs like that, add these features" — is genuinely useful to the community.
+- *How:* Compare five graph variants under one fixed GNN on many datasets; characterize each dataset by its properties (homophily first, then degree spread, clustering, ...); relate those properties to the original-vs-augmented gap. Offered as a conjecture, not a proof.
 
-**2nd contribution — Structural embeddings as graph summaries for LLMs.**
-- *What:* Explore whether ViRGo's compact role-aware embeddings can serve as a summary of a large graph's structure, so that structural information fits within an LLM's limited context window.
-- *Why:* An LLM cannot ingest a massive graph directly; a compact structural summary could let it reason over large-graph structure without exceeding the context limit.
-- *How:* Reuse the trained ViRGo embeddings as a graph-summarization signal feeding large-graph structure to an LLM. **a stretch goal; do not implement until the main virtual-graph study is complete.**
+**Technical contribution — modern GNN over the graph.**
+- *What:* Replace I2V's guided walk + Skipgram with GraphSAGE, then try GIN.
+- *Why:* A GNN aggregates directly over structure instead of learning from sampled walks. GIN can tell more graphs apart (isomorphism power) — we test whether that helps.
+- *How:* `graph → structural features (cached) → virtual graph → GraphSAGE (then GIN) → embeddings → evaluation`. Order: get all GraphSAGE results first, then swap in GIN.
 
-
-**Technical contribution — GNN encoder over the virtual graph.**
-- *What:* Replace I2V's guided walk + Skipgram with a modern GNN encoder (GraphSAGE / GIN; GAT as ablation).
-- *Why:* Skipgram learns from sampled walk sequences; a GNN aggregates directly over graph structure, learning embeddings straight from structurally similar nodes.
-- *How:* `graph → structural features (cached) → Poisson/KL virtual graph → GraphSAGE/GIN encoder → node embeddings → evaluation`.
+**Future work — not in the next stretch.**
+- *Learnable alpha:* one learned weight that automatically blends the original and virtual graphs per dataset. Needs many (likely synthetic) datasets to train properly — parked as future work.
+- *Embeddings as graph summaries for LLMs:* compact structural embeddings as a large-graph summary so structure fits an LLM's context window. Stretch; not started.
 
 ---
 
@@ -47,19 +49,24 @@ Keep I2V front end, replace back end:
 
 ## 3. Tasks (evaluation)
 
-- **Link prediction** — 70:30 edge split, AUC. Retrain on 70% graph only (no leakage). For comparability with I2V Table 4.
-- **Node classification** — logistic regression on embeddings, weighted F1. Comparability with I2V (Cora, Citeseer, Politics, Enzymes have labels).
-- **Graph anomaly detection** — *new downstream application* (I2V did not do this). Standalone on GADBench/PyGOD first (AUC, AP), then integrate into (collaborative semi-supervised, cross-model pseudo-labels).
+- **Node classification** — logistic regression on embeddings, weighted F1.
+- **Link prediction** — 70:30 edge split, AUC, leakage-free (retrain on the 70% graph only).
+- **Dataset characterization (the new core)** — compute each graph's properties (homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement) and connect them to *when* augmentation helps.
+
+Anomaly detection is set aside for now — the LoG study replaced it as the immediate focus.
 
 ---
 
 ## 4. Status & phases
 
-- **Phase 1 — reproducibility (match the I2V paper). ✅ done.** Cached I2V (byte-identical, ~200× faster, Deliverable #1) + cross-model baseline comparison; results within ±0.05 of the paper, 3-seed harness. Baselines (DeepWalk / node2vec / struc2vec) used as published/default — **not fine-tuned** (out of scope).
-- **Phase 2 — virtual-graph creation (the core study).** (1) Build the virtual-graph system, then (2) test different virtual-graph variants (I2V Poisson/KL Ψ top-K, degree-only, centrality-only). **The virtual graph — not the encoder — is the variable under study:** the central question is *which virtual graph makes a GNN perform best* per task (node classification, link prediction, later anomaly detection). I2V's Poisson/KL graph is one generic option to test. ← next
-- **Phase 3 — modern GNN encoder.** Run different GNN encoders (GraphSAGE / GIN / GAT) over the virtual graphs, replacing walk + Skipgram. (Technical contribution; encoder choice secondary to the virtual graph.)
-- **Phase 4 — downstream tasks.** Evaluate ViRGo embeddings on node classification (F1), link prediction (AUC), and anomaly detection (new, AUC/AP); plus the virtual-graph ablation (which graph best per data/task).
-- **Phase 5 — LLM context-window issue.** Compact structural embeddings as a large-graph summary so structure fits an LLM's context window. (Stretch — do not start.)
+- **Phase 1 — reproduce I2V. ✅ done.** Cached I2V (byte-identical, ~200× faster, Deliverable #1) + cross-model baselines; within ±0.05 of the paper, 3 seeds. Baselines (DeepWalk / node2vec / struc2vec) used as published — **not fine-tuned** (out of scope).
+- **Phase 2 — build the virtual graphs. ✅ done.** Five variants: `psi` (I2V Poisson/KL), `degree`, `centrality`, `original` (control), `hybrid`. Deterministic; each build logs a health row.
+- **Phase 3 — GraphSAGE encoder. ✅ done.** Design locked by ablations A–D (edge positives, mean aggregation, 2 layers, all four structural features, K=10). Caveat to keep: A–D were tuned on enzymes only.
+- **Phase 4 — the study + more data. ← current.** Three steps, in order:
+  1. Run the existing GraphSAGE pipeline on small-to-medium **OGB** datasets (node: ogbn-arxiv; link: ogbl-collab, ogbl-ddi), **structural features only** — skip the huge 100M-node graphs.
+  2. Build the **characterization table**: graph properties per dataset (homophily first) → the original-vs-augmented gap → a "when to augment" rule.
+  3. Swap **GraphSAGE → GIN** and re-run, to see if its stronger isomorphism power helps.
+- **Future work.** Learnable alpha (auto-blend original vs virtual; needs synthetic datasets); embeddings as LLM graph summaries. Do not start these yet.
 
 ---
 
@@ -87,9 +94,10 @@ Keep I2V front end, replace back end:
 
 ## 7. Deliverables
 
-1. Cached I2V variant — embeddings validated identical to baseline, with timing gain.
-2. `virtual_graph.py` — top-K Ψ virtual-graph builder.
-3. GNN encoder (GraphSAGE/GIN/GAT) over the virtual graph.
-4. Eval scripts: link prediction (AUC), node classification (F1), anomaly detection (AUC/AP).
-5. Benchmark table: ViRGo vs I2V across tasks; ablation over virtual-graph construction and K.
-6. Reproducible package + paper draft.
+1. ✅ Cached I2V — embeddings identical to the baseline, ~200× faster.
+2. ✅ `virtual_graph.py` — five-variant top-K virtual-graph builder.
+3. ✅ GraphSAGE encoder over the virtual graph (`encoder.py`); GIN to follow.
+4. ✅ Eval scripts: node classification (F1), link prediction (AUC, leakage-free).
+5. 🔵 The characterization table + rule: graph properties → when augmentation helps, across our datasets **plus small/medium OGB**.
+6. 🔵 GIN results next to GraphSAGE.
+7. 🔵 LoG paper draft (the thesis reuses it).
