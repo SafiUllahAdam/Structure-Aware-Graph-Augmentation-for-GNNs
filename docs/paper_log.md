@@ -502,3 +502,73 @@ Follow-ups from a full code review. **Implemented, not measured** — no run was
 **Reported dispersion was mixing two conventions.** `results_io.record_score` (the master scoreboard) used population std while `runner.summarize_seed_results` and the pandas benchmark tables used sample std — over 3 seeds the scoreboard understated dispersion by ~18% relative to the benchmark tables for identical inputs. Unified on sample std (ddof=1). Means are unaffected; **`std` values already in `scoreboard.csv` are population std until those rows are rerun**, so scoreboard and benchmark error bars should not be compared across that boundary.
 
 **Node-classification F1 could be quietly understated.** Both notebooks suppress warnings globally, so an LBFGS fit that hit `max_iter=300` without converging was reported as a normal F1. `max_iter` is unchanged (paper protocol); non-convergence is now surfaced per evaluation as an explicit "this F1 is a lower bound" line. Whether any past run actually hit the cap is unknown — no run was made to check.
+
+## 2026-07-20 — FULL RERUN after the 07-18 + 07-20 fixes: cora, enzymes, proteins (K=10, seeds 42/43/44)
+
+First complete post-fix sweep. Notebooks 2 and 3, all five virtual-graph variants, both tasks, three datasets. All previous result files were cleared first, so nothing below is contaminated by a pre-fix artifact. Headline scorer is cosine (`REPRO["linkpred_score"]`); node classification is weighted F1.
+
+### 1. Did the 2026-07-20 fixes move any number? No.
+
+Proteins is the clean control: it was last run on 2026-07-18 *after* the three method fixes but *before* the 07-20 review fixes, so the proteins delta isolates the 07-20 changes alone.
+
+| proteins, deepwalk | LP AUC before → after | proteins, graphsage_edge | LP AUC before → after |
+|---|---|---|---|
+| centrality | 0.5216 → 0.5222 | centrality | 0.5829 → 0.5831 |
+| degree | 0.5045 → 0.5067 | degree | 0.5500 → 0.5508 |
+| hybrid | 0.8029 → 0.8023 | hybrid | 0.5633 → 0.5630 |
+| original | 0.9414 → 0.9413 | original | 0.6726 → 0.6722 |
+| psi | 0.5222 → 0.5232 | psi | 0.5588 → 0.5582 |
+
+Every meaningful row moves by ≤0.005; node classification likewise (largest shift 0.5256 → 0.5215 on deepwalk/original). The only larger delta is the D5 constant-feature *floor* control (0.4407 → 0.4528), whose own std is ±0.062 — pure noise, as designed. **Conclusion: the 07-20 fixes were correctness and reproducibility hygiene, not result-changing.** That is the intended outcome and it is now evidenced rather than asserted.
+
+The tie-widening change (whole tie class, sampled) did alter the graphs, but marginally: proteins psi 317,534 → 317,480 edges (−0.017%), centrality 256,820 → 256,867, hybrid 396,403 → 396,310, degree 434,169 → 434,175, original byte-identical. **Correction to the prediction logged earlier on 07-20:** psi was expected to be completely unaffected because its signature is continuous; it in fact shifted by 54 edges, so psi does contain a small number of exact ties. The direction of the claim held; the absolute "unaffected" did not.
+
+### 2. The 07-18 method fixes changed enzymes drastically — and removed the study's only role-graph win
+
+Enzymes was last run 2026-07-16, so its delta bundles all four method fixes (degree ties, LP largest-component, within-component negatives, per-component Ω) plus the 07-20 hygiene.
+
+| enzymes, deepwalk LP AUC | before (07-16) | after (07-20) |
+|---|---|---|
+| centrality | 0.7382 ± 0.0840 | 0.5283 ± 0.0014 |
+| degree | 0.6240 ± 0.0725 | 0.5052 ± 0.0008 |
+| psi | 0.5110 ± 0.0297 | 0.5039 ± 0.0031 |
+| hybrid | 0.5087 ± 0.0246 | 0.7765 ± 0.0025 |
+| original | 0.6574 ± 0.0170 | 0.9007 ± 0.0007 |
+
+**The headline consequence.** Before the fix, `centrality` (0.738) beat `original` (0.657) on enzymes link prediction — the single strongest piece of evidence that a role graph can outperform the real graph. After the fix, `original` (0.901) beats `centrality` (0.528) by 0.37. **That win was an artifact of the 125-node largest-component split (17 test edges); it does not survive.** Any earlier claim resting on it is withdrawn.
+
+Note also the standard deviations collapsing by roughly two orders of magnitude (0.084 → 0.0014). With 17 test edges the old metric was noise; with 11,185 it is stable. Node classification barely moved (≤0.01 on every variant) because it never used the split — and `original` reproduced to 16 significant digits (0.5086297830053176 both times), a clean determinism check that the unrelated machinery did not drift.
+
+The enzymes psi graph changed most in construction: 111,401 → 150,078 edges (+35%), from the per-component Ω fix (psi's `q` term *is* Ω, which was underflowing to ~1e-115 on this disjoint union).
+
+### 3. Post-fix findings (these are the numbers to build the paper on)
+
+**a. The original graph wins all six dataset × task cells.**
+
+| best configuration | node classification (F1) | link prediction (AUC) |
+|---|---|---|
+| cora | deepwalk + original **0.8100** | deepwalk + original **0.8971** |
+| enzymes | graphsage + original **0.5589** | deepwalk + original **0.9007** |
+| proteins | graphsage + original **0.5799** | deepwalk + original **0.9413** |
+
+No virtual graph beats the original graph anywhere. The best non-original variant is always `hybrid` — which contains the original edges by construction — and even it trails by 0.12–0.22 on link prediction and by 0.36 on cora node classification.
+
+**b. The gap is entirely dataset-dependent, and that is the per-data thesis.** On the two molecular graphs the pure role graphs come within 0.01–0.02 of the original for node classification (enzymes: degree 0.5474 vs original 0.5589; proteins: degree 0.5591 vs original 0.5799). On cora they trail by 0.36–0.44. Structural role is nearly sufficient for molecular node labels and nearly worthless for citation-community labels — the intended "which virtual graph for which data" result, now with the artifact removed.
+
+**c. Link prediction is where role graphs fail categorically.** Pure `psi`/`degree`/`centrality` sit at 0.50–0.66 AUC on every dataset against 0.90–0.94 for the original graph. Role similarity is not adjacency: two nodes sharing a role are no likelier to be connected. State this as a finding, do not bury it.
+
+**d. Technical contribution holds: the GNN beats walk+Skipgram on the virtual graph, 6/6.** Same psi graph, encoder swapped:
+
+| psi graph | NC: deepwalk → graphsage | LP: deepwalk → graphsage |
+|---|---|---|
+| cora | 0.2133 → 0.2354 (+0.022) | 0.4990 → 0.5175 (+0.019) |
+| enzymes | 0.5005 → 0.5470 (+0.047) | 0.5039 → 0.6237 (+0.120) |
+| proteins | 0.4882 → 0.5588 (+0.071) | 0.5232 → 0.5582 (+0.035) |
+
+**e. The GNN advantage is specific to role graphs.** On the *original* graph the ordering reverses for link prediction on all three datasets (cora 0.897 → 0.609, enzymes 0.901 → 0.700, proteins 0.941 → 0.672) and for cora node classification (0.810 → 0.426). GraphSAGE wins node classification on the original graph only for the molecular datasets. Honest framing: message passing helps when the graph encodes role; random walks with a lookup table remain far stronger when the graph encodes adjacency.
+
+**f. Ablation D6 — message passing helps node classification, contributes nothing to link prediction on molecular graphs.** Comparing "features only, no message passing" (layers=0) against the full 2-layer encoder on the psi graph: NC gains +0.052 (cora), +0.047 (enzymes), +0.037 (proteins); LP gains +0.034 (cora) but only +0.004 (enzymes) and **−0.008 (proteins, i.e. message passing hurts)**. On the molecular graphs the LP signal is carried by the input features alone.
+
+**g. Ablation D on cora — best features are degree + centrality, not all four.** D2 (deg+cent) reaches 0.2460 NC against D0 (all four) at 0.2354, while D3 (psi only) is worst at 0.1754 — below the D4 random-feature control on NC. psi as an input feature is confounded (the psi graph was built from it) and adds nothing once the graph already encodes it.
+
+**Caveats on all of the above.** K=10 only; three seeds; the virtual-graph build seed is fixed at 42, so the reported ±std covers split and encoder-init variance but not tie-sampling variance. Encoder settings are the previously locked A2 (`positives="edge"`) and B-mean, whose ablations were decided on pre-fix enzymes runs and were deliberately not re-validated.

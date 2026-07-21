@@ -51,11 +51,12 @@ class SageEncoder():
             X = np.ones((len(self.nodes), 1))
         else:
             vg = VirtualGraph(self.G)
-            _, psi = vg.signatures('psi')                      # reference-free I2V KL->Poisson score per node
+            psi_nodes, psi = vg.signatures('psi')              # reference-free I2V KL->Poisson score per node
+            psi = dict(zip(psi_nodes, psi[:, 0]))              # keyed by node, like deg/ev/clus: signatures() owns its own node order
             deg, ev = vg.core.degree_node(), vg.core.eigenvector_centrality()
             clus = nx.clustering(self.G)
             cols = {"degree": [0], "deg_cent": [0, 1], "psi": [2], "all": [0, 1, 2, 3]}[self.feats]
-            X = np.array([[deg[n], ev[n], float(psi[i, 0]), clus[n]] for i, n in enumerate(self.nodes)])[:, cols]
+            X = np.array([[deg[n], ev[n], float(psi[n]), clus[n]] for n in self.nodes])[:, cols]
         return torch.tensor((X - X.mean(0)) / (X.std(0) + 1e-9), dtype=torch.float)
 
     def corpus(self, max_pairs=2_000_000, positives="walk"):
