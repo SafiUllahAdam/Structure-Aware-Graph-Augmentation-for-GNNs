@@ -44,7 +44,8 @@ def record_score(dataset, encoder, graph_variant, top_k, task, seeds, scores,
            "mean": round(float(np.mean(scores)), 4), "std": round(std, 4)}
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    board = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=list(row))
+    # size check, not just exists(): an emptied 0-byte file passes exists() and makes read_csv raise EmptyDataError.
+    board = pd.read_csv(path) if path.exists() and path.stat().st_size else pd.DataFrame(columns=list(row))
     key = ((board["dataset"] == dataset) & (board["encoder"] == encoder) & (board["graph_variant"] == graph_variant)
            & (board["top_K_neighbors"] == top_k) & (board["task"] == task))
     board = pd.concat([board[~key], pd.DataFrame([row])], ignore_index=True)
