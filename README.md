@@ -1,83 +1,85 @@
 # ViRGo — Virtual Role-Graph Embedding for Structural Identity
 
-ViRGo is a research project that extends **Identity2Vec** (I2V, Oluigbo et al.). It investigates one practical question:
+ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation and molecular datasets. The aim is a characterization: which graph properties — homophily first — predict whether role-based rewiring improves on the original graph.
 
-> **When does a GNN need a rewired graph, and when is the original graph already enough?** We rewire a graph so that nodes playing the *same structural role* become neighbors — a "virtual graph" — compare it against the untouched graph, and try to predict which one wins from the graph's own properties.
-
-The immediate target is the **LoG (Learning on Graphs) conference**; the thesis reuses the same content. Throughout we stay **purely structural** — we never use a dataset's built-in text or attribute features, because the whole point is to show what structure alone can do.
+The method is **purely structural**. It uses only degree- and centrality-derived signals and never node attributes, following I2V. Target venue: the **Learning on Graphs (LoG)** conference; the thesis draws on the same work.
 
 ---
 
-## The idea in plain words
+## Approach
 
-- A **graph** is dots and lines: the dots are nodes (papers, people) and the lines are edges (citations, friendships).
-- Two nodes that sit far apart can still play the **same role** — both hubs, both bridges. That role is what we call **structural identity**.
-- An **embedding** is a short list of numbers (64 of them here) that describes a node. Nodes with similar roles should receive similar numbers.
-- A normal GNN passes messages only along real edges, so role-twins that sit far apart never communicate. A **virtual graph** connects each node to its top-K most role-similar nodes, which lets them exchange information.
+A node's *structural identity* is the role it plays — hub, bridge, periphery — independent of where it sits in the graph. A standard GNN passes messages only along real edges, so two nodes that share a role but have no path between them never interact. A **virtual graph** reconnects each node to its top-K most role-similar nodes, giving the encoder a channel between role-twins.
 
-**What we study.** The variable under study is the virtual graph, not the encoder. We build five graph variants and compare them under one fixed GNN:
+The variable under study is the graph, not the encoder. We compare five constructions under one fixed GNN:
 
-| variant | how nodes are matched |
+| variant | node similarity |
 |---|---|
-| `psi` | I2V's Poisson/KL structural score Ψ |
-| `degree` | degree only (simplest) |
+| `psi` | I2V Poisson/KL structural score Ψ |
+| `degree` | degree only |
 | `centrality` | eigenvector centrality only |
-| `original` | the untouched input graph — **control** |
-| `hybrid` | original edges + psi role edges together |
+| `original` | input graph, unchanged — control |
+| `hybrid` | original edges combined with `psi` role edges |
 
-**Secondary question.** Given the same graph, does a modern GNN (GraphSAGE) outperform the older walk + Skipgram approach (DeepWalk)?
+A secondary question: on a given graph, does GraphSAGE (message passing) outperform the older walk + Skipgram approach (DeepWalk)?
 
 ---
 
-## How the pipeline works
+## Pipeline
 
 ```
 input graph → structural signals → virtual graph → encoder → embeddings → evaluation
-              (degree, centrality,  (top-K most     (GraphSAGE  (64 numbers  (node classification F1,
+              (degree, centrality,  (top-K most     (GraphSAGE  (64-dim      (node classification F1,
                cached once)          similar nodes)   or DeepWalk) per node)   link prediction AUC)
 ```
 
-1. **Structural signals** — we compute degree and eigenvector centrality for every node once, then cache them. The original I2V recomputed these constantly; caching produces identical output around 200× faster.
-2. **Virtual graph** — `virtual_graph.py` connects each node to its K most similar nodes under the chosen variant.
-3. **Encoder** — `encoder.py` trains an unsupervised 2-layer GraphSAGE on the virtual graph, using a Skipgram-style loss that pulls linked nodes together and pushes random nodes apart. DeepWalk on the same graph serves as the baseline.
-4. **Evaluation** — node classification uses logistic regression on the embeddings (weighted F1); link prediction scores held-out edges (AUC). Link prediction is leakage-free, because the virtual graph is rebuilt from the 70% training edges alone.
+1. **Structural signals** — degree and eigenvector centrality are computed once and cached. I2V recomputes them inside its walk loop; caching returns identical output roughly 200× faster.
+2. **Virtual graph** — `virtual_graph.py` links each node to its K nearest nodes under the chosen variant.
+3. **Encoder** — `encoder.py` trains a 2-layer GraphSAGE on the virtual graph with an unsupervised Skipgram-style loss (linked nodes attract, random nodes repel). DeepWalk on the same graph is the baseline.
+4. **Evaluation** — node classification uses logistic regression on the embeddings (weighted F1). Link prediction scores held-out edges by AUC, with the virtual graph rebuilt from the 70% training edges so no test edge leaks.
 
-Every run is seeded (42/43/44) and cached by filename, so rerunning reuses whatever already exists on disk.
+Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing files.
 
 ---
 
 ## Status
 
-- **Phase 1 — Reproduce I2V. Done.** The cached implementation returns byte-identical embeddings around 200× faster, and Cora scores land within ±0.05 of the published paper. We also compare against DeepWalk, node2vec and struc2vec (baselines are used as published, not tuned).
-- **Phase 2 — Build the virtual graphs. Done.** The builder covers all five variants, runs deterministically, and saves each graph to disk. Every graph also records a health row (size, components, isolates, max degree) in `results/graph_health.csv`.
-- **Phase 3 — GraphSAGE encoder. Done.** We tuned each design choice one at a time (all on enzymes): training pairs come from the **virtual edges** (A), a node combines its neighbors with a **plain mean** (B), **two layers** work best — three over-smooth link prediction to chance (C), and the **structural input features are necessary** — with random features the GNN drops below DeepWalk (D). K is fixed at **10**.
-- **Phase 4 — The study + more data. ← current.** Three steps, in order: (1) run the same pipeline on small-to-medium **OGB** datasets (structural features only); (2) build the **characterization table** that links a graph's properties (homophily first) to whether augmentation helps; (3) swap GraphSAGE for **GIN** and re-check.
-- **Future work.** A learnable weight to auto-blend the original and virtual graphs (needs synthetic data), and embeddings as graph summaries for LLMs. Not started.
+- **Phase 1 — reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
+- **Phase 2 — virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
+- **Phase 3 — GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C — three over-smooth), and the structural input features are required (D — random features fall below DeepWalk). K = 10.
+- **Phase 4 — characterization and scale.** Current. (1) Add small-to-medium OGB datasets, structural signals only. (2) Relate graph properties (homophily first) to the original-vs-augmented gap. (3) Swap GraphSAGE for GIN.
+- **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
 
 ---
 
-## Results so far (K=10, 3 seeds)
+## Results (K = 10, 3 seeds)
 
-**Main finding: the original graph is a very strong baseline — it wins or ties everywhere.** After fixing several bugs in how the graphs and edge-splits were built, and re-running every dataset, no rewired graph beats the untouched graph on any dataset × task. (Best score per cell shown; every cell's winner is the original graph.)
+The primary question is which virtual graph performs best per dataset and task, with the encoder held fixed at GraphSAGE. `original` is the control and is excluded from Table 1.
+
+**Table 1 — best virtual graph per dataset × task** (GraphSAGE, K = 10):
 
 | dataset | node classification (F1) | link prediction (AUC) |
 |---|---|---|
-| cora | **original 0.81** | **original 0.90** |
-| citeseer | **original 0.55** | **original 0.92** |
-| enzymes | **original 0.56** | **original 0.90** |
-| proteins | **original 0.58** | **original 0.94** |
+| cora | centrality 0.29 | centrality 0.57 |
+| citeseer | centrality 0.28 | centrality 0.54 |
+| enzymes | hybrid 0.55 | centrality 0.66 |
+| proteins | hybrid 0.56 | centrality 0.58 |
 
-**But the size of the gap depends on the data — and that gap is the real result:**
+Centrality is the strongest single signal — best for link prediction on all four datasets and for node classification on the two citation graphs. Hybrid, which keeps the real edges alongside the role edges, leads node classification on the molecular graphs.
 
-- On the **molecular graphs** (enzymes, proteins), the role-based graphs land within **0.01–0.02** of the original on node classification — structure alone is nearly enough to label a node.
-- On the **citation graphs** (cora, citeseer), they trail by a lot — the labels are topics carried by real citations, which role-rewiring throws away.
-- On **link prediction**, role graphs fail everywhere (0.50–0.66 vs 0.90–0.94). Sharing a role does not make two nodes likely to be connected.
+**Table 2 — virtual graph vs. original** (same encoder on both sides):
 
-So the paper is an honest **study**: a guide for *when* structural augmentation helps, not a claim that our virtual graph always wins.
+| dataset | NC · original | NC · best virtual | LP · original | LP · best virtual |
+|---|---|---|---|---|
+| cora | 0.43 | 0.29 | 0.61 | 0.57 |
+| citeseer | 0.33 | 0.28 | 0.62 | 0.54 |
+| enzymes | 0.56 | 0.55 | 0.70 | 0.66 |
+| proteins | 0.58 | 0.56 | 0.67 | 0.58 |
 
-**Encoder comparison (secondary).** On the same role graph, GraphSAGE (message passing) beats DeepWalk (walks) in almost every cell; on the original graph the reverse holds for link prediction. Message passing helps when the graph encodes role; walks win when the graph encodes real connections.
+The original graph leads every cell, and the margin varies with the dataset. On the molecular graphs the best virtual graph reaches within 0.01–0.02 of the original for node classification, so structural role alone nearly suffices for molecular labels. On the citation graphs the gap is wider: the labels track citation communities, which role-based rewiring discards. For link prediction, no virtual graph matches the original on any dataset — role similarity does not imply adjacency.
 
-All numbers live in `results/scoreboard.csv` (the master table, one row per dataset × encoder × graph × K × task). The full research log is `docs/paper_log.md`.
+**Encoder comparison (secondary).** On role graphs, GraphSAGE outperforms DeepWalk in nearly every cell. On the original graph the order reverses for link prediction, where DeepWalk reaches 0.90–0.94, the highest link-prediction scores in the study. Message passing helps when the graph encodes role; walks are stronger when the graph encodes adjacency.
+
+Full results live in `results/scoreboard.csv` (one row per dataset × encoder × graph × K × task). Notebook 3 §10 builds both tables. The research log is `docs/paper_log.md`.
 
 ---
 
@@ -115,7 +117,7 @@ identity2vec/
 
 ## Setup
 
-Uses the conda environment **`i2v`** (Python 3.12):
+The project uses the conda environment **`i2v`** (Python 3.12):
 
 ```bash
 conda activate i2v
@@ -130,15 +132,15 @@ pip install torch torch-geometric node2vec        # Phase 3 encoder + DeepWalk b
 
 ---
 
-## How to run
+## Usage
 
-**The three notebooks are the main workflow.** Run them in order, top to bottom, using the "Python (i2v)" kernel. Each notebook reuses files already on disk, so reruns are fast.
+The three notebooks are the main workflow. Run them in order, top to bottom, on the "Python (i2v)" kernel; each reuses files already on disk.
 
 1. `notebooks/1-reproduce_i2v.ipynb` — reproduces the I2V paper numbers.
-2. `notebooks/2-phase_2_virtual_graph.ipynb` — builds and saves the virtual graphs together with the DeepWalk baseline embeddings. Choose the dataset with the `DATASET` knob at the top.
-3. `notebooks/3-phase3_gnn_encoder.ipynb` — trains GraphSAGE on the saved graphs and displays every result table: §7 the encoder comparison, §8 the variant sweep, §8b the feature ablation, and §10 the research-question tables.
+2. `notebooks/2-phase_2_virtual_graph.ipynb` — builds and saves the virtual graphs and the DeepWalk baseline embeddings. Pick the dataset with the `DATASET` knob at the top.
+3. `notebooks/3-phase3_gnn_encoder.ipynb` — trains GraphSAGE and renders the result tables: §7 encoder comparison, §8 variant sweep, §8b feature ablation, §10 research-question tables.
 
-If you prefer the command line:
+Command-line equivalents:
 
 ```bash
 # build one virtual graph
@@ -158,18 +160,18 @@ python scripts/main.py --task linkpred --dataset cora --retrain
 
 ---
 
-## Project rules
+## Reproducibility and conventions
 
-- Seeds are fixed at **42/43/44** everywhere (splits, initialization, sampling), and every result is a 3-seed mean ± std.
-- **Never edit `input/`.** Derived files belong in `output/`, and scores in `results/`.
-- Link prediction always retrains on the 70% training graph alone, so no test edge ever leaks.
-- A paper number counts as "reproduced" only when it falls within **±0.05** of the original.
+- Seeds are fixed at 42/43/44 across splits, initialization and sampling; every result is a 3-seed mean ± std.
+- `input/` is read-only. Derived files go to `output/`, scores to `results/`.
+- Link prediction retrains on the 70% training graph alone, so no test edge leaks.
+- A paper number is treated as reproduced only within ±0.05 of the original.
 - Walk length is pinned to 40 (the repo default; the paper's 80 is a recorded deviation — see `docs/notes.md`).
-- Research-significant decisions and results belong in `docs/paper_log.md`; day-to-day changes go to `docs/notes.md`.
+- Research decisions and results go to `docs/paper_log.md`; day-to-day changes go to `docs/notes.md`.
 
 ---
 
 ## Credits
 
 - **Identity2Vec** — *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. (`identity2vec.py`).
-- **ViRGo** extends that work with a cached walker, the virtual-graph study, and a GNN encoder.
+- **ViRGo** builds on that work with a cached walker, the virtual-graph study, and a GNN encoder.
