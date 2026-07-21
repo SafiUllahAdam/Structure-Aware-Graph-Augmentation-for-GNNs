@@ -525,7 +525,7 @@ Full read-only review of every module, both notebooks and the on-disk artifacts,
 
 - Supervisors saw the post-fix results (original graph wins all cells) and accepted them ("expected, keep as is"). No attempt to rescue a "virtual graph wins" story.
 - **Immediate focus = LoG (Learning on Graphs) conference**; thesis (~1 month out) reuses the paper content.
-- **Stay purely structural** — do NOT use OGB's built-in text/attribute features. The whole point is the value of structural identity without attributes.
+- **Stay purely structural** — ViRGo's features are graph-derived (degree, centrality, Ψ, clustering; they build the virtual graph and feed GraphSAGE, and ablation D showed they are necessary — random features collapse performance). Do NOT use external node attributes (OGB text, biological descriptions): they would confound the study — a gain could then come from the attributes, not the structural rewiring. Isolate structural identity.
 - **Datasets: add small-to-medium OGB only** — ogbn-arxiv (node property), ogbl-collab / ogbl-ddi (link property). Skip the 100M-node graphs (too slow before the deadline).
 - **Characterization:** compute per-dataset properties (homophily = the primary one, called out by supervisors; plus degree spread, clustering, component fraction, label-vs-topology agreement) → predict the original-vs-best-role gap → conclude "for this class original is better, for this class this feature is better".
 - **Encoder order:** finish GraphSAGE results first, THEN swap in GIN (isomorphism / WL power) to see if it helps. Learnable-alpha = future work (needs synthetic datasets), NOT in the next ~11 days.

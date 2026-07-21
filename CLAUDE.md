@@ -14,7 +14,7 @@ Study a simple, practical question: **when does a GNN need a rewired "virtual" g
 
 **Immediate target:** the LoG (Learning on Graphs) conference. The thesis reuses the same content.
 
-**Hard scope rule — stay purely structural.** Never use a dataset's built-in node attributes (e.g. OGB's text features). The whole point, inherited from I2V, is to show what *structure alone* can do; adding attributes would change the method.
+**Hard scope rule — stay purely structural.** ViRGo's features are graph-derived — degree, eigenvector centrality, the I2V score Ψ, and clustering — used both to build the virtual graph and as GraphSAGE's input. Ablation D confirmed they are necessary: replacing them with random features drops performance sharply (to the DeepWalk baseline or below). Never use external node attributes (OGB text embeddings, biological descriptions). Excluding them is deliberate — attributes would confound the study, since a gain could then be attributed to the attributes rather than to the structural rewiring under test. The goal is to isolate structural identity (the inherited I2V premise).
 
 Non-Euclidean / hyperbolic latent space is out of scope (reserved for a second paper). Do not implement it.
 

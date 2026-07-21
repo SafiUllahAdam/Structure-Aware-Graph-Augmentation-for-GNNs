@@ -25,7 +25,7 @@
 | Tech | **GNN encoder** — GraphSAGE over the virtual graph, then GIN — replacing I2V's walk + Word2Vec. | done (SAGE) / GIN next |
 | Future | Learnable alpha (auto-blend original vs virtual; needs synthetic data) · embeddings as LLM graph summaries. | not yet |
 
-**Stay purely structural:** never use a dataset's built-in node attributes (e.g. OGB text features). Showing what structure alone can do is the whole point.
+**Stay purely structural:** ViRGo's features are graph-derived — degree, eigenvector centrality, Ψ, clustering — and drive both the virtual graph and the GNN input. Ablation D showed they are necessary (random features collapse performance). We never use external node attributes (OGB text embeddings, biological descriptions): they would confound the study, hiding whether a gain came from structural rewiring or from the attributes. The point is to isolate structural identity.
 
 **Project phases:**
 1. **Phase 1 — reproduce I2V. ✅ done** — cached I2V + cross-model baselines (used as-is, **not fine-tuned**); within ±0.05 of the paper.
