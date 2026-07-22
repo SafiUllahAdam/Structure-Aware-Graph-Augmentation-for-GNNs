@@ -3,6 +3,8 @@
 # check() exists because every bug found on 2026-07-17/18 was invisible in code and obvious in one measurement:
 # a 125-node LP split, a degree-10 graph with a 6724-degree hub, negatives that were 99.9% cross-component, Omega at 1e-115.
 
+from pathlib import Path
+
 import networkx as nx
 
 # THE graph policy: how every stage treats any dataset. One place to read, one place to change, recorded per run.
@@ -43,6 +45,9 @@ def load_graph(path, policy=None):
     G = nx.read_edgelist(path, nodetype=int, create_using=nx.Graph(), delimiter=delimiter(path))
     if p["self_loops"] == "drop":
         G.remove_edges_from(nx.selfloop_edges(G))   # not a valid link-prediction pair, and it inflates degree in every signature
+    sidecar = Path(path).with_suffix(".nodes")      # OGB: a node with no (training) edge vanishes from an edgelist -> restore the FULL node set
+    if sidecar.exists():
+        G.add_nodes_from(int(l) for l in open(sidecar) if l.strip())
     return G
 
 

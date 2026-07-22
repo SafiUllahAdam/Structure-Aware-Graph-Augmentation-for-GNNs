@@ -31,6 +31,11 @@ DATASETS = {
     "enzymes_nr": {"edgelist": INPUT_DIR / "enzymes_nr.edgelist", "labels": LABELS_DIR / "enzymes_nr.labels"},  # aligned fallback if enzymes ids mismatch
     "proteins": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # author input/proteins.edgelist is comma-delimited -> make_labels.make_proteins rebuilds a whitespace copy + labels from the same source (edge overlap 1.0)
     "proteins_nr": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # explicit alias: same rebuilt pair
+    # OGB-sourced, structural-only, scored under the OFFICIAL OGB protocol (fixed split + OGB Evaluator), NOT the ViRGo random 70/30. Build via make_ogb.py.
+    "ogbn_arxiv": {"edgelist": INPUT_DIR / "ogbn_arxiv.edgelist", "labels": LABELS_DIR / "ogbn_arxiv.labels",
+                   "directed_source": True, "eval": "ogb", "split": SPLITS_DIR / "ogb" / "ogbn_arxiv_idx.npz"},   # full transductive graph, official time split -> Accuracy; data.x (128-dim text) ignored
+    "ogbl_ddi":   {"edgelist": INPUT_DIR / "ogbl_ddi_train.edgelist", "labels": None,
+                   "eval": "ogb", "pairs": SPLITS_DIR / "ogb" / "ogbl_ddi_pairs.npz"},   # graph = TRAINING edges only (no leakage); official pos/neg -> Hits@20; featureless
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 

@@ -2,7 +2,7 @@
 
 ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation and molecular datasets. The aim is a characterization: which graph properties - homophily first - predict whether role-based rewiring improves on the original graph.
 
-The method is **purely structural**: its features are graph-derived - degree, eigenvector centrality, the I2V score Ψ, and clustering - and it never uses external node attributes such as OGB text embeddings or biological descriptions. Excluding attributes is deliberate. They would confound the study, because any gain could then come from the attributes rather than from the structural rewiring under test. Target venue: the **Learning on Graphs (LoG)** conference; the thesis draws on the same work.
+The method is **purely structural**: its features are graph-derived - degree, eigenvector centrality, the I2V score Ψ, and clustering - and it never uses external node attributes such as OGB text embeddings or biological descriptions. Excluding attributes is deliberate. They would confound the study, because any gain could then come from the attributes rather than from the structural rewiring under test. For the same reason we do not compare against top OGB leaderboard entries, which may rely on those attributes; the goal is structural analysis, not leaderboard ranking. Target venue: the **Learning on Graphs (LoG)** conference; the thesis draws on the same work.
 
 ---
 
@@ -46,7 +46,7 @@ Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing file
 - **Phase 1 - reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
 - **Phase 2 - virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
 - **Phase 3 - GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C - three over-smooth), and the structural features are required (D - replacing them with random features drops performance to the DeepWalk baseline or below). Those four features do double duty: they define the virtual graph and serve as the encoder's input. K = 10.
-- **Phase 4 - characterization and scale.** Current. (1) Add small-to-medium OGB datasets, structural signals only. (2) Relate graph properties (homophily first) to the original-vs-augmented gap. (3) Swap GraphSAGE for GIN.
+- **Phase 4 - characterization and scale.** Current. (1) Add small-to-medium OGB datasets. On each, the original and virtual graphs receive identical structural features, so only the edges differ and graph structure stays the single variable; OGB's extra attributes are ignored. (2) Relate graph properties (homophily first) to the original-vs-augmented gap. (3) Swap GraphSAGE for GIN.
 - **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
 
 ---
