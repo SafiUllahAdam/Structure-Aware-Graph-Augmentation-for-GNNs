@@ -5,6 +5,7 @@
 # Ablation D6: layers=0 -> no convolutions, embeddings ARE the z-normed features (features without message passing; nothing to train).
 
 import argparse
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -23,9 +24,9 @@ WALKS = {"num_walks": 10, "walk_length": 40, "window": 10}
 class SageEncoder():
     '''2-layer GraphSAGE trained with Skipgram-style positives/negatives; neighbor aggregation mean/weighted/sum/max (ablation B).'''
 
-    def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2, agg="mean", feats="all"):
+    def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2, agg="mean", feats="all", cache=None):
         # layers=0 (D6) -> no convs: forward() returns the features unchanged, V is unused, train() is invalid.
-        self.G, self.V, self.seed, self.feats = G, V, seed, feats
+        self.G, self.V, self.seed, self.feats, self.cache = G, V, seed, feats, cache
         torch.manual_seed(seed); np.random.seed(seed)         # CPU-only + seeded -> bit-reproducible
         self.nodes = list(G.nodes)
         self.index = {n: i for i, n in enumerate(self.nodes)}
@@ -44,19 +45,27 @@ class SageEncoder():
         self.convs = torch.nn.ModuleList(Conv(dims[i], dims[i + 1], aggr='add' if agg == "weighted" else agg) for i in range(layers))
 
     def features(self):
-        '''Structural node features from the ORIGINAL graph, z-normalized; ablation D `feats` selects the subset.'''
+        '''Structural node features from the ORIGINAL graph, z-normalized; ablation D `feats` selects the subset; disk-cached via `cache`.'''
         if self.feats == "random":                             # D4 control: node identity only, zero structural signal
             X = np.random.default_rng(self.seed).normal(size=(len(self.nodes), 4))
         elif self.feats == "const":                            # D5 floor: identical rows -> z-norm gives all-zeros
             X = np.ones((len(self.nodes), 1))
+        elif self.cache and Path(self.cache).exists():         # sweep-wide reuse: 5 variants x 3 seeds share ONE computation per graph
+            z = np.load(self.cache)
+            f = dict(zip(z["nodes"].tolist(), z["X"]))
+            X = np.array([f[n] for n in self.nodes])
         else:
             vg = VirtualGraph(self.G)
             psi_nodes, psi = vg.signatures('psi')              # reference-free I2V KL->Poisson score per node
             psi = dict(zip(psi_nodes, psi[:, 0]))              # keyed by node, like deg/ev/clus: signatures() owns its own node order
             deg, ev = vg.core.degree_node(), vg.core.eigenvector_centrality()
             clus = nx.clustering(self.G)
-            cols = {"degree": [0], "deg_cent": [0, 1], "psi": [2], "all": [0, 1, 2, 3]}[self.feats]
-            X = np.array([[deg[n], ev[n], float(psi[n]), clus[n]] for n in self.nodes])[:, cols]
+            X = np.array([[deg[n], ev[n], float(psi[n]), clus[n]] for n in self.nodes])
+            if self.cache:                                     # cache ALL FOUR columns; any feats subset selects from them below
+                Path(self.cache).parent.mkdir(parents=True, exist_ok=True)
+                np.savez(self.cache, nodes=np.array(self.nodes), X=X)
+        if self.feats not in ("random", "const"):
+            X = X[:, {"degree": [0], "deg_cent": [0, 1], "psi": [2], "all": [0, 1, 2, 3]}[self.feats]]
         return torch.tensor((X - X.mean(0)) / (X.std(0) + 1e-9), dtype=torch.float)
 
     def corpus(self, max_pairs=2_000_000, positives="walk"):
@@ -125,6 +134,15 @@ class SageEncoder():
         return out
 
 
+# Content-hashed cache path: same graph bytes -> same cache file, so a changed/regenerated graph can never reuse stale features.
+def feature_cache(input_path):
+    '''Cache path for a graph's structural features, keyed by the edgelist (+ .nodes sidecar) content hash.'''
+    p = Path(input_path)
+    s = p.with_suffix(".nodes")
+    h = hashlib.md5(p.read_bytes() + (s.read_bytes() if s.exists() else b"")).hexdigest()[:12]
+    return f"output/feature_cache/{p.stem}_{h}.npz"
+
+
 # Reads an edgelist file into a networkx graph (shared loader: one graph definition for every stage).
 def build_graph(path):
     '''Read input network.'''
@@ -143,7 +161,7 @@ def main(args):
     V = nx.read_weighted_edgelist(virtual, nodetype=int)
     V.add_nodes_from(G.nodes)                                  # edgelists omit isolated nodes -> restore the full node set
     enc = SageEncoder(G, V, args.seed, hidden=args.hidden, dimensions=args.dimensions, layers=args.layers,
-                      agg=args.agg, feats=args.features)
+                      agg=args.agg, feats=args.features, cache=feature_cache(args.input))
     if args.layers:                                            # D6 (layers=0): the features are the embedding, nothing to train
         enc.train(args.epochs, lr=args.lr, negatives=args.negatives, positives=args.positives)
     print(f"virgo-sage | sim={args.sim} k={args.k} positives={args.positives} agg={args.agg} feats={args.features} "
