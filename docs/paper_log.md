@@ -618,3 +618,59 @@ Three independent checks confirm the mechanism: (i) the same embeddings reach AU
 **Note for the write-up:** ViRGo still differs from the OGB leaderboard entries in a second, deliberate way - those models feed a free `torch.nn.Embedding` of 256 dimensions per node, trained end to end, i.e. pure node identity. ViRGo refuses that by design (four graph-derived features only), so a gap to the leaderboard is expected and is not the quantity under study. The comparison that matters stays internal: original vs each virtual graph, same scorer, same split, same metric.
 
 **Effect (seed 42, validation, pre-sweep check):** DeepWalk/original 0.0124 -> 0.0857, GraphSAGE/original 0.0000 -> 0.0411, GraphSAGE/psi 0.0000 -> 0.0228. The full re-sweep (validation, selection, single test read) follows; the cosine-era rows are retained in `results/scoreboard.csv` under `*_hits@20_cos`, and the cosine-era selection lock was voided so the winner is re-chosen under the new scorer before test is read.
+
+## 2026-07-23 — ogbl-ddi results under the trained decoder, and what they change
+
+**Result (K = 10, 3 seeds, official split + Evaluator, decoder trained on training edges only).** Winner selected on validation, test read once.
+
+| graph | valid GraphSAGE | valid DeepWalk | test GraphSAGE | test DeepWalk |
+|---|---|---|---|---|
+| Ψ | 0.0223 | 0.0071 | 0.0412 | 0.0081 |
+| degree | 0.0213 | 0.0071 | 0.0265 | 0.0080 |
+| centrality | 0.0309 | 0.0077 | 0.0514 | 0.0100 |
+| original | 0.0385 | 0.0772 | 0.0102 | 0.0378 |
+| hybrid | 0.0385 | **0.1038** | 0.0117 | **0.0533** |
+
+Locked winner: hybrid + DeepWalk, validation 0.1038 ± 0.0040, test **0.0533 ± 0.0062**.
+
+**Finding 1 — the scorer, not the graph, produced the earlier null result.** Under fixed cosine every ddi cell was ≤ 0.013 and four GraphSAGE cells were identically zero. Replacing cosine with the OGB-style trained decoder raised every cell by one to two orders of magnitude and removed the zeros. Any claim of the form "role graphs carry no link signal on ddi" was an artifact of the scorer and is withdrawn.
+
+**Finding 2 — with a trained decoder, role graphs beat the original graph for GraphSAGE on test.** Test: centrality 0.0514 and Ψ 0.0412 against original 0.0102 — a 4-5× gap in favour of role-based rewiring. This is the first dataset × task cell in the study where an augmented graph clearly beats the original under the same encoder, and it runs against the locked headline that the original graph wins everywhere. The headline is not yet revised: this is one dataset, under a different (official-OGB) protocol, and the effect appears on test but not on validation.
+
+**Finding 3 — validation does not predict test on ogbl-ddi.** GraphSAGE's ranking inverts between the two splits (original/hybrid lead on validation, role graphs lead on test); DeepWalk keeps its order but halves. The official split is by protein target, so validation and test are deliberately different distributions, and the OGB leaderboard shows the same decorrelation. Consequence for the write-up: on this dataset a single-split selection is fragile, and the honest presentation is both splits side by side, not the test number alone. Our locked choice happened to also be the best test cell, so no selection cost was incurred, but that was luck and should be stated as such.
+
+**Open question raised for the core four.** Their link-prediction numbers come from `eval_linkpred.py` with the default `score='cosine'`. Given Finding 1, the LP conclusions across the whole study may be scorer-dependent. A supervised alternative (`--score logreg`, hadamard + logistic regression) already exists in that script, so the check needs no new code. This should be resolved before the paper's link-prediction claims are finalised.
+
+## 2026-07-23 — density-matched controls: the role edges carry signal, and the encoder comparison was partly a density artifact
+
+**Motivation.** Across the study the original graph's density is not comparable to the role graphs', and the mismatch *reverses sign*: on ogbl-ddi the role graphs are 39× sparser than the original (avg degree ~12 vs 500.5), while on cora, citeseer, enzymes and proteins they are 3-5× denser (12-20 vs 2.8-3.9). Any cross-dataset pattern of the form "role graphs help here but not there" could therefore be tracking edge *count* rather than edge *meaning*. Two controls hold the count fixed, built with the same union-of-K-per-node construction as the role graphs so counts match by construction: `original_k` (K uniformly sampled real neighbours per node) and `random_k` (K arbitrary nodes).
+
+**Results (ogbl-ddi, validation, decoder scorer, 3 seeds, K=10).** Both controls landed ~1.5-1.7× denser than the role graphs, which handicaps the role graphs and makes the comparisons below conservative.
+
+| graph | edges | GraphSAGE | DeepWalk |
+|---|---|---|---|
+| psi | 27,042 | 0.0251 | 0.0071 |
+| degree | 27,109 | 0.0227 | 0.0071 |
+| centrality | 24,886 | 0.0326 | 0.0077 |
+| original_k | 39,588 | 0.0371 | 0.0303 |
+| random_k | 42,632 | 0.0078 | 0.0006 |
+| original | 1,067,911 | 0.0413 | 0.0772 |
+| hybrid | 1,088,727 | 0.0554 | 0.1038 |
+
+**Finding 1 — role edges beat a random scaffold decisively.** GraphSAGE on the role graphs scores 2.9-4.2× the random control (0.0227-0.0326 vs 0.0078); DeepWalk roughly 12× (0.0071-0.0077 vs 0.0006). The random control has *more* edges than any role graph, so the gap cannot be a density effect. This is the study's first clean demonstration that Ψ, degree and centrality edges carry structural information rather than merely giving the encoder something to aggregate over - it is the edge-level counterpart of ablation D, which established the same for the input features.
+
+**Finding 2 — GraphSAGE extracts nothing from 96% of the original graph's edges.** A uniform K=10 sample of the real edges (39,588) scores 0.0371 against the full graph's 0.0413 with 1,067,911 edges - a 0.3 sigma difference. Whatever advantage the original graph gives GraphSAGE, it is not volume.
+
+**Finding 3 — the encoder ranking inverts once density is matched.** On the full graphs DeepWalk leads GraphSAGE (0.0772 vs 0.0413); at matched density GraphSAGE leads DeepWalk (0.0371 vs 0.0303), because DeepWalk loses a factor of 2.5 when the original graph is sparsified while GraphSAGE loses almost nothing. The earlier reading that "walks beat message passing when the graph encodes adjacency" is, on this dataset, substantially a statement about edge volume. Any encoder claim in the paper should be stated at matched density or explicitly qualified.
+
+**Design note for the write-up.** `original_k` does not replace `original`: possessing a million real links is a genuine property of that graph, not an unfair advantage, so the full graph remains the baseline a practitioner would use. The controls answer a different question - how much of the observed gap is meaning and how much is volume. Also note `original_k` is only constructible where the original graph is denser than K, i.e. on ogbl-ddi; on the core four the matching must run the other way (role graphs rebuilt at the K that matches the original's average degree, K≈2). Matching should therefore be specified on average degree, not on a fixed K.
+
+## 2026-07-23 — where the seed noise comes from, and the frozen configuration
+
+**Question.** The ogbl-ddi validation spread (std/mean 34-51% on GraphSAGE) is comparable to the differences between graph variants, so before extending the study to a second OGB dataset we established which component produces it.
+
+**Decoder is not the source on the role graphs.** Holding one saved embedding fixed and refitting the link decoder under five seeds gives std 0.0014 on GraphSAGE/psi against a total across-seed std of 0.0127 — about 1% of the variance. On the dense original graph the decoder contributes more (std 0.0065 of 0.0142, ~21%), consistent with it fitting 1.07M training edges. DeepWalk's entire (small) spread, 0.0008, is decoder noise: the walk encoder is effectively deterministic across seeds on this graph. Conclusion: **the seed spread is a property of the GraphSAGE encoder**, and error bars on GraphSAGE rows should be read as encoder variance, not measurement variance.
+
+**Encoder training budget.** Loss over 10-epoch windows continues to drift after epoch 50 (psi 4.0191 → 3.8901 by epoch 300; original 3.9005 → 3.7270 by epoch 200), but against a drop of ~38 from initialisation this is under half a percent of the range. The budget is held at 50 epochs for every variant. This is equal in both relevant senses — identical epoch count and identical total gradient samples (50 × 100,000 = 5M pairs per variant, independent of graph size). **Limitation to state in the paper:** the encoder is trained to a fixed budget rather than to a per-graph convergence criterion, and because `pairs_per_epoch` is fixed while corpus size varies with density, a fixed budget corresponds to many passes over a sparse role graph and few over a dense one.
+
+**Configuration frozen (2026-07-23).** K=10; four structural features computed on the original graph and shared by every variant; GraphSAGE mean / 2 layers / 64-dim / lr 0.01 / 50 epochs / edge positives / Q=5 negatives with real-neighbour rejection; DeepWalk bridge as the second encoder; link scoring by an OGB-style trained decoder (hadamard → 256-unit MLP) fitted on training edges only; official OGB split and Evaluator; seeds 42/43/44; winner selected on validation and test read once. Every subsequent dataset runs this configuration unchanged, so that differences between datasets are attributable to the graph and not to per-dataset tuning.
