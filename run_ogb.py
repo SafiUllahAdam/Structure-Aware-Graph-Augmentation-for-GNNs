@@ -97,6 +97,18 @@ def score(ds, emb, split, seed):
     return {f"{split}_hits@20": r["hits@20"]}
 
 
+# Scoreboard cache: scoring is deterministic (seeded scorer + reused embeddings) -> once a config's rows exist, recomputing repeats identical numbers.
+def cached(ds, enc, sim, k, split):
+    '''Return {metric: mean} if this config's {split} primary metric is already on the scoreboard, else None (recompute).'''
+    p = Path(cfg.SCOREBOARD_CSV)
+    if not (p.exists() and p.stat().st_size):
+        return None
+    board = pd.read_csv(p)
+    r = board[(board["dataset"] == ds) & (board["encoder"] == enc) & (board["graph_variant"] == sim)
+              & (board["top_K_neighbors"] == k) & board["metric"].isin([f"{split}_{m}" for m in PRIMARY])]
+    return dict(zip(r["metric"], r["mean"])) if not r.empty else None
+
+
 # Pivots the scoreboard into a readable graph x encoder table for one split (the primary metric only).
 def table(ds, split, better=False):
     '''Graph x encoder table of the primary OGB metric for one split; better=True adds the winning-encoder column.'''
@@ -122,11 +134,17 @@ SELECTION_JSON = cfg.RESULTS_DIR / "ogb_selection.json"       # the lock: one en
 
 # Picks the winner on VALIDATION and locks it to results/ogb_selection.json; frozen once any test row exists.
 def select(ds):
-    '''Pick + lock the validation winner for a dataset; refuses to re-select after test has been read.'''
+    '''Pick + lock the validation winner; idempotent once locked (re-run just re-shows the lock), never re-picks after test.'''
     board = pd.read_csv(cfg.SCOREBOARD_CSV)
     rows = board[board["dataset"] == ds]
+    sel = json.loads(SELECTION_JSON.read_text()) if SELECTION_JSON.exists() else {}
+    if ds in sel:                                         # already locked -> re-running §6 is a no-op: show it, keep the same winner
+        e = sel[ds]
+        print(f"{ds} already locked ({e['locked_at']}): {LABELS[e['graph_variant']]} graph + {LABELS[e['encoder']]}, "
+              f"{UNIT[e['metric'].split('_', 1)[1]]} = {e['mean']:.4f} ± {e['std']:.4f}   (unchanged -> {SELECTION_JSON})")
+        return e
     assert rows[rows["metric"].isin([f"test_{m}" for m in PRIMARY])].empty, \
-        f"{ds} already has test rows - the selection is frozen; changing the winner after seeing test would bias the result"
+        f"{ds} has test rows but no saved lock - refusing to create a selection after test was read (would bias the result)"
     valid = rows[rows["metric"].isin(["valid_acc", "valid_hits@20"])]
     assert not valid.empty, f"no validation rows for {ds} - run the validation sweep first"
     unit = UNIT[valid["metric"].iloc[0].split("_", 1)[1]]
@@ -138,7 +156,6 @@ def select(ds):
              "top_K_neighbors": int(best["top_K_neighbors"]), "metric": best["metric"],
              "mean": float(best["mean"]), "std": float(best["std"]), "seeds": best["seeds"],
              "locked_at": datetime.now().isoformat(timespec="seconds")}
-    sel = json.loads(SELECTION_JSON.read_text()) if SELECTION_JSON.exists() else {}
     sel[ds] = entry
     SELECTION_JSON.write_text(json.dumps(sel, indent=1) + "\n")
     print(f"\nValidation winner: {LABELS[best['graph_variant']]} graph + {LABELS[best['encoder']]}, "

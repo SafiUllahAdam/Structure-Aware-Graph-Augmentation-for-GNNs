@@ -100,11 +100,16 @@ class SageEncoder():
         return z
 
     def train(self, epochs, lr=0.01, negatives=5, pairs_per_epoch=100_000, max_pairs=2_000_000, positives="walk"):
-        '''Skipgram-analog objective: pull positive pairs together, push deg^0.75 negatives apart.'''
+        '''Skipgram-analog objective: pull positive pairs together, push deg^0.75 negatives (true non-neighbors) apart.'''
         assert len(self.convs) > 0, "layers=0 (D6) has no parameters to train — save() the features directly instead"
         pairs = self.corpus(max_pairs, positives)
         deg = torch.tensor([d for _, d in self.V.degree(self.nodes)], dtype=torch.float) ** 0.75
         neg_dist = deg / deg.sum() if deg.sum() > 0 else torch.full((len(self.nodes),), 1.0 / len(self.nodes))
+        # A word2vec negative may land on a real neighbor: harmless when the graph is sparse, but on a dense graph the
+        # deg^0.75 bias hits hubs, which are the likely neighbors (ogbl-ddi: 32% of draws). Reject those and redraw.
+        N = len(self.nodes)
+        key = lambda a, b: np.minimum(a, b).astype(np.int64) * N + np.maximum(a, b)   # undirected pair -> one int
+        known = np.sort(key(self.edge_index[0].numpy(), self.edge_index[1].numpy()))
         opt = torch.optim.Adam((p for c in self.convs for p in c.parameters()), lr=lr)
         g = torch.Generator().manual_seed(self.seed)
         losses = []
@@ -112,7 +117,15 @@ class SageEncoder():
             z = self.forward()
             idx = torch.randint(len(pairs), (min(pairs_per_epoch, len(pairs)),), generator=g)
             u, v = pairs[idx, 0], pairs[idx, 1]
-            n = torch.multinomial(neg_dist, len(u) * negatives, replacement=True, generator=g).view(len(u), negatives)
+            n = torch.multinomial(neg_dist, len(u) * negatives, replacement=True, generator=g)
+            uu = u.repeat_interleave(negatives).numpy()
+            for _ in range(10):                                              # collisions shrink geometrically; sparse graphs exit at once
+                k = key(uu, n.numpy())
+                bad = torch.tensor((known[np.clip(np.searchsorted(known, k), 0, len(known) - 1)] == k) | (uu == n.numpy()))
+                if not bad.any():
+                    break
+                n[bad] = torch.multinomial(neg_dist, int(bad.sum()), replacement=True, generator=g)
+            n = n.view(len(u), negatives)
             pos = F.logsigmoid((z[u] * z[v]).sum(-1))                        # pull positives together
             neg = F.logsigmoid(-(z[u].unsqueeze(1) * z[n]).sum(-1)).sum(-1)  # push Q negatives apart
             loss = -(pos + neg).mean()

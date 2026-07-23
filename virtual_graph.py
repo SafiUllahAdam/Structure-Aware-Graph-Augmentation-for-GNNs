@@ -66,6 +66,23 @@ class VirtualGraph():
             V = self.build('psi', k)
             V.add_edges_from(self.G.edges, weight=1.0)        # overlap edge takes 1.0: original-edge semantics win
             return V
+        # Density-matched controls: same "union of K per node" construction as the role graphs, only the neighbor SOURCE differs,
+        # so edge counts are comparable by construction. original_k = K real neighbors (semantics without volume);
+        # random_k = K arbitrary nodes (the null: does any sparse scaffold do as well as a role scaffold?).
+        if sim in ('original_k', 'random_k'):
+            rng = np.random.default_rng(self.seed)
+            nodes = list(self.G.nodes)
+            V = nx.Graph()
+            V.add_nodes_from(nodes)
+            for node in nodes:
+                pool = list(self.G[node]) if sim == 'original_k' else \
+                    [nodes[j] for j in rng.choice(len(nodes), min(k + 1, len(nodes)), replace=False)]
+                pool = [x for x in pool if x != node]
+                picked = pool if len(pool) <= k else [pool[j] for j in rng.choice(len(pool), k, replace=False)]
+                for j in picked:
+                    V.add_edge(node, j, weight=1.0)           # no similarity meaning here, so weight is constant
+            assert V.number_of_nodes() == self.G.number_of_nodes(), "node set changed"
+            return V
         nodes, X = self.signatures(sim)
         k = min(k, len(nodes) - 1)
         n = len(nodes)
@@ -140,9 +157,10 @@ def parse_args():
     parser.add_argument('--input', nargs='?', default='input/cora.edgelist', help='Input graph path')
     parser.add_argument('--output', nargs='?', default=None,
                         help='Output virtual edgelist (default: output/notebook2_create_vir_graph/virtual_graphs/<ds>/k<K>/<sim>/virtual_graph.edgelist)')
-    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality', 'original', 'hybrid'],
+    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality', 'original', 'hybrid', 'original_k', 'random_k'],
                         help='Structural similarity: psi=I2V KL/Poisson, degree-only, centrality-only, '
-                             'original=exact copy of input graph (control, K unused), hybrid=original + psi top-K union. Default psi.')
+                             'original=exact copy of input graph (control, K unused), hybrid=original + psi top-K union, '
+                             'original_k/random_k=density-matched controls (K real / K arbitrary neighbors per node). Default psi.')
     parser.add_argument('--k', type=int, default=10, help='Top-K structural neighbors per node. Default 10.')
     parser.add_argument('--e', type=float, default=2.7182, help='Euler constant (I2V).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility. Default 42.')

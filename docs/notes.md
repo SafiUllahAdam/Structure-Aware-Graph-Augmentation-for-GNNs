@@ -572,3 +572,117 @@ Not yet wired: notebook orchestration for the two OGB datasets (build → 5 vari
 **Record keeping.** The 20 existing cosine rows for `ogbl_ddi` were **relabelled** in `results/scoreboard.csv` from `valid_hits@20`/`test_hits@20` to `valid_hits@20_cos`/`test_hits@20_cos` - nothing deleted, and `_cos` is outside `run_ogb.PRIMARY` so it no longer appears in the result tables. The `ogbl_ddi` entry in `results/ogb_selection.json` was **voided**: it locked a winner under the retired scorer, so §7 now correctly refuses until §6 re-selects under the decoder. `select()`'s freeze guard was tightened from `metric.startswith("test_")` to the PRIMARY test metrics, so the relabelled `_cos` rows do not block the new selection.
 
 **Effect (seed 42, validation, smoke check before the full sweep):** deepwalk/original 0.0124 -> **0.0857**; graphsage/original 0.0000 -> **0.0411**; graphsage/psi 0.0000 -> **0.0228**. The tie ceiling is gone because MLP logits are unbounded, so no negative pair can sit on an unbeatable maximum. Full re-sweep (valid, select, test) still to run.
+
+## 2026-07-23 — ogbl-ddi rerun under the trained decoder (full sweep, 3 seeds, K=10)
+
+First complete OGB run. Embeddings reused unchanged (encoder untouched); only §5-§8 recomputed.
+
+| graph | valid SAGE | valid DeepWalk | test SAGE | test DeepWalk |
+|---|---|---|---|---|
+| Ψ | 0.0223 | 0.0071 | 0.0412 | 0.0081 |
+| degree | 0.0213 | 0.0071 | 0.0265 | 0.0080 |
+| centrality | 0.0309 | 0.0077 | 0.0514 | 0.0100 |
+| original | 0.0385 | 0.0772 | 0.0102 | 0.0378 |
+| hybrid | 0.0385 | **0.1038** | 0.0117 | **0.0533** |
+
+Locked on validation: **hybrid + DeepWalk, 0.1038 ± 0.0040** → test **0.0533 ± 0.0062** (also the best test cell, so the lock cost nothing here). Selection discipline held: valid swept, winner locked to `results/ogb_selection.json`, test read once.
+
+**Versus the retired cosine scorer** (rows kept as `*_hits@20_cos`): every cell improved by 1-2 orders of magnitude, and the four `0.0000` GraphSAGE cells are gone — the twin-tie ceiling was the whole cause. Cosine's winner was original + DeepWalk (0.0128); the decoder's is hybrid + DeepWalk (0.1038), 8× higher.
+
+**Two things to keep in view before adding arxiv.**
+1. *Validation does not predict test on this dataset.* GraphSAGE inverts: original/hybrid lead on validation (0.0385) but collapse on test (0.0102/0.0117), while the role graphs do the opposite (centrality 0.0309 → 0.0514). ogbl-ddi's split is by protein target, so valid and test are deliberately different distributions; the OGB leaderboard shows the same valid/test decorrelation. Not a bug, but it means single-split selection is fragile here.
+2. *Conclusions were scorer-dependent.* Under cosine the role graphs looked like noise on ddi; under the decoder GraphSAGE's role graphs beat GraphSAGE's original graph 4× on test. The core-four link-prediction results still use `eval_linkpred.py`'s default `score='cosine'` — a `logreg` mode (hadamard + LogisticRegression) already exists behind a flag, so the same sensitivity is testable there without new code. Worth checking before the study's LP claims are written up.
+
+Notebook 4 is the flow under stabilization; more improvements will be tested on ddi before ogbn-arxiv is added.
+
+## 2026-07-23 — correctness fix #1: GraphSAGE negative sampling rejects real neighbors
+
+**Bug.** `SageEncoder.train()` drew negatives word2vec-style from a `deg^0.75` distribution over all nodes with no check against existing edges, so a sampled "negative" could be an actual neighbor of the center node - the objective then pushed apart a pair the positives pull together. Measured P(sampled negative is a real neighbor of `u`, or `u` itself) on ogbl-ddi: **original 0.320, hybrid 0.314**, role graphs 0.0035. The rate far exceeds the graph's 0.117 density because `deg^0.75` oversamples hubs and hubs are the likely neighbors - the bias roughly triples it. Consistent with the observed test scores, where GraphSAGE was worst exactly on the two dense (poisoned) graphs and best on the three sparse ones.
+
+**Fix.** Negatives are now rejection-sampled: pairs are keyed as `min*N+max` into a sorted array of the graph's edges, colliding draws (and self-pairs) are redrawn, up to 10 rounds - collisions shrink geometrically, so sparse graphs exit on the first round and residual contamination is ~1e-5. Q stays at 5 for every variant, so the variants remain comparable. Exclusion is against **V**, the graph being trained on, not the original graph: the objective is "V-neighbors attract, non-V-neighbors repel", so a role graph's negatives exclude role edges. Deterministic (same generator, sequential draws). Runtime unchanged (ddi: ~2 s/epoch on the original graph, ~0.17 s on the role graphs).
+
+**Scope.** A correctness fix for every dataset, not a ddi knob; on the sparse core four the collision rate is a fraction of a percent, so those results should barely move (to be confirmed later, not now).
+
+**Rerun.** Snapshot of the pre-fix decoder rows saved to `results/snapshots/ogbl_ddi_decoder_prenegfix_2026-07-23.csv` (40 rows: decoder + cosine, valid + test) because `record_score` upserts. The 15 GraphSAGE ddi embeddings were deleted so §4 retrains them; the 15 DeepWalk files are untouched (this fix does not affect them). Validation only this round - `select()` correctly refuses while test rows exist, and the existing `test_hits@20` rows are now stale, belonging to the pre-fix embeddings; they will be cleared at pipeline-freeze time for the final valid → lock → test run.
+
+**Falsifiable prediction for the rerun:** role graphs should barely move (0.35% → 0), original and hybrid should improve clearly. If the role graphs move too, something other than this changed.
+
+**Result of correctness fix #1 (validation only, GraphSAGE, ogbl-ddi).** DeepWalk rows identical, confirming only the encoder changed.
+
+| graph | before | after | delta | delta/std |
+|---|---|---|---|---|
+| Ψ | 0.0223 | 0.0251 | +0.0028 | 0.2 |
+| degree | 0.0213 | 0.0227 | +0.0014 | 0.2 |
+| centrality | 0.0309 | 0.0326 | +0.0017 | 0.3 |
+| original | 0.0385 | 0.0413 | +0.0028 | 0.2 |
+| hybrid | 0.0385 | 0.0554 | +0.0169 | 1.9 |
+
+The prediction was half right: the role graphs stayed inside noise as expected, but **original did not improve** (+0.2 sigma) despite carrying the same 32% contamination as hybrid, so contamination alone does not explain the dense-graph weakness. Only hybrid moved, and 1.9 sigma on three seeds is not decisive. Training did change materially - the encoder loss fell about 0.25 on every variant (4.14 -> 3.89), so the contradictions were real and are gone; the metric simply did not follow. **The fix is kept on correctness grounds**, independent of the score: an objective must not push apart a pair its own positives pull together.
+
+**Blocker surfaced: seed noise now matches the effect size.** Validation std/mean is 34% on original (0.0413 ± 0.0142), 51% on psi (0.0251 ± 0.0127), 40% on degree. With three seeds at that noise level the "which graph wins" comparison - the paper's core claim - is not resolvable on this dataset. This outranks further tuning. Candidate causes to check next: encoder under-convergence (50 epochs, loss still falling at the end), decoder variance stacking on encoder variance, too few seeds.
+
+Snapshot of the pre-fix rows: `results/snapshots/ogbl_ddi_decoder_prenegfix_2026-07-23.csv`. §6 correctly refused (stale test rows from the pre-fix embeddings); §6-§8 stay unrun until the pipeline is frozen.
+
+## 2026-07-23 — density-matched controls added (`original_k`, `random_k`)
+
+**Why.** The original graph's density floats per dataset and even flips direction against the role graphs: avg degree 500.5 vs ~12 on ogbl-ddi (role graphs 39× sparser), but 2.8-3.9 vs 12-20 on cora/citeseer/enzymes/proteins (role graphs 3-5× denser). "Role graph vs original" therefore confounded edge meaning with edge count, in opposite directions across the datasets the study compares.
+
+**Implementation (`virtual_graph.py`).** Two new variants using the *same* union-of-K-per-node construction as the role graphs, so counts are comparable by construction; only the neighbor source differs. `original_k` = K uniformly sampled **real** neighbors per node (semantics without volume). `random_k` = K arbitrary nodes (the null: does any sparse scaffold work as well as a role scaffold?). Both seeded, weight 1.0. Kept in `cfg.VG_CONTROLS`, deliberately **out of `VG_SIMS`**, so the Phase-2/3 study and notebooks 2-3 are unchanged; opt in with `VG_SIMS + VG_CONTROLS`.
+
+**Validation results (ogbl-ddi, decoder scorer, post-negative-fix, 3 seeds):**
+
+| graph | edges | GraphSAGE | DeepWalk |
+|---|---|---|---|
+| psi | 27,042 | 0.0251 ± 0.0127 | 0.0071 ± 0.0007 |
+| degree | 27,109 | 0.0227 ± 0.0090 | 0.0071 ± 0.0011 |
+| centrality | 24,886 | 0.0326 ± 0.0051 | 0.0077 ± 0.0009 |
+| **original_k** | 39,588 | 0.0371 ± 0.0074 | 0.0303 ± 0.0014 |
+| **random_k** | 42,632 | 0.0078 ± 0.0020 | 0.0006 ± 0.0002 |
+| original | 1,067,911 | 0.0413 ± 0.0142 | 0.0772 ± 0.0082 |
+| hybrid | 1,088,727 | 0.0554 ± 0.0087 | 0.1038 ± 0.0040 |
+
+Both controls came out ~1.5-1.7× **denser** than the role graphs (similar nodes pick each other reciprocally, so the top-K union collapses; random picks rarely collide). That handicaps the role graphs, making every comparison below conservative.
+
+**Reading.**
+1. *The role edges are real signal.* GraphSAGE beats the random scaffold 2.9-4.2× (psi/degree/centrality 0.0227-0.0326 vs random_k 0.0078) and DeepWalk beats it ~12×, even though random_k has more edges. First clean evidence in the study that Ψ/degree/centrality edges carry information rather than merely providing something to message-pass over.
+2. *GraphSAGE ignores 96% of the original graph.* original_k (39.6k edges) scores 0.0371 against full original's 0.0413 with 27× more edges - a 0.3 sigma difference. The original graph's GraphSAGE advantage was never about volume.
+3. *DeepWalk's advantage IS volume.* original 0.0772 → original_k 0.0303, a 2.5× drop. So on ddi the encoder ranking **inverts once density is matched**: on the full graphs DeepWalk leads (0.0772 vs 0.0413), at matched density GraphSAGE leads (0.0371 vs 0.0303). The earlier "DeepWalk beats GraphSAGE on the original graph" reading was substantially a density effect.
+
+The currently locked winner (hybrid + DeepWalk, 0.1038) sits on the full 1.09M-edge graph, so it is in the density-favoured regime.
+
+## 2026-07-23 — stability checks, and the pipeline freeze
+
+Two noise sources measured on ogbl-ddi validation before freezing. Everything at the standard settings (`GNN_PARAMS["epochs"]=50`, K=10, seeds 42/43/44) — no setting was changed for these checks and none was changed because of them.
+
+**Decoder noise.** One saved embedding scored five times with five different decoder seeds (the encoder is held fixed, so this isolates the decoder's own initialisation + negative sampling).
+
+| embedding | 5 decoder seeds | decoder std | total std (3 encoder seeds) | decoder share of variance |
+|---|---|---|---|---|
+| GraphSAGE / psi | 0.0249 0.0267 0.0258 0.0231 0.0268 | 0.0014 | 0.0127 | ~1% |
+| GraphSAGE / original | 0.0276 0.0377 0.0384 0.0475 0.0417 | 0.0065 | 0.0142 | ~21% |
+| DeepWalk / psi | 0.0069 0.0078 0.0072 0.0083 0.0091 | 0.0008 | 0.0007 | ~all |
+
+The decoder is not the problem on the role graphs (1% of variance) but is a real contributor on the dense original graph (21%), where it has 1.07M training edges and a harder fit. DeepWalk's total spread is so small that it is entirely decoder noise — the walk encoder itself is near-deterministic across seeds here. **The GraphSAGE encoder is the dominant noise source**, so the seed spread reported for the role graphs is a property of the encoder, not the metric.
+
+**Encoder convergence.** Training loss averaged over 10-epoch windows, single seed, two graphs at opposite densities:
+
+| graph | ep 40-50 | 90-100 | 140-150 | 190-200 | 290-300 |
+|---|---|---|---|---|---|
+| psi | 4.0191 | 3.9516 | 3.9335 | 3.9190 | 3.8901 |
+| original | 3.9005 | 3.8264 | 3.7614 | 3.7270 | — |
+
+The loss is still drifting down after epoch 50 — 0.13 over the next 250 epochs on psi, 0.17 over the next 150 on original — against a total drop of ~38 from initialisation, i.e. the post-50 movement is under half a percent of the range. **Epochs stay at 50 for every graph.** The budget is equal across variants in both senses that matter: same epoch count, and same total gradient samples (50 × `pairs_per_epoch` 100,000 = 5M pairs for every variant regardless of graph size). Recorded as a limitation for the write-up: the encoder is trained to a fixed budget, not to a convergence criterion, and the dense graphs are further from their own plateau than the sparse ones at that budget.
+
+**Pipeline frozen at this point.** No further ddi-driven changes. Frozen settings:
+
+- graph: K=10, variants `VG_SIMS` (psi/degree/centrality/original/hybrid), controls `VG_CONTROLS` (original_k/random_k) available but out of the main sweep
+- features: all four structural (degree, eigenvector centrality, Ψ, clustering), computed on the original graph, shared by every variant
+- encoder: GraphSAGE mean, 2 layers, 64-dim, lr 0.01, 50 epochs, edge positives, Q=5 negatives with real-neighbour rejection; DeepWalk bridge as the second encoder
+- link scorer: trained OGB-style decoder (hadamard → MLP 256), fitted on training edges only, 50 epochs
+- protocol: official OGB split + Evaluator, seeds 42/43/44, winner selected on validation, test read once
+
+Next dataset is **ogbn-arxiv**, run with this code unchanged — no per-dataset tuning, per the freeze rule.
+
+## 2026-07-24 — scoring cache (notebook 4 §5/§7)
+
+OGB scoring is deterministic (seeded scorer + reused embeddings), so re-running §5/§7 recomputed identical numbers — ~15 min per pass on ddi (decoder refit ×10) for no new information. Added `run_ogb.cached(ds, enc, sim, k, split)`: returns the saved scoreboard mean(s) if the config's primary `{split}` rows exist, else `None`. Cells §5/§7 now skip `score()`+`record_score` on a hit and print `reuse …`. Reuse is valid only while embeddings + scorer are unchanged; changing either means clearing the affected scoreboard rows first (same convention as deleting `.emb` files to force a retrain). Selection lock, guards, metrics, values all unchanged — verified reused means match the scoreboard byte-for-byte.

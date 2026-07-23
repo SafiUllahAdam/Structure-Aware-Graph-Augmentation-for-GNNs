@@ -52,6 +52,10 @@ I2V_PARAMS = {
 
 # Virtual-graph study (Phase 2): variants + K sweep. SAME K across variants + SAME seeds = fair comparison.
 VG_SIMS = ["psi", "degree", "centrality", "original", "hybrid"]   # psi = I2V Ψ; degree/centrality = simpler baselines; original = unchanged-graph control (K unused); hybrid = original ∪ psi top-K
+# Density-matched controls, kept OUT of VG_SIMS so the Phase-2/3 study is unchanged; opt in with VG_SIMS + VG_CONTROLS.
+# The original graph's density floats per dataset (ddi avg degree 500 vs role graphs 13; cora 3.9 vs 12) and even flips
+# direction, so "role vs original" confounds edge meaning with edge count. These two hold the count fixed.
+VG_CONTROLS = ["original_k", "random_k"]    # original_k = K real neighbors per node; random_k = K arbitrary nodes (null scaffold)
 VG_K = [5, 10, 20]                          # top-K sweep (sparsity vs over-smoothing tradeoff)
 VG_SEEDS = [42, 43, 44]                     # deterministic build; extra seeds cover the downstream walk/GNN encoder
 
