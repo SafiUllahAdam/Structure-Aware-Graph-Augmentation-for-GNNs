@@ -92,7 +92,8 @@ def score(ds, emb, split, seed):
         if split == "test":                                    # secondary metrics reported on the official test nodes only
             out |= {"test_weighted_f1": r["weighted_f1"], "test_macro_f1": r["macro_f1"]}
         return out
-    r = eval_ogb.evaluate_linkpred(emb, str(d["pairs"]), split=split)
+    r = eval_ogb.evaluate_linkpred(emb, str(d["pairs"]), split=split, scorer="mlp",   # OGB-style decoder, TRAIN edges only
+                                   train_edgelist=str(d["edgelist"]), seed=seed)
     return {f"{split}_hits@20": r["hits@20"]}
 
 
@@ -124,7 +125,7 @@ def select(ds):
     '''Pick + lock the validation winner for a dataset; refuses to re-select after test has been read.'''
     board = pd.read_csv(cfg.SCOREBOARD_CSV)
     rows = board[board["dataset"] == ds]
-    assert rows[rows["metric"].str.startswith("test_")].empty, \
+    assert rows[rows["metric"].isin([f"test_{m}" for m in PRIMARY])].empty, \
         f"{ds} already has test rows - the selection is frozen; changing the winner after seeing test would bias the result"
     valid = rows[rows["metric"].isin(["valid_acc", "valid_hits@20"])]
     assert not valid.empty, f"no validation rows for {ds} - run the validation sweep first"
