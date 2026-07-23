@@ -7,6 +7,15 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import torch
+from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
+from torch_geometric.data.storage import GlobalStorage
+
+# PyTorch >= 2.6 flipped torch.load to weights_only=True; OGB's caches are pickled PyG objects (processed graph) and
+# pickled numpy arrays (split files), which the safe unpickler rejects. Allowlist exactly those (OGB's official host).
+torch.serialization.add_safe_globals(
+    [DataEdgeAttr, DataTensorAttr, GlobalStorage, np.core.multiarray._reconstruct, np.ndarray, np.dtype]
+    + [getattr(np.dtypes, n) for n in dir(np.dtypes) if n.endswith("DType")])
 
 RAW = "output/ogb_raw"                         # OGB download cache: derived, never hand-edited, kept out of input/
 
