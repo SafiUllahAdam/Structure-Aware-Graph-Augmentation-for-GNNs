@@ -104,11 +104,15 @@ identity2vec/
 ├── eval_nodeclass.py         # scores node classification (weighted F1)
 ├── eval_linkpred.py          # scores link prediction (AUC)
 ├── make_labels.py            # downloads + builds label files
+├── make_ogb.py               # Phase 4: OGB -> ViRGo files (edgelist, .nodes, labels, official splits)
+├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20), one split per call
+├── run_ogb.py                # Phase 4: OGB pipeline functions (notebook 4 imports these; also a CLI)
 │
 ├── notebooks/
 │   ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
 │   ├── 2-phase_2_virtual_graph.ipynb  # Phase 2 - build + inspect the virtual graphs
-│   └── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
+│   ├── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
+│   └── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
 │
 └── scripts/                  # main.py (CLI) · benchmark_config.py (all settings) · runner.py · results_io.py
 ```
@@ -139,6 +143,7 @@ The three notebooks are the main workflow. Run them in order, top to bottom, on 
 1. `notebooks/1-reproduce_i2v.ipynb` - reproduces the I2V paper numbers.
 2. `notebooks/2-phase_2_virtual_graph.ipynb` - builds and saves the virtual graphs and the DeepWalk baseline embeddings. Pick the dataset with the `DATASET` knob at the top.
 3. `notebooks/3-phase3_gnn_encoder.ipynb` - trains GraphSAGE and renders the result tables: §7 encoder comparison, §8 variant sweep, §8b feature ablation, §10 research-question tables.
+4. `notebooks/4-phase4_ogb.ipynb` - runs an OGB dataset end to end under the official protocol (pick it with the `DATASET` knob): download, virtual graphs, embeddings, validation selection, then a single guarded test read.
 
 Command-line equivalents:
 
