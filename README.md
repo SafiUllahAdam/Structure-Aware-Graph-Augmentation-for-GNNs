@@ -105,7 +105,7 @@ identity2vec/
 ├── eval_linkpred.py          # scores link prediction (AUC)
 ├── make_labels.py            # downloads + builds label files
 ├── make_ogb.py               # Phase 4: OGB -> ViRGo files (edgelist, .nodes, labels, official splits)
-├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20), one split per call
+├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20 via a trained link decoder), one split per call
 ├── run_ogb.py                # Phase 4: OGB pipeline functions (notebook 4 imports these; also a CLI)
 │
 ├── notebooks/
