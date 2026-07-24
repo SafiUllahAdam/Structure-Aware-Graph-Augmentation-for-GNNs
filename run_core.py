@@ -29,6 +29,12 @@ CORE = ["cora", "citeseer_linqs", "enzymes", "proteins"]      # the four non-OGB
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
+# Ablation-D arms write their own files and their own scoreboard rows; the locked D0 ("all") keeps the plain encoder name.
+def tag(encoder, feats):
+    '''Encoder id used for both the .emb filename and the scoreboard row (same convention as encoder.main).'''
+    return encoder if feats == "all" else f"{encoder}_feat_{feats}"
+
+
 # The shared 70/30 link-prediction split for one (dataset, seed): one split per seed, reused by every encoder and variant.
 def split(ds, seed):
     '''Path to the seed's LP split dir; builds it if missing (deterministic -> rebuilding gives the same split).'''
@@ -39,10 +45,10 @@ def split(ds, seed):
 
 
 # Trains (or reuses) one embedding: NC embeds the FULL graph, LP embeds the seed's 70% train graph (virtual graph rebuilt from it).
-def embed(ds, k, sim, encoder, seed, task):
+def embed(ds, k, sim, encoder, seed, task, feats="all"):
     '''Train one encoder over the virtual graph for one task -> .emb path; reuse if already on disk.'''
     zone = cfg.NB3_DIR if encoder == "graphsage_edge" else cfg.NB2_DIR
-    emb = zone / task / ds / f"k{k}" / sim / f"{encoder}_s{seed}.emb"
+    emb = zone / task / ds / f"k{k}" / sim / f"{tag(encoder, feats)}_s{seed}.emb"
     if emb.exists():
         print(f"reuse  {ds} {task} {sim} {encoder} s{seed}", flush=True)
         return emb
@@ -60,7 +66,7 @@ def embed(ds, k, sim, encoder, seed, task):
     if encoder == "graphsage_edge":
         p = cfg.GNN_PARAMS
         enc = SageEncoder(G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
-                          agg=p["agg"], feats=p["features"], cache=feature_cache(edgelist))
+                          agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
         enc.train(p["epochs"], lr=p["lr"], negatives=p["negatives"],
                   pairs_per_epoch=p["pairs_per_epoch"], max_pairs=p["max_pairs"], positives=p["positives"])
         enc.save(emb)
@@ -86,6 +92,8 @@ def score(ds, emb, task, seed):
 def main(args):
     tasks = list(TASKS) if args.task == "all" else [args.task]
     encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]
+    if args.features != "all":
+        encoders = ["graphsage_edge"]                          # ablation D varies the GNN's inputs; the walk encoder has none
     sims = cfg.VG_SIMS if args.sim == "all" else [args.sim]
     for ds in args.datasets:
         for task in tasks:
@@ -94,12 +102,13 @@ def main(args):
                 continue
             for sim in sims:
                 for encoder in encoders:
-                    vals = [score(ds, embed(ds, args.k, sim, encoder, seed, task), task, seed) if not args.train_only
-                            else embed(ds, args.k, sim, encoder, seed, task) for seed in args.seeds]
+                    vals = [score(ds, embed(ds, args.k, sim, encoder, seed, task, args.features), task, seed) if not args.train_only
+                            else embed(ds, args.k, sim, encoder, seed, task, args.features) for seed in args.seeds]
                     if args.train_only:
                         continue
-                    results_io.record_score(ds, encoder, sim, args.k, TASKS[task], args.seeds, vals)
-                    print(f"score  {ds} {task} {sim} {encoder} | {np.mean(vals):.4f} ± {np.std(vals, ddof=1):.4f}", flush=True)
+                    name = tag(encoder, args.features)
+                    results_io.record_score(ds, name, sim, args.k, TASKS[task], args.seeds, vals)
+                    print(f"score  {ds} {task} {sim} {name} | {np.mean(vals):.4f} ± {np.std(vals, ddof=1):.4f}", flush=True)
 
 
 # Defines command-line options (mirrors run_ogb.py); every default is the locked setting.
@@ -110,6 +119,8 @@ def parse_args():
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
     p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s). Default all.')
     p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
+    p.add_argument('--features', default='all', choices=[f for f in cfg.D_FEATURES if f != 'none_mp'],
+                   help='Ablation D input features (D6 none_mp is layers=0 and has no training -> not run here). Default all = the locked D0.')
     p.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
     p.add_argument('--seeds', type=int, nargs='+', default=cfg.VG_SEEDS, help='Encoder seeds. Default 42 43 44.')
     p.add_argument('--train-only', action='store_true',

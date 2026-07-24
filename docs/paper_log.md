@@ -575,9 +575,9 @@ No virtual graph beats the original graph anywhere. The best non-original varian
 
 ## 2026-07-21 — Research direction locked for LoG: a "when to augment" characterization study
 
-Supervisor meeting. The post-fix results (original graph wins all 8 dataset × task cells; role graphs fail link prediction; role graphs approach the original only on molecular node classification) were presented and accepted as the honest result — no attempt to rescue a "virtual graph wins" headline.
+Direction review. The post-fix results (original graph wins all 8 dataset × task cells; role graphs fail link prediction; role graphs approach the original only on molecular node classification) were presented and accepted as the honest result — no attempt to rescue a "virtual graph wins" headline.
 
-**Reframed contribution.** ViRGo is a **study**: given a graph and a task, when is the original topology enough, and when do structural augmented features help? The deliverable is a **characterization** — connect each dataset's properties (homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement) to the original-vs-best-augmented gap, so the paper can say "for graphs like this, keep the original; for graphs like that, add these features." This is the supervisors' framing, offered as a conjecture for the community, not a proof.
+**Reframed contribution.** ViRGo is a **study**: given a graph and a task, when is the original topology enough, and when do structural augmented features help? The deliverable is a **characterization** — connect each dataset's properties (homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement) to the original-vs-best-augmented gap, so the paper can say "for graphs like this, keep the original; for graphs like that, add these features." This is the agreed framing, offered as a conjecture for the community, not a proof.
 
 **Scope decisions (locked).**
 - **Purely structural.** ViRGo's features are graph-derived (degree, eigenvector centrality, Ψ, clustering) and do double duty — they build the virtual graph and feed GraphSAGE — and ablation D already showed they are necessary (random features drop to the DeepWalk baseline or below). No external node attributes anywhere, including OGB text features and biological descriptions: they would confound the study, since a gain could then be attributed to the attributes rather than to the structural rewiring under test. Isolating structural identity is the point (the inherited I2V premise).
@@ -757,3 +757,67 @@ Six datasets, ten dataset x task cells, each 5 graph variants x 2 encoders x 3 s
 Headline standing at the lock: the original graph wins all eight core-four cells; role graphs fail link prediction on every core dataset (role similarity is not adjacency); role graphs come within 0.01-0.02 of the original for molecular node classification and trail by 0.2-0.44 on citation graphs; and on ogbl-ddi with GraphSAGE every role graph beats the original (centrality 0.0519 vs 0.0173 test Hits@20) — the one augmentation win in the panel, on the densest graph by two orders of magnitude, and absent under DeepWalk.
 
 **Next step (characterization only, no re-running):** compute per-dataset graph properties — homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement — and relate them to the original-vs-best-augmented gap already in the scoreboard. Density enters as a candidate predictor because of the ogbl-ddi cell.
+
+## 2026-07-24 (later) — Ablation D completed: all nine feature arms, one code version, plus two new single-feature arms
+
+The ablation table was extended to isolate **every** structural input, and the whole table was re-run under the corrected encoder so no arm is compared across code versions. This reverses the earlier "ablations stay frozen" decision, deliberately: once the table gains new arms, freezing the rest makes the comparison internally inconsistent.
+
+**Change.** `encoder.py` gained two `--features` options — `centrality` (D7, eigenvector centrality only) and `clustering` (D8, local clustering only) — selecting columns 1 and 3 of the same cached four-column feature matrix; registered in `cfg.D_FEATURES` and in notebook 3 §8b. `run_core.py` gained a `--features` passthrough so the ablation runs headless and in parallel like the main sweep. Verified before running: each single-feature arm reproduces exactly the z-normalised raw column it claims (degree→col 0, centrality→col 1, Ψ→col 2, clustering→col 3).
+
+**Runs.** 7 trained arms x 4 datasets x 2 tasks x 3 seeds = 168 embeddings on the psi graph at K=10. D0 ("all") is the locked `graphsage_edge` row and was already post-fix; D6 (`features_only`, layers=0) never trains and was verified byte-identical under the current code, so neither was re-run. Re-running the five older arms moved them by at most 0.0209 (proteins D5 const LP, an arm that is chance by construction), mean 0.0016 — no ablation conclusion changed.
+
+**Node classification (weighted F1), psi graph, K=10, 3 seeds**
+
+| arm | citeseer | cora | enzymes | proteins |
+|---|---|---|---|---|
+| D0 all four | 0.2327 | 0.2351 | **0.5480** | **0.5588** |
+| D1 degree | 0.1886 | 0.2153 | 0.5019 | 0.5059 |
+| D2 degree+centrality | **0.2412** | **0.2462** | 0.5204 | 0.5349 |
+| D3 Ψ | 0.1940 | 0.1743 | 0.5002 | 0.4901 |
+| **D7 centrality only** | 0.2365 | 0.2328 | 0.5117 | 0.4983 |
+| **D8 clustering only** | 0.1707 | 0.1791 | 0.5401 | 0.5449 |
+| D4 random (control) | 0.1726 | 0.1497 | 0.4789 | 0.4753 |
+| D5 constant (floor) | 0.0717 | 0.1406 | 0.3277 | 0.3184 |
+| D6 features only, no MP | 0.2139 | 0.1834 | 0.4997 | 0.5216 |
+| DeepWalk bridge | 0.2255 | 0.2133 | 0.5005 | 0.4882 |
+
+**Link prediction (AUC), same setting**
+
+| arm | citeseer | cora | enzymes | proteins |
+|---|---|---|---|---|
+| D0 all four | 0.5057 | 0.5150 | 0.6236 | 0.5578 |
+| D1 degree | **0.5489** | 0.4960 | 0.5468 | 0.5389 |
+| D2 degree+centrality | 0.5014 | 0.4864 | 0.6445 | **0.5914** |
+| D3 Ψ | 0.4695 | 0.4594 | 0.6385 | 0.5483 |
+| **D7 centrality only** | 0.4199 | 0.4349 | **0.6498** | 0.5491 |
+| **D8 clustering only** | 0.4970 | **0.5298** | 0.5320 | 0.5054 |
+| D4 random (control) | 0.5144 | 0.5134 | 0.5103 | 0.5105 |
+| D5 constant (floor) | 0.4942 | 0.4970 | 0.4877 | 0.4737 |
+| D6 features only, no MP | 0.4505 | 0.4831 | 0.6201 | 0.5661 |
+| DeepWalk bridge | 0.5331 | 0.4990 | 0.5039 | 0.5232 |
+
+**What the two new arms add — a per-feature, per-domain split.**
+
+1. **Clustering is the molecular workhorse and dead weight on citation graphs.** Alone it reaches 0.5401 / 0.5449 node-classification F1 on enzymes / proteins — within 0.008-0.014 of all four features together, and the best single feature there — while on citeseer / cora it scores 0.1707 / 0.1791, at or barely above the random-feature control (0.1726 / 0.1497). Triangle structure carries molecular node identity and carries nothing about citation topics.
+2. **Centrality is the opposite, and on citation link prediction it is worse than useless.** Alone it is the best arm for enzymes link prediction (0.6498, above all four features at 0.6236) but scores 0.4199 / 0.4349 on citeseer / cora link prediction — *below* the 0.50 chance line and below the constant-feature floor, i.e. ranking candidate edges by centrality similarity is actively anti-correlated with adjacency on citation graphs.
+3. **More features is not better.** Degree+centrality (D2) beats all four (D0) on node classification for **both** citation graphs (0.2412 vs 0.2327; 0.2462 vs 0.2351) and on proteins link prediction (0.5914 vs 0.5578). The earlier cora-only observation now holds across the citation pair; adding Ψ and clustering dilutes the citation signal.
+4. **Ψ remains the weakest structural feature and stays confounded** (the psi graph was built from it): worst real feature on node classification everywhere except enzymes link prediction, where it is mid-table.
+5. The controls behave: constant is the floor everywhere, random sits between the floor and the real features, and every real feature beats random on the molecular graphs.
+
+This is the per-feature evidence the study set out to produce, and it feeds Family 2 of the characterization directly: the arm that wins on a dataset should be predictable from that feature's raw distribution on that dataset.
+
+**Caveat unchanged:** all of D is measured on the psi graph at K=10, on the four core datasets. The OGB pair has no ablation rows, and no arm was re-tuned per dataset.
+
+**Plain-language summary of this entry:** `claude.ai/code/artifact/c6dd674b-8db1-4cf4-b340-929588bdd815` — the same tables in plain language, updated in place from the earlier A-E review page. Numbers there are read from this scoreboard; if either moves, both must be updated together.
+
+## 2026-07-24 (later) — Ψ is numerically unstable where Ω underflows; the psi graph on proteins is not unique
+
+Found while verifying that the untrained D6 arm reproduced. It did on cora and did not on proteins, and the difference was confined to the Ψ column.
+
+**Mechanism, traced end to end.** 20 of proteins' 1,195 connected components fail networkx's power iteration and fall back to `eigenvector_centrality_numpy`, whose ARPACK solver starts from a **random** vector. That leaves Ω differing by ~7e-12 between runs. Ψ then evaluates `p·log(p/q)` with `q = Ω`: where Ω is itself ~1e-12, a 7e-12 absolute perturbation is a change of hundreds of percent, and the logarithm turns it into a Ψ shift of up to **52** on a range of −321 to −1. Cora is exactly stable (no failing components); enzymes moves one node by 1e-8.
+
+**Consequence for the role graph.** Ψ is the 1-D signature that orders top-K neighbours, so on proteins two consecutive builds of the psi graph share only **33.6%** of their edges (Jaccard 0.3356); cora and enzymes rebuild identically (Jaccard 1.0). The saved psi graphs used for node classification are fixed on disk, so those results are unaffected; link prediction rebuilds the role graph from the 70% training edges on every run, so proteins link prediction is exposed.
+
+**Consequence for the numbers: negligible.** Two full rebuild-and-retrain passes of proteins link prediction on the psi graph gave AUC 0.5614 and 0.5619 against the recorded 0.5617 — a spread of 0.0005, well inside that cell's 3-seed std of 0.0042. So the proteins role graph is **highly non-unique but the metric is insensitive to which draw is realised**, which is worth reporting as a robustness result rather than hidden as a defect.
+
+**Containment already in place.** Since the feature cache was introduced, `run_core.py` and `run_ogb.py` compute Ψ once per graph and reuse it, so every current result shares one Ψ vector. Notebook 3 does **not** pass the cache, so a notebook re-run would recompute Ψ and could differ from the scripted pipeline on proteins. Recorded as a known gap; the clean fixes, none of them applied here, are to seed the ARPACK fallback with a fixed `v0`, to floor Ω before the logarithm, or to make the notebook use the cache like the drivers do.
