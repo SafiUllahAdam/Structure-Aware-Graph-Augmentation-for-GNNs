@@ -686,3 +686,44 @@ Next dataset is **ogbn-arxiv**, run with this code unchanged — no per-dataset 
 ## 2026-07-24 — scoring cache (notebook 4 §5/§7)
 
 OGB scoring is deterministic (seeded scorer + reused embeddings), so re-running §5/§7 recomputed identical numbers — ~15 min per pass on ddi (decoder refit ×10) for no new information. Added `run_ogb.cached(ds, enc, sim, k, split)`: returns the saved scoreboard mean(s) if the config's primary `{split}` rows exist, else `None`. Cells §5/§7 now skip `score()`+`record_score` on a hit and print `reuse …`. Reuse is valid only while embeddings + scorer are unchanged; changing either means clearing the affected scoreboard rows first (same convention as deleting `.emb` files to force a retrain). Selection lock, guards, metrics, values all unchanged — verified reused means match the scoreboard byte-for-byte.
+
+## 2026-07-24 — the core four re-run under the frozen pipeline (`run_core.py`)
+
+**What was stale.** The core-four GraphSAGE embeddings on disk dated 2026-07-20/21, i.e. before the negative-sampling change made while validating ogbl-ddi (`SageEncoder.train` now rejects a negative that is a real neighbour of the centre node, or the node itself, and redraws). The OGB embeddings were produced after it (verified below, not assumed — the change sat uncommitted in the working tree from 07-22/23 and only entered git in the last commit, so commit dates prove nothing here). So the six-dataset table mixed two encoder versions.
+
+**Audit first (nothing else was wrong).** Re-scoring every stored core-four embedding with the current eval code reproduced its scoreboard row exactly: 80 cells, 240/240 embeddings present, max |delta| 0.00000. The scoreboard was self-consistent — only the code that produced the embeddings had moved.
+
+**The change is not dense-graph-only.** Measured collision rate of the deg^0.75 draws at epoch 0: cora/psi 0.552% (921/166,960), proteins/degree 0.055% (275/500,000). Small, but non-zero means the redraw fires, the generator stream diverges, and every later epoch differs. Sparse graphs were therefore affected too, just mildly.
+
+**Re-run.** All 120 core-four GraphSAGE embeddings (4 datasets x 5 variants x 3 seeds x 2 tasks) retrained under the frozen configuration; the pre-freeze files were first moved to `output/superseded_pre_freeze_2026-07-24/` and, once the replacements were verified complete and scored, **deleted** (1.2 GB, user decision 2026-07-24 — they were produced by a sampler that treated real neighbours as negatives, so they are wrong rather than merely old; recoverable in principle since the pre-rejection encoder is still in git at `f8f502a`). DeepWalk embeddings were untouched (that code path has not changed) and their re-scored rows came back byte-identical, which is the control on the re-run itself. Result: 37 of 40 GraphSAGE rows moved, max |delta| 0.0054 (cora hybrid LP), mean 0.0011, and no cell changed its winning graph variant.
+
+**New script `run_core.py`.** The headless equivalent of notebook 3 §8 for cora/citeseer_linqs/enzymes/proteins, mirroring `run_ogb.py`: reuse-or-create embeddings, same output zones, same scoreboard rows, defaults = the locked settings. `--train-only` writes embeddings and records nothing, so variants can train in parallel without racing on `results/scoreboard.csv`; a later plain run scores everything in one process. The whole study is now two commands (`run_core.py`, `run_ogb.py --dataset ...`) instead of a notebook pass. Feature caching (`encoder.feature_cache`) is now used on the core four as well; verified a numerical no-op — with the cache warm, five variants share one feature computation per graph.
+
+**Reproducibility floor, measured.** Five repeats of one configuration (cora/psi/seed 42) under the current code gave weighted F1 0.2381 every time, with embeddings differing by at most 2.15e-6 — float32 aggregation order in the SAGE scatter, present even at `torch.set_num_threads(1)`. The header comment in `encoder.py` claiming bit-reproducibility is therefore too strong: the metric is exact, the tensors are not. The stored 07-20 embedding scored 0.2376 on the same evaluation, i.e. that gap is the code change, not noise.
+
+**Verification of which code produced which file (the claim above, tested).** Dates were not trusted; each stored embedding was reproduced from source. The pre-rejection `encoder.py` was taken straight out of git (`f8f502a`) into a scratch directory and run — the repository was not modified.
+
+| stored file | reproduced by pre-rejection code | reproduced by current code |
+|---|---|---|
+| cora/psi/s42 (07-20) | **1.91e-6 = noise floor**, F1 0.2376 identical | 3.43e-1, F1 0.2381 |
+| ogbl_ddi psi / original / centrality / hybrid (07-23) | 5.8e-2 … 1.5e+0 | **1.0e-6 … 2.0e-5 = noise floor** |
+| ogbn_arxiv psi, centrality (07-23) | 3.6e+0 | 2.7e+0 — reproduced by neither |
+
+So: core four were pre-rejection (proved, not inferred), ogbl-ddi was already on the frozen encoder, and **ogbn-arxiv reproduces neither exactly**.
+
+**The arxiv anomaly, characterised.** Ruled out by measurement: cached features are byte-identical to a fresh recomputation (all four columns, 0.0), node order and node count identical (169,343), `GNN_PARAMS` unchanged since 2026-07-07, the virtual-graph file predates the embeddings. What remains is perturbation amplification, which only this graph is large enough to show. Distances on arxiv/psi (mean |diff| over 169,343 x 64):
+
+| comparison | mean \|diff\| | max \|diff\| |
+|---|---|---|
+| same config, repeated run | 1.46e-7 | 4.48e-5 |
+| 1 thread vs 32 threads | 7.61e-6 | 1.18e-2 |
+| stored vs fresh (current code) | 3.07e-3 | 2.69e+0 |
+| stored vs fresh (pre-rejection code) | 3.69e-3 | 3.64e+0 |
+| different seed = independent trajectory | 1.01e-1 | 4.78e+1 |
+
+The stored file sits 33x below the independent-trajectory scale but four orders above a same-config repeat, and thread count alone moves arxiv 50x more than it moves cora. **The metrics are unaffected**: seed 42 psi scores valid/test accuracy 0.2627/0.2482 stored, 0.2620/0.2474 fresh, 0.2631/0.2480 single-threaded, 0.2619/0.2476 pre-rejection — a spread of 0.0012, inside the 3-seed std of 0.0020. Recorded as a limitation: on a graph this size the pipeline is reproducible at the reported metric precision, not at tensor level, and the write-up should claim only the former.
+
+**Decisions taken 2026-07-24 (deliberate, not pending work).**
+- **Ablation-D rows are NOT re-run.** `graphsage_edge_feat_*` and `features_only` keep their pre-freeze numbers. They were tested, verified and frozen when the configuration was chosen; they are evidence *for* the locked configuration, not results *under* it. `features_only` (D6, layers=0) never trains and is unaffected regardless. Any ablation table in the paper states this.
+- **No density-matched controls on the core four.** `original_k`/`random_k` stay ogbl-ddi-only, where the original graph is denser than K. On the core four the matching would have to run the other way (role graphs rebuilt at K≈2), which is a different experiment and out of scope.
+- **The link-prediction scorers differ by protocol and stay that way.** Core four: random 70/30 split, unsupervised cosine ranking, AUC. OGB: official split, trained hadamard→MLP decoder, Hits@20. Comparisons are made *within* a dataset, so the scorer cancels; no table places the two in one column.

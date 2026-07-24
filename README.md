@@ -46,7 +46,8 @@ Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing file
 - **Phase 1 - reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
 - **Phase 2 - virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
 - **Phase 3 - GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C - three over-smooth), and the structural features are required (D - replacing them with random features drops performance to the DeepWalk baseline or below). Those four features do double duty: they define the virtual graph and serve as the encoder's input. K = 10.
-- **Phase 4 - characterization and scale.** Current. (1) Add small-to-medium OGB datasets. On each, the original and virtual graphs receive identical structural features, so only the edges differ and graph structure stays the single variable; OGB's extra attributes are ignored. (2) Relate graph properties (homophily first) to the original-vs-augmented gap. (3) Swap GraphSAGE for GIN.
+- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties (homophily first) to the original-vs-augmented gap - next. (3) Swap GraphSAGE for GIN.
+- **Configuration locked 2026-07-24 (final).** Six datasets, ten dataset x task cells, 5 graph variants x 2 encoders x 3 seeds at K = 10, every row produced by one pipeline (`run_core.py` + `run_ogb.py`). No further method change for the paper; the characterization only reads `results/scoreboard.csv`. Settings and the evidence behind the lock are in `docs/paper_log.md`.
 - **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
 
 ---
@@ -107,6 +108,7 @@ identity2vec/
 ├── make_ogb.py               # Phase 4: OGB -> ViRGo files (edgelist, .nodes, labels, official splits)
 ├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20 via a trained link decoder), one split per call
 ├── run_ogb.py                # Phase 4: OGB pipeline functions (notebook 4 imports these; also a CLI)
+├── run_core.py               # Phase 4: the same sweep headless for the core four (notebook 3 §8 as a script)
 │
 ├── notebooks/
 │   ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
@@ -161,6 +163,10 @@ python train.py --input input/cora.edgelist --output output/cora_mine.emb --cach
 python scripts/main.py --list
 python scripts/main.py --task nodeclass --dataset cora
 python scripts/main.py --task linkpred --dataset cora --retrain
+
+# the whole study, headless: core four (all variants, both tasks, both encoders), then the OGB pair
+python run_core.py
+python run_ogb.py --dataset ogbn_arxiv
 ```
 
 ---
@@ -168,6 +174,7 @@ python scripts/main.py --task linkpred --dataset cora --retrain
 ## Reproducibility and conventions
 
 - Seeds are fixed at 42/43/44 across splits, initialization and sampling; every result is a 3-seed mean ± std.
+- Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `scripts/benchmark_config.py`). Repeating a run reproduces its metric exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), which is invisible at four decimals.
 - `input/` is read-only. Derived files go to `output/`, scores to `results/`.
 - Link prediction retrains on the 70% training graph alone, so no test edge leaks.
 - A paper number is treated as reproduced only within ±0.05 of the original.
