@@ -1,0 +1,121 @@
+'''Run the core-4 study end-to-end under the LOCKED config: reuse the Phase-2 virtual graphs, train the encoders, score NC + LP, record.'''
+# Headless equivalent of notebook 3 §8 (+ the notebook-2 bridge cells) for the non-OGB datasets: same reuse-or-create
+# discipline, same output zones, same scoreboard rows. Exists so the whole six-dataset study runs from two scripts
+# (this + run_ogb.py) under ONE frozen pipeline instead of by hand in a notebook.
+# --train-only writes embeddings and records nothing, so several datasets/variants can train in parallel without
+# racing on results/scoreboard.csv; a later plain run reuses them and does all the scoring in one process.
+
+import argparse
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import networkx as nx
+
+sys.path.append("scripts")
+import benchmark_config as cfg
+import results_io
+import graph_io
+import eval_nodeclass
+import eval_linkpred
+import prepare_linkpred
+from virtual_graph import VirtualGraph
+from encoder import SageEncoder, feature_cache
+from embedding_models import DeepWalkModel
+
+CORE = ["cora", "citeseer_linqs", "enzymes", "proteins"]      # the four non-OGB study datasets (OGB pair lives in run_ogb.py)
+TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
+
+
+# The shared 70/30 link-prediction split for one (dataset, seed): one split per seed, reused by every encoder and variant.
+def split(ds, seed):
+    '''Path to the seed's LP split dir; builds it if missing (deterministic -> rebuilding gives the same split).'''
+    d = cfg.LP_SPLITS_VG / ds / f"seed_{seed}"
+    if not (d / "test_pos.txt").exists():
+        prepare_linkpred.prepare(cfg.dataset(ds)["edgelist"], d, test_frac=cfg.REPRO["linkpred_test_frac"], seed=seed)
+    return d
+
+
+# Trains (or reuses) one embedding: NC embeds the FULL graph, LP embeds the seed's 70% train graph (virtual graph rebuilt from it).
+def embed(ds, k, sim, encoder, seed, task):
+    '''Train one encoder over the virtual graph for one task -> .emb path; reuse if already on disk.'''
+    zone = cfg.NB3_DIR if encoder == "graphsage_edge" else cfg.NB2_DIR
+    emb = zone / task / ds / f"k{k}" / sim / f"{encoder}_s{seed}.emb"
+    if emb.exists():
+        print(f"reuse  {ds} {task} {sim} {encoder} s{seed}", flush=True)
+        return emb
+    if task == "node_classification":
+        edgelist = Path(cfg.dataset(ds)["edgelist"])
+        G = graph_io.load_graph(edgelist)
+        V = nx.read_weighted_edgelist(cfg.NB2_DIR / "virtual_graphs" / ds / f"k{k}" / sim / "virtual_graph.edgelist", nodetype=int)
+        V.add_nodes_from(G.nodes)                              # edgelists omit isolated nodes -> restore the full node set
+    else:
+        edgelist = split(ds, seed) / "train.edgelist"
+        G = graph_io.load_graph(edgelist)
+        V = VirtualGraph(G, seed=cfg.REPRO["seed"]).build(sim, k)   # train edges only; VG seed = project seed, NOT the loop seed
+    print(f"TRAIN  {ds} {task} {sim} {encoder} s{seed} | V: {V.number_of_nodes()} nodes / {V.number_of_edges()} edges", flush=True)
+    emb.parent.mkdir(parents=True, exist_ok=True)
+    if encoder == "graphsage_edge":
+        p = cfg.GNN_PARAMS
+        enc = SageEncoder(G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
+                          agg=p["agg"], feats=p["features"], cache=feature_cache(edgelist))
+        enc.train(p["epochs"], lr=p["lr"], negatives=p["negatives"],
+                  pairs_per_epoch=p["pairs_per_epoch"], max_pairs=p["max_pairs"], positives=p["positives"])
+        enc.save(emb)
+    else:                                                      # deepwalk bridge: plain unweighted copy of V (same as notebook 2)
+        flat = tempfile.NamedTemporaryFile(suffix=".edgelist", delete=False).name
+        nx.write_edgelist(V, flat, data=False)
+        DeepWalkModel().train(flat, str(emb), seed=seed, params=cfg.I2V_PARAMS)
+        os.unlink(flat)
+    return emb
+
+
+# Scores one embedding with the shared protocol (identical to notebooks 2-3): weighted F1, or held-out AUC.
+def score(ds, emb, task, seed):
+    '''Node classification weighted F1, or leakage-free link-prediction AUC, for one embedding.'''
+    if task == "node_classification":
+        f1s, _, _ = eval_nodeclass.evaluate(str(emb), str(cfg.dataset(ds)["labels"]),
+                                            train_frac=cfg.REPRO["nodeclass_train_frac"], seed=seed)
+        return f1s["weighted"]
+    return eval_linkpred.evaluate(str(emb), str(split(ds, seed)), seed=seed, score=cfg.REPRO["linkpred_score"])
+
+
+# Runs the sweep: for every dataset x task x variant x encoder, train-or-reuse each seed, then record one scoreboard row.
+def main(args):
+    tasks = list(TASKS) if args.task == "all" else [args.task]
+    encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]
+    sims = cfg.VG_SIMS if args.sim == "all" else [args.sim]
+    for ds in args.datasets:
+        for task in tasks:
+            if task == "node_classification" and not cfg.dataset(ds)["labels"]:
+                print(f"{ds}: no labels -> node classification skipped", flush=True)
+                continue
+            for sim in sims:
+                for encoder in encoders:
+                    vals = [score(ds, embed(ds, args.k, sim, encoder, seed, task), task, seed) if not args.train_only
+                            else embed(ds, args.k, sim, encoder, seed, task) for seed in args.seeds]
+                    if args.train_only:
+                        continue
+                    results_io.record_score(ds, encoder, sim, args.k, TASKS[task], args.seeds, vals)
+                    print(f"score  {ds} {task} {sim} {encoder} | {np.mean(vals):.4f} ± {np.std(vals, ddof=1):.4f}", flush=True)
+
+
+# Defines command-line options (mirrors run_ogb.py); every default is the locked setting.
+def parse_args():
+    '''Parses arguments.'''
+    p = argparse.ArgumentParser(description="Run the core-4 study under the locked ViRGo config (notebook-3 §8 headless).")
+    p.add_argument('--datasets', nargs='+', default=CORE, choices=CORE, help='Datasets to run. Default: all four.')
+    p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
+    p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s). Default all.')
+    p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
+    p.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
+    p.add_argument('--seeds', type=int, nargs='+', default=cfg.VG_SEEDS, help='Encoder seeds. Default 42 43 44.')
+    p.add_argument('--train-only', action='store_true',
+                   help='Write embeddings and record nothing (lets several runs train in parallel without racing on the scoreboard).')
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    main(parse_args())

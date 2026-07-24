@@ -674,3 +674,86 @@ Locked winner: hybrid + DeepWalk, validation 0.1038 ± 0.0040, test **0.0533 ± 
 **Encoder training budget.** Loss over 10-epoch windows continues to drift after epoch 50 (psi 4.0191 → 3.8901 by epoch 300; original 3.9005 → 3.7270 by epoch 200), but against a drop of ~38 from initialisation this is under half a percent of the range. The budget is held at 50 epochs for every variant. This is equal in both relevant senses — identical epoch count and identical total gradient samples (50 × 100,000 = 5M pairs per variant, independent of graph size). **Limitation to state in the paper:** the encoder is trained to a fixed budget rather than to a per-graph convergence criterion, and because `pairs_per_epoch` is fixed while corpus size varies with density, a fixed budget corresponds to many passes over a sparse role graph and few over a dense one.
 
 **Configuration frozen (2026-07-23).** K=10; four structural features computed on the original graph and shared by every variant; GraphSAGE mean / 2 layers / 64-dim / lr 0.01 / 50 epochs / edge positives / Q=5 negatives with real-neighbour rejection; DeepWalk bridge as the second encoder; link scoring by an OGB-style trained decoder (hadamard → 256-unit MLP) fitted on training edges only; official OGB split and Evaluator; seeds 42/43/44; winner selected on validation and test read once. Every subsequent dataset runs this configuration unchanged, so that differences between datasets are attributable to the graph and not to per-dataset tuning.
+
+## 2026-07-24 — the six-dataset result set is complete and comes from ONE pipeline
+
+Preparation for the characterization study: before relating graph properties to the original-vs-augmented gap, every number that will enter that regression had to come from the same code. It did not.
+
+**The defect.** The core-four GraphSAGE embeddings were trained on 2026-07-20/21; the negative-sampling rule was changed on 2026-07-22 while validating ogbl-ddi (reject a sampled negative that is a real neighbour of the centre node, redraw). ogbn-arxiv and ogbl-ddi ran after that change, the core four before it, so the cross-dataset table mixed two encoders — exactly the confound the frozen-pipeline rule exists to prevent. (Verified by reproduction, not by timestamps: the pre-rejection encoder taken from git reproduces the stored core-four file to 1.91e-6, the noise floor, with the identical F1, while the current encoder differs by 3.4e-1. The change had been sitting uncommitted in the working tree, so commit dates were useless as evidence. See the follow-up entry for ogbn-arxiv, which reproduces under neither.)
+
+**Audit.** Re-scoring all 240 stored core-four embeddings with the current evaluation code returned their scoreboard rows exactly (80 cells, max |delta| 0.00000, no missing files). The evaluation side was never in question; only the encoder version was.
+
+**Scope of the fix.** The rejection rule was designed for dense graphs (32% of draws collide on ogbl-ddi), but the collision rate is non-zero on sparse graphs too — cora/psi 0.552%, proteins/degree 0.055% of draws at epoch 0 — so the redraw fires there as well and the whole training trajectory shifts. All 120 core-four GraphSAGE embeddings were retrained under the frozen configuration (pre-freeze files kept in `output/superseded_pre_freeze_2026-07-24/`).
+
+**Effect on the results: none that matters.** 37 of 40 GraphSAGE rows moved; the largest move was 0.0054 (cora, hybrid, LP AUC), mean 0.0011, i.e. below the 3-seed std of nearly every cell and far below the +-0.05 reproduction bar. **No cell changed its winning graph variant**, so every published reading survives unchanged: the original graph wins all eight core-four cells, role graphs approach it only for molecular node classification, and role graphs fail link prediction everywhere. DeepWalk rows re-scored byte-identical (its code path was untouched), which is the control on the re-run itself.
+
+**Reproducibility floor, measured.** Repeating one configuration five times under the current code (cora/psi/seed 42) gives the identical metric every time (weighted F1 0.2381) with embeddings agreeing to 2.15e-6 — float32 aggregation order in the SAGE scatter, present even single-threaded. So results are exactly reproducible at the reported precision, and the paper should claim metric-level reproducibility rather than bit-identical tensors. The same evaluation on the pre-freeze embedding gave 0.2376, confirming the 0.0005 gap is the code change and not run-to-run noise.
+
+**The result set now standing (K=10, seeds 42/43/44, GraphSAGE + DeepWalk, five graph variants each).**
+
+| dataset | node classification | link prediction | protocol |
+|---|---|---|---|
+| cora | weighted F1 | AUC | ViRGo 70/30 split, cosine scoring |
+| citeseer_linqs | weighted F1 | AUC | ViRGo 70/30 split, cosine scoring |
+| enzymes | weighted F1 | AUC | ViRGo 70/30 split, cosine scoring |
+| proteins | weighted F1 | AUC | ViRGo 70/30 split, cosine scoring |
+| ogbn-arxiv | Accuracy (+ weighted/macro F1) | not applicable | official OGB time split + Evaluator |
+| ogbl-ddi | not applicable (no labels) | Hits@20 | official OGB split + Evaluator, trained decoder |
+
+Ten dataset x task cells, each 5 variants x 2 encoders x 3 seeds. The two "not applicable" entries are properties of the datasets, not gaps: ogbl-ddi ships no node labels, and ogbn-arxiv has no official link-prediction split. Metrics are comparable *within* a dataset, which is what the characterization needs; they are not comparable across the OGB/non-OGB boundary, and no table should place them in one column.
+
+**Best score per dataset x task under the locked encoder (GraphSAGE):**
+
+| dataset | NC: original | NC: best role graph | LP: original | LP: best role graph |
+|---|---|---|---|---|
+| cora | 0.4266 | centrality 0.2942 | 0.6130 | centrality 0.5659 |
+| citeseer_linqs | 0.3298 | centrality 0.2818 | 0.6218 | centrality 0.5437 |
+| enzymes | 0.5591 | hybrid 0.5546 | 0.7000 | centrality 0.6563 |
+| proteins | 0.5797 | hybrid 0.5646 | 0.6720 | centrality 0.5834 |
+| ogbn-arxiv | 0.3918 | hybrid 0.3618 | - | - |
+| ogbl-ddi | - | - | 0.0173 | **centrality 0.0519** |
+
+**New: the first cell where augmentation wins.** On ogbl-ddi with GraphSAGE, every role graph beats the original (centrality 0.0519, psi 0.0423, hybrid 0.0344 against original 0.0173 test Hits@20). ogbl-ddi is also the extreme of the dataset panel on density (average degree 500 against 2.8-13.7 elsewhere). That is one point, and the absolute scores are near the floor, but it is the shape the characterization is looking for and it should be tested first when the graph-property table is built: augmentation helps where the original graph is too dense for message passing to be selective, and the locked *DeepWalk* row on the same dataset does not show it (original 0.0378 vs psi 0.0081), so it is an encoder-conditional effect.
+
+**Caveat carried forward.** The ablation-D rows (`graphsage_edge_feat_*`) still come from pre-freeze runs; they justify the locked configuration rather than reporting results under it, and their numbers would move by the same ~0.001. Any ablation table in the paper must say so or be re-run.
+
+**Tooling.** `run_core.py` now runs the core-four sweep headless (mirrors `run_ogb.py`: reuse-or-create, same zones, same scoreboard rows, locked defaults, `--train-only` for parallel training). The whole study reproduces from two commands.
+
+## 2026-07-24 (final) — CONFIGURATION LOCKED. Best and final; the characterization study starts from here
+
+Everything below is settled. No further method, encoder, graph or protocol change is made for the LoG paper; the next work item is the characterization table, which only *reads* these results.
+
+### The locked configuration (quote this in the methods section)
+
+| stage | setting |
+|---|---|
+| graph loading | `graph_io.GRAPH_POLICY` — self-loops dropped, directed sources read undirected (recorded deviation), `.nodes` sidecar restores isolated nodes, per-component eigenvector centrality (max 1) |
+| structural features | four, computed on the ORIGINAL graph and shared by every variant: degree, eigenvector centrality, Ψ (I2V KL→Poisson), clustering; z-normalised; disk-cached by content hash (`encoder.feature_cache`), verified a numerical no-op |
+| virtual graphs | K = 10; variants `psi`, `degree`, `centrality`, `original` (control), `hybrid`; deterministic build at seed 42; ties broken by sampling within tie classes |
+| encoder (primary) | GraphSAGE, mean aggregation, 2 layers, hidden 64, output 64, lr 0.01, Adam, 50 epochs, edge positives (A2), Q = 5 negatives with real-neighbour rejection, `pairs_per_epoch` 100,000, `max_pairs` 2,000,000 |
+| encoder (second) | DeepWalk bridge over the same virtual graph (p = q = 1, `I2V_PARAMS`: dim 64, walk length 40, 10 walks, window 10) |
+| node classification | one-vs-rest logistic regression, stratified 70/30, weighted F1 (core four); official OGB time split + Evaluator Accuracy, F1 secondaries (ogbn-arxiv) |
+| link prediction | 70/30 edge split, retrain on the 70% graph only, unsupervised cosine ranking, AUC (core four); official OGB split + Evaluator, trained hadamard→256-MLP decoder fitted on train edges only, Hits@20 (ogbl-ddi) |
+| seeds | 42 / 43 / 44 everywhere; virtual-graph build seed fixed at 42 |
+| selection discipline | OGB winners chosen on validation and locked to `results/ogb_selection.json`; test read once, never selected on |
+| drivers | `run_core.py` (core four) and `run_ogb.py` (OGB pair); all settings from `scripts/benchmark_config.py` |
+
+### What "locked" is backed by
+
+Every stored embedding was traced to the code that produced it by re-running that code, not by trusting file dates. Core four: pre-rejection encoder reproduces them to 1.9e-6 (noise floor) with identical metrics — they were stale, and have been retrained (37/40 rows moved, max 0.0054, zero winner flips). ogbl-ddi: the current encoder reproduces all four tested variants to 1e-6-2e-5 — already frozen-pipeline. ogbn-arxiv: reproduces under neither encoder at tensor level, with features, node order, node count, virtual graph and hyper-parameters all verified identical; the gap (mean 3.07e-3) is 33x below an independent-seed trajectory, and the metrics agree to 0.0012, inside the 3-seed std of 0.0020.
+
+**Reproducibility claim for the paper, stated at the level the evidence supports:** results are reproducible at the reported metric precision. They are *not* bit-reproducible. Measured floors: a repeated run of one configuration changes the embedding by 1.5e-7 (arxiv) to 2e-6 (cora) and the metric not at all on the small graphs; changing CPU thread count moves arxiv by 7.6e-6 and cora by 2e-6; an independent seed moves arxiv by 1.0e-1. Large graphs amplify environment perturbation far more than small ones, which is why the arxiv tensors could not be re-derived while its scores could.
+
+### Scope decisions taken with the lock
+
+1. **Ablation-D rows are frozen as-is and will NOT be re-run.** They were tested, verified and frozen when the encoder was chosen; they are the evidence *for* the locked configuration rather than results *under* it. Their numbers predate the negative-rejection change and would move by ~0.001, which does not affect any ablation conclusion. The paper states this rather than hiding it.
+2. **No density-matched controls on the core four.** `original_k`/`random_k` remain an ogbl-ddi-only analysis, valid there because the original graph is denser than K. On the core four the matching would run the other way (role graphs at K≈2) — a different experiment, deliberately out of scope.
+3. **The two link-prediction scorers stay different, by protocol.** Core four use ViRGo's 70/30 split with cosine-ranking AUC; OGB uses its official split with a trained decoder and Hits@20. The characterization compares graph variants **within** a dataset, so the scorer is a constant that cancels; no table or figure places AUC and Hits@20 in one column, and no cross-dataset claim is made about metric magnitude.
+
+### The result set the characterization consumes
+
+Six datasets, ten dataset x task cells, each 5 graph variants x 2 encoders x 3 seeds at K = 10, all in `results/scoreboard.csv` (212 rows). cora, citeseer_linqs, enzymes and proteins carry both tasks; ogbn-arxiv is node classification only (no official link split) and ogbl-ddi is link prediction only (no labels) — properties of the datasets, not gaps. Graph properties per variant are in `results/graph_health.csv`.
+
+Headline standing at the lock: the original graph wins all eight core-four cells; role graphs fail link prediction on every core dataset (role similarity is not adjacency); role graphs come within 0.01-0.02 of the original for molecular node classification and trail by 0.2-0.44 on citation graphs; and on ogbl-ddi with GraphSAGE every role graph beats the original (centrality 0.0519 vs 0.0173 test Hits@20) — the one augmentation win in the panel, on the densest graph by two orders of magnitude, and absent under DeepWalk.
+
+**Next step (characterization only, no re-running):** compute per-dataset graph properties — homophily first, then degree spread, clustering, component fraction, label-vs-topology agreement — and relate them to the original-vs-best-augmented gap already in the scoreboard. Density enters as a candidate predictor because of the ogbl-ddi cell.
