@@ -80,6 +80,8 @@ D_FEATURES = {
     "random":   ("D4 random",    "seeded random features - control: message passing alone"),
     "const":    ("D5 constant",  "identical rows -> z-norm zeros - floor, expect AUC ~ 0.50"),
     "none_mp":  ("D6 features only", "raw features, no message passing (layers=0) - control: features alone"),
+    "centrality": ("D7 centrality", "eigenvector centrality only (per-component normalized, see GRAPH_POLICY)"),
+    "clustering": ("D8 clustering", "local clustering coefficient only"),
 }
 
 # THE graph policy (defined in graph_io.py, the module that owns graph semantics) re-exported so config lives at one import.

@@ -65,7 +65,8 @@ class SageEncoder():
                 Path(self.cache).parent.mkdir(parents=True, exist_ok=True)
                 np.savez(self.cache, nodes=np.array(self.nodes), X=X)
         if self.feats not in ("random", "const"):
-            X = X[:, {"degree": [0], "deg_cent": [0, 1], "psi": [2], "all": [0, 1, 2, 3]}[self.feats]]
+            X = X[:, {"degree": [0], "centrality": [1], "psi": [2], "clustering": [3],
+                      "deg_cent": [0, 1], "all": [0, 1, 2, 3]}[self.feats]]   # cached column order: deg, Ω, ψ, clustering
         return torch.tensor((X - X.mean(0)) / (X.std(0) + 1e-9), dtype=torch.float)
 
     def corpus(self, max_pairs=2_000_000, positives="walk"):
@@ -205,9 +206,10 @@ def parse_args():
                         help='Ablation A: edge=A2 direct virtual edges (winner, default), walk=A1 walk co-occurrence (bridge-comparable).')
     parser.add_argument('--agg', default='mean', choices=['mean', 'weighted', 'sum', 'max'],
                         help='Ablation B neighbor aggregation: mean | weighted (Ψ-weighted mean) | sum | max. Default mean.')
-    parser.add_argument('--features', default='all', choices=['all', 'degree', 'deg_cent', 'psi', 'random', 'const'],
+    parser.add_argument('--features', default='all',
+                        choices=['all', 'degree', 'deg_cent', 'psi', 'centrality', 'clustering', 'random', 'const'],
                         help='Ablation D input features: all=D0 [deg,Ω,ψ,clustering] | degree=D1 | deg_cent=D2 | psi=D3 | '
-                             'random=D4 control (no structural signal) | const=D5 floor. Default all.')
+                             'centrality=D7 | clustering=D8 | random=D4 control (no structural signal) | const=D5 floor. Default all.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility. Default 42.')
     return parser.parse_args()
 
