@@ -821,3 +821,147 @@ Found while verifying that the untrained D6 arm reproduced. It did on cora and d
 **Consequence for the numbers: negligible.** Two full rebuild-and-retrain passes of proteins link prediction on the psi graph gave AUC 0.5614 and 0.5619 against the recorded 0.5617 — a spread of 0.0005, well inside that cell's 3-seed std of 0.0042. So the proteins role graph is **highly non-unique but the metric is insensitive to which draw is realised**, which is worth reporting as a robustness result rather than hidden as a defect.
 
 **Containment already in place.** Since the feature cache was introduced, `run_core.py` and `run_ogb.py` compute Ψ once per graph and reuse it, so every current result shares one Ψ vector. Notebook 3 does **not** pass the cache, so a notebook re-run would recompute Ψ and could differ from the scripted pipeline on proteins. Recorded as a known gap; the clean fixes, none of them applied here, are to seed the ARPACK fallback with a fixed `v0`, to floor Ω before the logarithm, or to make the notebook use the cache like the drivers do.
+
+## 2026-07-24 (later) — Characterization portion 1: both families measured
+
+Portion 1 is **measurement only** — no joins, no correlations, no claims about which property predicts anything. That is portion 2. What exists now is a frozen, reproducible description of each dataset and of the exact numbers the encoder is fed.
+
+**Method.** One new script, `characterize.py`, reads only artifacts that already exist: the dataset edgelists (through `graph_io.load_graph`, so the graph definition cannot drift), the encoder's own **feature caches**, and `results/scoreboard.csv`. Family 2 deliberately reads the cache rather than recomputing the features — the cache holds the raw, pre-z-normalization matrix that every embedding in the study was actually trained on, so the description is of the real inputs, and it is immune to the Ψ recomputation instability recorded earlier. Runtime 17 s for all six datasets; three re-runs produce byte-identical CSVs.
+
+### Family 1 — graph characterization (measured on the original graph)
+
+| dataset | domain | nodes | edges | avg degree | max degree | degree Gini | density |
+|---|---|---|---|---|---|---|---|
+| cora | citation | 2,708 | 5,278 | 3.90 | 168 | 0.4051 | 0.00144 |
+| citeseer_linqs | citation | 3,264 | 4,536 | 2.78 | 99 | 0.4353 | 0.000852 |
+| enzymes | biological | 19,474 | 37,282 | 3.83 | 9 | 0.1569 | 0.000197 |
+| proteins | biological | 43,466 | 81,044 | 3.73 | 25 | 0.1634 | 0.000086 |
+| ogbn-arxiv | citation | 169,343 | 1,157,799 | 13.67 | 13,161 | 0.6295 | 0.000081 |
+| ogbl-ddi | drug interaction | 4,267 | 1,067,911 | 500.54 | 2,234 | 0.4689 | 0.117333 |
+
+| dataset | components | largest comp. | avg clustering | assortativity | classes | edge homophily | node homophily |
+|---|---|---|---|---|---|---|---|
+| cora | 78 | 91.8% | 0.2407 | −0.0659 | 7 | **0.8100** | 0.8252 |
+| citeseer_linqs | 390 | 64.6% | 0.1447 | +0.0481 | 6 | **0.7377** | 0.7203 |
+| enzymes | 640 | **0.6%** | 0.4024 | +0.1755 | 3 | 0.6653 | 0.6682 |
+| proteins | 1,195 | **1.4%** | 0.3814 | +0.1516 | 3 | 0.6568 | 0.6513 |
+| ogbn-arxiv | 1 | 100% | 0.2261 | −0.0431 | 40 | 0.6542 | 0.6353 |
+| ogbl-ddi | 1 | 100% | 0.5143 | +0.0378 | — | n/a (unlabelled) | n/a |
+
+**External validation of the homophily column.** Measured edge homophily reproduces the published values for the three datasets where one exists: cora 0.8100 vs ~0.81, citeseer 0.7377 vs ~0.736, ogbn-arxiv 0.6542 vs ~0.654. The property that the study nominated as its primary predictor is therefore being computed correctly, which was not previously verified anywhere in this project.
+
+**What the table establishes as fact (not yet as explanation).** The six datasets separate cleanly on three axes at once, and the axes are not independent of each other: the citation graphs are homophilous (0.65–0.81), sparse, slightly disassortative and low-clustering; the two molecular graphs are the opposite on every count — assortative (+0.15 to +0.18), high-clustering (0.38–0.40), degree-regular (Gini 0.16, max degree 9 and 25) and **extremely fragmented**, with the largest component holding only 0.6% (enzymes) and 1.4% (proteins) of nodes; ogbl-ddi is the density outlier by two orders of magnitude (average degree 500, density 0.117). Fragmentation is the axis that had not been quantified before: enzymes and proteins are effectively collections of a few hundred small graphs, which is exactly the regime where a role graph can connect nodes that no path connects.
+
+### Family 2 — the structural inputs, raw and pre-normalization
+
+| dataset | feature | mean | std | skew | % zero | % unique |
+|---|---|---|---|---|---|---|
+| cora | clustering | 0.2407 | 0.3220 | 1.31 | **45.7** | 4.84 |
+| citeseer_linqs | clustering | 0.1447 | 0.2877 | 2.11 | **69.1** | 3.46 |
+| enzymes | clustering | 0.4024 | 0.2979 | 0.38 | 19.7 | 0.22 |
+| proteins | clustering | 0.3814 | 0.3151 | 0.47 | 25.0 | 0.13 |
+| ogbn-arxiv | clustering | 0.2261 | 0.2438 | 1.55 | 27.0 | 5.99 |
+| ogbl-ddi | clustering | 0.5143 | 0.2191 | −0.34 | 4.4 | 88.49 |
+| cora | eigenvector centrality | 0.0772 | 0.2459 | 3.29 | 2.6 | 87.08 |
+| citeseer_linqs | eigenvector centrality | 0.2989 | 0.4189 | 0.87 | 12.5 | 62.87 |
+| enzymes | eigenvector centrality | 0.3346 | 0.3220 | 0.62 | 0.1 | 85.30 |
+| proteins | eigenvector centrality | 0.2700 | 0.3206 | 0.94 | 0.9 | 86.16 |
+| ogbn-arxiv | eigenvector centrality | 0.0020 | 0.0064 | 47.75 | 24.8 | 96.03 |
+| ogbl-ddi | eigenvector centrality | 0.2428 | 0.2206 | 0.61 | 0.0 | 91.99 |
+
+Degree and Ψ rows are in `results/node_feature_characterization.csv`; the headline facts there are that degree is **coarse** wherever the graph is degree-regular (9 distinct degrees across 19,474 enzymes nodes; 0.03–0.32% unique on proteins, citeseer and arxiv) and that Ψ's raw scale spans three orders of magnitude across datasets (mean −14 on cora, −16,622 on ddi) — a spread that z-normalization removes before the encoder ever sees it, which is precisely why it has to be measured here.
+
+**The observation Family 2 exists to make.** Local clustering is **45.7% and 69.1% exactly zero** on cora and citeseer — most citation nodes sit in no triangle at all — against 19.7% and 25.0% on the molecular graphs and 4.4% on ddi. This is the raw-distribution counterpart of the ablation-D result that clustering-only is the best single feature on molecular node classification and lands at the random-feature control on the citation graphs. Portion 2 will state that correspondence properly, across all four features and all ten cells; it is recorded here only as the measurement that makes the test possible.
+
+**A correction to an earlier belief.** An older note held that eigenvector centrality was degenerate on enzymes (96.9% of nodes below 1e-6). That was true of the **global** Ω used before the per-component policy; under the current `GRAPH_POLICY` (per-component, rescaled to max 1) centrality is one of the best-spread features in the study — 85.3% distinct values on enzymes, 0.09% zeros. The belief is withdrawn, and it is consistent with centrality-only being the strongest single arm for enzymes link prediction.
+
+**Caveat on the `degenerate` flag.** The flag (`% unique < 1` or `% zero > 95`) fires on molecular clustering, which the ablation shows to be the most useful single feature there — few distinct values because small-degree nodes admit only a handful of rational clustering coefficients, not because the feature is uninformative. **Portion 2 must not use the boolean**; the raw columns beside it carry the real signal.
+
+### Step 1 — the frozen experimental side
+
+`results/characterization_inputs.csv` snapshots the locked GraphSAGE scores this will be joined against: 50 rows = 10 dataset x task cells x 5 graph variants, each the 3-seed mean and std of that task's single primary metric (weighted F1 / AUC for the core four, official Accuracy / Hits@20 for the OGB pair). Metrics are never mixed into one column, per the within-dataset rule.
+
+## 2026-07-24 (later still) — Adjusted homophily added to the characterization
+
+The homophily column in the Family-1 table above is **raw edge homophily**, and its chance baseline depends on how many classes a graph has and how balanced they are — near 0.5 for a 3-class graph, near 0.03 for a 40-class one. Raw values are therefore **not comparable across datasets with different class structure**, which matters because homophily is the predictor the study leans on first. Two rows made the flaw concrete: enzymes (0.6653, 3 classes) and ogbn-arxiv (0.6542, 40 classes) sit almost on top of each other on the raw scale while being opposite graphs on every other axis.
+
+**Fix — one measured column, no pipeline change.** `characterize.py`'s `homophily()` now also returns the chance null and adjusted homophily (Platonov et al.),
+
+  `h_adj = (h_edge − Σ_c (D_c / 2m)²) / (1 − Σ_c (D_c / 2m)²)`,  D_c = summed labelled-degree of class c,  2m = Σ_c D_c,
+
+written to `dataset_characterization.csv` as `homophily_null` and `homophily_adjusted`; raw `edge_homophily` and `node_homophily` stay beside them for provenance. The null is **degree-weighted**, not node-count-weighted (Σ p²), because edge homophily counts edges and edges are weighted by degree; the two nulls agree only when the graph is degree-regular.
+
+| dataset | classes | edge homophily (raw) | null Σ(D_c/2m)² | **adjusted** |
+|---|---|---|---|---|
+| cora | 7 | 0.8100 | 0.1698 | **0.7711** |
+| citeseer_linqs | 6 | 0.7377 | 0.1975 | **0.6731** |
+| ogbn-arxiv | 40 | 0.6542 | 0.1614 | **0.5877** |
+| enzymes | 3 | 0.6653 | 0.4759 | **0.3613** |
+| proteins | 3 | 0.6568 | 0.4678 | **0.3552** |
+| ogbl-ddi | — | n/a | n/a | n/a |
+
+**What it buys the study.** Adjusting separates the two domains where the raw column hid them: citation graphs cluster at **0.59–0.77**, molecular graphs at **~0.36**, with no overlap, and the enzymes/arxiv collision resolves (arxiv 0.588 against enzymes 0.361). Degree-weighting earns its keep specifically on arxiv — a node-count null would give ~0.625 there, the degree-weighted null gives 0.588, because arxiv is the one graph with heavy degree spread (Gini 0.63); the degree-regular molecular graphs barely move either way. **Portion 2 correlates against `homophily_adjusted`; raw is kept only for provenance.** The re-run touched only the three characterization CSVs and is byte-stable; scoreboard, embeddings and splits are unchanged.
+
+## 2026-07-25 — Characterization portion 2: the when-to-augment rule
+
+Portion 1 measured; portion 2 **relates**. The gap being explained is computed **inside** one dataset × task cell — `best augmented − original`, where "augmented" is the best of `psi` / `degree` / `centrality` / `hybrid` — so the metric is a constant that cancels and no AUC is ever compared against a Hits@20. Only the *ranking* of those gaps is compared across datasets, which is why every correlation below is Spearman. Code is `characterize.py --step all` (portion 1 unchanged, four functions added); the figures are `notebooks/5-phase5_characterization.ipynb` → `results/figures/`.
+
+### The outcome per cell
+
+A gap is called only when it clears the pooled 3-seed noise of the two sides it compares (1σ band); inside that band the cell is a **tie**, which is what makes "the original wins or ties everywhere" a measured statement rather than a reading of point estimates.
+
+| dataset | task | metric | original | best augmented | variant | gap | σ | verdict |
+|---|---|---|---|---|---|---|---|---|
+| cora | NC | weighted F1 | 0.4266 | 0.2942 | centrality | −0.1324 | −8.6 | keep original |
+| citeseer_linqs | NC | weighted F1 | 0.3298 | 0.2818 | centrality | −0.0480 | −3.8 | keep original |
+| ogbn-arxiv | NC | Accuracy | 0.3918 | 0.3618 | hybrid | −0.0300 | −6.2 | keep original |
+| proteins | NC | weighted F1 | 0.5797 | 0.5646 | hybrid | −0.0151 | −8.9 | keep original |
+| enzymes | NC | weighted F1 | 0.5591 | 0.5546 | hybrid | −0.0045 | −0.7 | **tie** |
+| cora | LP | AUC | 0.6130 | 0.5659 | centrality | −0.0471 | −11.5 | keep original |
+| citeseer_linqs | LP | AUC | 0.6218 | 0.5437 | centrality | −0.0781 | −3.6 | keep original |
+| enzymes | LP | AUC | 0.7000 | 0.6563 | centrality | −0.0437 | −6.1 | keep original |
+| proteins | LP | AUC | 0.6720 | 0.5834 | centrality | −0.0886 | −23.3 | keep original |
+| **ogbl-ddi** | LP | Hits@20 | 0.0173 | **0.0519** | centrality | **+0.0346** | **+2.7** | **augment** |
+
+**8 keep original · 1 tie · 1 augment.** The original graph holds rank 1 of 5 in nine of ten cells; on ogbl-ddi it is rank 5 of 5 — the only cell where every augmented graph beats it.
+
+### The rule: the predictor is task-dependent
+
+This is the substantive finding, and it was not the expected one. Homophily was nominated as *the* predictor; it turns out to predict **node classification only**, while link prediction answers to density instead.
+
+| predictor | NC (n=5) | LP (n=5) | pooled (n=10) |
+|---|---|---|---|
+| **homophily_adjusted** | **−0.90** | +0.40 (n=4) | −0.55 |
+| degree_assortativity | +0.90 | −0.20 | +0.39 |
+| **avg_degree** | −0.10 | **+0.80** | +0.39 |
+| density | −0.60 | +0.70 | −0.09 |
+| avg_clustering | +0.70 | +0.70 | **+0.72** |
+| degree_skew | −0.70 | −0.50 | −0.60 |
+
+- **Node classification — the more homophilous the graph, the worse augmentation does** (ρ = −0.90, near-monotone: cora 0.771 → −31% gap, citeseer 0.673 → −15%, arxiv 0.588 → −8%, proteins 0.355 → −2.6%, enzymes 0.361 → −0.8%). Homophilous labels are a *community* property carried by the real edges; role-based rewiring discards exactly that signal. Where homophily is weak — the molecular graphs — role structure is nearly sufficient and the gap closes to a tie.
+- **Link prediction — augmentation only becomes competitive as the graph gets dense** (avg degree ρ = +0.80). ogbl-ddi (avg degree 500) is the single augmentation win; the five sparse graphs (2.8–13.7) all keep the original. Note **ogbl-ddi carries no labels, so it is absent from the homophily column** — the LP homophily correlation rests on n = 4 and should not be quoted.
+- **avg_clustering is the only property that holds the same sign in both tasks** (+0.70 / +0.70), making it the best single-column summary if one is wanted.
+- `degree_assortativity` (+0.90 on NC) is a **mirror of homophily, not independent evidence** — the molecular graphs are simultaneously assortative and weakly homophilous, so with n = 5 the two cannot be separated.
+
+**Strength of claim.** n is 4–5 datasets per task. |ρ| = 0.90 at n = 5 is p ≈ 0.037, but with twelve properties tested this does not survive any multiple-comparison correction. These are stated as a **conjecture offered to the community**, consistent with the project's framing — the direction and the near-monotonicity are the evidence, not the p-value.
+
+### Feature usefulness: the `degenerate` flag is empirically dead
+
+Ablation D, `psi` graph, K=10, core four only, measured as **lift over the random-feature control (D4)** — the honest zero point, since it is message passing with the structural signal removed.
+
+| dataset | task | best single feature | lift | that feature's % zero | % unique |
+|---|---|---|---|---|---|
+| cora | NC | centrality | +0.083 | 2.6 | 87.1 |
+| citeseer_linqs | NC | centrality | +0.064 | 12.5 | 62.9 |
+| enzymes | NC | clustering | +0.061 | 19.7 | **0.22** |
+| proteins | NC | clustering | +0.070 | 25.0 | **0.13** |
+| enzymes | LP | centrality | +0.140 | 0.1 | 85.3 |
+| proteins | LP | centrality | +0.039 | 0.9 | 86.2 |
+| cora | LP | clustering | +0.016 | 45.7 | 4.8 |
+| citeseer_linqs | LP | degree | +0.035 | 0.0 | **0.95** |
+
+Across the 32 (dataset × task × single feature) cells, **raw spread does not predict usefulness**: %zero ρ = −0.06, %unique ρ = −0.02, skew ρ = +0.01. The winners on the molecular graphs are the two features the flag calls degenerate — clustering at 0.13–0.22% unique, and degree at 0.95% unique on citeseer LP. This is a **measured refutation** of the flag rather than an argument against it: a feature with few distinct values still separates the nodes that matter. The flag stays in `node_feature_characterization.csv` as description only; **usefulness is decided by ablation score throughout**.
+
+### Files
+
+`results/characterization_gaps.csv` (10 cells) · `results/characterization_correlations.csv` (48 rows, both scopes) · `results/feature_usefulness.csv` (74 rows) · `results/figures/fig1–fig5.png`. Deliverable #5 is complete; GIN (#6) is the remaining experimental item.

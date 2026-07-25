@@ -46,7 +46,7 @@ Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing file
 - **Phase 1 - reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
 - **Phase 2 - virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
 - **Phase 3 - GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C - three over-smooth), and the structural features are required (D - replacing them with random features drops performance to the DeepWalk baseline or below). Those four features do double duty: they define the virtual graph and serve as the encoder's input. K = 10.
-- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties (homophily first) to the original-vs-augmented gap - next. (3) Swap GraphSAGE for GIN.
+- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties to the original-vs-augmented gap - **done**, see Characterization below. (3) Swap GraphSAGE for GIN - next.
 - **Configuration locked 2026-07-24 (final).** Six datasets, ten dataset x task cells, 5 graph variants x 2 encoders x 3 seeds at K = 10, every row produced by one pipeline (`run_core.py` + `run_ogb.py`). No further method change for the paper; the characterization only reads `results/scoreboard.csv`. Settings and the evidence behind the lock are in `docs/paper_log.md`.
 - **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
 
@@ -84,6 +84,25 @@ Full results live in `results/scoreboard.csv` (one row per dataset × encoder ×
 
 ---
 
+## Characterization - when does augmentation help?
+
+The study's main question: given a graph and a task, can its properties tell you in advance whether role-based rewiring is worth it? Each dataset × task cell is judged **on its own metric** - the gap is `best augmented − original` computed inside the cell, so the scorer cancels and only the *ranking* of gaps is compared across datasets. A gap counts only if it clears the pooled 3-seed noise (1σ).
+
+Across the ten cells: **8 keep the original, 1 ties, 1 augments** (ogbl-ddi link prediction, the densest graph in the panel). The predictor turns out to depend on the task:
+
+| task | best predictor | Spearman ρ | reading |
+|---|---|---|---|
+| node classification | adjusted homophily | **−0.90** (n=5) | the more homophilous, the worse augmentation does |
+| link prediction | average degree | **+0.80** (n=5) | augmentation only becomes competitive on dense graphs |
+
+Homophily is reported **adjusted** for class count and balance - raw homophily's chance floor is ~0.48 on a 3-class graph and ~0.08 on a 40-class one, so raw values are not comparable across these datasets. With 4-5 datasets per task these are offered as a conjecture, not a significance test.
+
+Feature usefulness is decided the same way - by ablation, not by inspection. Across 32 feature × cell combinations a feature's raw spread does **not** predict its usefulness (|ρ| ≤ 0.06): the best features on the molecular graphs are the ones a "too few distinct values" heuristic would discard.
+
+`python characterize.py` writes the tables; `notebooks/5-phase5_characterization.ipynb` renders the five figures into `results/figures/`.
+
+---
+
 ## Repository map
 
 ```
@@ -109,12 +128,14 @@ identity2vec/
 ├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20 via a trained link decoder), one split per call
 ├── run_ogb.py                # Phase 4: OGB pipeline functions (notebook 4 imports these; also a CLI)
 ├── run_core.py               # Phase 4: the same sweep headless for the core four (notebook 3 §8 as a script)
+├── characterize.py           # Phase 4/5: measures graph properties + the encoder's raw inputs, then relates them to the gap
 │
 ├── notebooks/
 │   ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
 │   ├── 2-phase_2_virtual_graph.ipynb  # Phase 2 - build + inspect the virtual graphs
 │   ├── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
-│   └── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
+│   ├── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
+│   └── 5-phase5_characterization.ipynb # Phase 5 - when does augmentation help? properties vs the gap, 5 figures
 │
 └── scripts/                  # main.py (CLI) · benchmark_config.py (all settings) · runner.py · results_io.py
 ```
@@ -146,6 +167,7 @@ The three notebooks are the main workflow. Run them in order, top to bottom, on 
 2. `notebooks/2-phase_2_virtual_graph.ipynb` - builds and saves the virtual graphs and the DeepWalk baseline embeddings. Pick the dataset with the `DATASET` knob at the top.
 3. `notebooks/3-phase3_gnn_encoder.ipynb` - trains GraphSAGE and renders the result tables: §7 encoder comparison, §8 variant sweep, §8b feature ablation, §10 research-question tables.
 4. `notebooks/4-phase4_ogb.ipynb` - runs an OGB dataset end to end under the official protocol (pick it with the `DATASET` knob): download, virtual graphs, embeddings, validation selection, then a single guarded test read.
+5. `notebooks/5-phase5_characterization.ipynb` - relates the graph properties to the original-vs-augmented gap and renders the five figures. Reads existing results only; trains nothing.
 
 Command-line equivalents:
 
@@ -167,6 +189,10 @@ python scripts/main.py --task linkpred --dataset cora --retrain
 # the whole study, headless: core four (all variants, both tasks, both encoders), then the OGB pair
 python run_core.py
 python run_ogb.py --dataset ogbn_arxiv
+
+# characterization: measure each graph + the raw structural inputs, then relate them to the gap
+python characterize.py                 # both portions (default)
+python characterize.py --step measure  # portion 1 only: the measurement tables
 ```
 
 ---

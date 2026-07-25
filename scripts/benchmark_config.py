@@ -20,6 +20,7 @@ LP_SPLITS_VG = SPLITS_DIR / "link_prediction" / "virtual_graph_study"    # share
 SCOREBOARD_CSV = RESULTS_DIR / "scoreboard.csv"         # THE master table (one row per dataset x encoder x graph x K x task)
 GRAPH_HEALTH_CSV = RESULTS_DIR / "graph_health.csv"     # one row per virtual graph built
 SNAPSHOTS_DIR = RESULTS_DIR / "snapshots"               # per-run comparison CSVs
+FIGURES_DIR = RESULTS_DIR / "figures"                   # characterization figures (notebook 5)
 
 # Dataset registry: name -> edgelist + label file (labels may not exist yet -> None or a path to be filled).
 DATASETS = {
