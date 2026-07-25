@@ -757,3 +757,61 @@ The shared review artifact (`claude.ai/code/artifact/c6dd674b-8db1-4cf4-b340-929
 **Presentation unchanged** — same token palette, Georgia headings, table and callout styling, and light/dark handling as the original page. Two additions in the same visual language: a filled cell marks the best arm per column, a left bar marks the two new arms. Numbers on the page are the post-fix scoreboard values, so the page and `results/scoreboard.csv` agree row for row.
 
 Source file lives in the session scratchpad, not the repo — the page is a communication artifact, and `results/scoreboard.csv` plus `docs/paper_log.md` remain the record of truth. Republish by passing that same URL, never by publishing fresh, or the link changes.
+
+## 2026-07-24 (later) — `characterize.py`: characterization portion 1
+
+**New file `characterize.py`** (root, mirrors `run_core.py` / `run_ogb.py`: argparse, `main(args)`, few functions). Five functions — `graph_properties` (Family 1), `feature_properties` (Family 2 step 3), `frozen_inputs` (step 1), plus `load_cache` / `labels_of` / `gini` / `homophily` helpers. `--datasets` selects a subset; the default is all six. Pure measurement: no training, no graph building, nothing written outside `results/`.
+
+**Reuse over reimplementation.** `graph_io.load_graph` supplies the graph (so this cannot disagree with any other stage about what the graph is) and `graph_io.properties` supplies nodes / edges / components / largest-component fraction / isolates / distinct degrees. Average clustering is read from the encoder's **feature cache** rather than recomputed — it is the same `nx.clustering` output the pipeline already stored, so it is exact and free, and it avoids an O(N·d²) recount on the 169k-node graph. Only density, degree spread (std / skew / Gini), assortativity and homophily are computed here, because nothing else in the repo computed them.
+
+**Family 2 reads the cache, deliberately.** The cache holds the raw pre-z-normalization matrix `[degree, Ω, Ψ, clustering]` that every embedding in the study was trained on. Describing the cache therefore describes the true inputs, and it side-steps the Ψ/Ω recomputation instability recorded above — a fresh recomputation on proteins would have produced different Ψ values from the ones the results were produced with.
+
+**Outputs (all in `results/`):** `dataset_characterization.csv` (6 rows x 22 columns), `node_feature_characterization.csv` (24 rows = 6 datasets x 4 features), `characterization_inputs.csv` (50 rows = 10 dataset x task cells x 5 variants, GraphSAGE, K=10, one primary metric per task).
+
+**Validation gate — all passed.**
+
+| check | result |
+|---|---|
+| row counts | 6 / 24 / 50 as designed |
+| nodes, edges, max degree, components, avg degree vs `graph_health.csv` `original` rows | exact match on all six datasets |
+| cached degree column vs a fresh `nx` degree recount | element-wise identical on cora, enzymes, arxiv, ddi |
+| avg clustering read from cache vs `nx.average_clustering` | 0.2407 / 0.1447 — identical |
+| ogbl-ddi label columns | NaN, `graph_scope=ogb_train_edges`, absent from step-1 NC rows |
+| re-run determinism | all three CSVs byte-identical |
+| edge homophily vs published values | cora 0.8100 (~0.81), citeseer 0.7377 (~0.736), arxiv 0.6542 (~0.654) |
+
+Runtime 17 s for all six datasets.
+
+**Two things to carry into portion 2.** (1) The `degenerate` boolean fires on molecular clustering — few distinct values because low-degree nodes admit only a few rational clustering coefficients — even though ablation D shows it is the most useful single feature there; portion 2 uses the raw columns, not the flag. (2) Family 2 currently describes the **full** graph, which is exactly what the node-classification runs consumed; the link-prediction runs consume the per-seed 70% training subgraphs, whose caches also exist on disk. Adding those rows is a scope switch, not new machinery, and is deferred until portion 2 needs it.
+
+## 2026-07-24 (later still) — `characterize.py`: adjusted homophily column
+
+**Change.** `homophily()` now returns four values — edge, node, **adjusted** homophily and the chance **null** — and `graph_properties` writes `homophily_null` + `homophily_adjusted` to `dataset_characterization.csv`. Three-line edit, confined to `characterize.py`; no other file touched, and no scoreboard / embedding / split changed. Re-ran: only the three characterization CSVs rewrote, all byte-stable.
+
+**Why.** Raw edge homophily's chance floor is `Σ_c (D_c/2m)²`, which depends on class count and balance, so raw values are not comparable across datasets — enzymes (0.665, 3 classes) and arxiv (0.654, 40 classes) look identical raw but are opposite graphs. Adjusted `(h − null)/(1 − null)` removes that floor.
+
+**Null is degree-weighted, not Σp².** Edge homophily counts edges, and edges are weighted by degree, so the null uses summed per-class degree D_c, not the node-count class fraction. They agree only on degree-regular graphs; on arxiv (Gini 0.63) they diverge — degree-weighted 0.588 vs node-count ~0.625.
+
+| dataset | raw | null | adjusted |
+|---|---|---|---|
+| cora | 0.8100 | 0.1698 | 0.7711 |
+| citeseer_linqs | 0.7377 | 0.1975 | 0.6731 |
+| ogbn-arxiv | 0.6542 | 0.1614 | 0.5877 |
+| enzymes | 0.6653 | 0.4759 | 0.3613 |
+| proteins | 0.6568 | 0.4678 | 0.3552 |
+
+Portion 2 correlates on `homophily_adjusted`; raw kept for provenance.
+
+## 2026-07-25 — `characterize.py` portion 2 + `notebooks/5-phase5_characterization.ipynb`
+
+**`characterize.py` gains portion 2** — four functions and a helper, portion 1 untouched: `gaps` (original vs best augmented per cell, with a 1σ seed-noise band → verdict), `feature_scores` (ablation D lift over the D4 random control, joined to the Family 2 raw spread), `correlate` (Spearman, two scopes), `rule` (prints the reading), plus `rho` shared by both scopes. New `--step measure|relate|all` (default `all`); `--step measure` reproduces the old portion-1-only behaviour.
+
+**Three new outputs** in `results/`: `characterization_gaps.csv` (10), `feature_usefulness.csv` (74), `characterization_correlations.csv` (48). `cfg.FIGURES_DIR` added (`results/figures/`) — one line in `benchmark_config.py`, no behaviour change.
+
+**`notebooks/5-phase5_characterization.ipynb`** — 16 cells (8 markdown, 8 code), follows the notebook-4 split: `characterize.py` does the work, the notebook orchestrates and plots. Five figures saved to `results/figures/`: variant-vs-original heatmap, gap-vs-predictor scatter, property correlation heatmap, ablation-D lift bars, spread-vs-usefulness scatter. Executed end to end on the `i2v` kernel — 0 errors, all 5 figures embedded.
+
+**Plotting decisions worth keeping.** ogbl-ddi's relative gap is **+200%** because its original score is 0.0173 — a floor effect, not a 3× improvement; the LP panel uses a `symlog` y-axis so the five sparse datasets stay legible. Spearman is rank-based, so the floor effect does not touch ρ. The spread-vs-usefulness panels plot only **unit-free** statistics (%zero, %unique, skew) — `raw_std` is in each feature's own units and is not comparable across features.
+
+**Scope of the ablation join.** Ablation D exists only on the `psi` graph, K=10, core four (both tasks, 3 seeds). `feature_scores` therefore returns 74 rows, not the full six datasets; arxiv and ddi have no feature-ablation arms by the settled scope decision.
+
+Nothing was retrained. Scoreboard, embeddings and splits are unchanged.

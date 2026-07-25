@@ -64,8 +64,8 @@ Anomaly detection is set aside for now — the LoG study replaced it as the imme
 - **Phase 3 — GraphSAGE encoder. ✅ done.** Design locked by ablations A–D (edge positives, mean aggregation, 2 layers, all four structural features, K=10). Caveat to keep: A–D were tuned on enzymes only.
 - **Phase 4 — the study + more data. ← current.** Three steps, in order:
   1. Run the existing GraphSAGE pipeline on small-to-medium **OGB** datasets (node: ogbn-arxiv; link: ogbl-collab, ogbl-ddi), **structural features only** — skip the huge 100M-node graphs. On each dataset both graphs (original and virtual) get the **same** structural features, so only the edges differ and graph structure is the single variable; ignore OGB's extra attributes (text embeddings, product descriptions, biological annotations). **We do not chase the OGB leaderboard** — its top models may use those attributes, and the paper states plainly that the goal is structural analysis, not leaderboard superiority. Per-dataset: `ogbl-ddi` has no node features and is a drop-in structure-only benchmark; `ogbn-arxiv` (128-dim skip-gram text features) and `ogbl-collab` (128-dim text features) do carry features, which we simply do not load — so the structural methodology is unchanged across all three.
-  2. Build the **characterization table**: graph properties per dataset (homophily first) → the original-vs-augmented gap → a "when to augment" rule.
-  3. Swap **GraphSAGE → GIN** and re-run, to see if its stronger isomorphism power helps.
+  2. Build the **characterization table**: graph properties per dataset (homophily first) → the original-vs-augmented gap → a "when to augment" rule. ✅ **done** (`characterize.py --step all`, notebook 5). Result: 8 cells keep the original, 1 ties, 1 augments; the predictor is **task-dependent** — node classification tracks **adjusted** homophily (ρ = −0.90, n=5), link prediction tracks average degree (ρ = +0.80, n=5). Homophily is reported class-balance-adjusted because raw values are not comparable across datasets with different class counts.
+  3. Swap **GraphSAGE → GIN** and re-run, to see if its stronger isomorphism power helps. ← **current**
 - **Future work.** Learnable alpha (auto-blend original vs virtual; needs synthetic datasets); embeddings as LLM graph summaries. Do not start these yet.
 
 ---
@@ -98,6 +98,6 @@ Anomaly detection is set aside for now — the LoG study replaced it as the imme
 2. ✅ `virtual_graph.py` — five-variant top-K virtual-graph builder.
 3. ✅ GraphSAGE encoder over the virtual graph (`encoder.py`); GIN to follow.
 4. ✅ Eval scripts: node classification (F1), link prediction (AUC, leakage-free).
-5. 🔵 The characterization table + rule: graph properties → when augmentation helps, across our datasets **plus small/medium OGB**.
+5. ✅ The characterization table + rule: graph properties → when augmentation helps, across our datasets **plus small/medium OGB**. Tables in `results/characterization_*.csv` + `results/feature_usefulness.csv`; figures in `results/figures/`.
 6. 🔵 GIN results next to GraphSAGE.
 7. 🔵 LoG paper draft (the thesis reuses it).
