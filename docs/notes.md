@@ -815,3 +815,15 @@ Portion 2 correlates on `homophily_adjusted`; raw kept for provenance.
 **Scope of the ablation join.** Ablation D exists only on the `psi` graph, K=10, core four (both tasks, 3 seeds). `feature_scores` therefore returns 74 rows, not the full six datasets; arxiv and ddi have no feature-ablation arms by the settled scope decision.
 
 Nothing was retrained. Scoreboard, embeddings and splits are unchanged.
+
+## 2026-07-26 — Notebook 5 reorganized around the research question (presentation only)
+
+The notebook was structured by the *internals* of `characterize.py` (§1 "build the tables", variables `fam1` / `fam2` / `inp` / `corr`), which reads as a tour of the code rather than an answer to a question. Rebuilt as a seven-section argument, user-requested: **1** the research question (which of the five graphs should GraphSAGE use, per dataset × task) · **2** what data already exists (a provenance table: scoreboard, edgelists, labels, feature caches — nothing retrained) · **3** which graph wins (new `winner` + `verdict` table beside the heatmap) · **4** what each dataset is like (new table, the five explaining properties only) · **5** why a graph won or lost (the two predictor panels + the property heatmap as evidence) · **6** which node feature helps (ablation lift + the spread-vs-usefulness test) · **7** a new final recommendation table.
+
+**Variables renamed to what they hold**, since the old names were the thing being complained about: `fam1`→`props`, `fam2`→`dists`, `inp`→`scores`, `feat`→`ablation`; `gap` and `corr` kept. `characterize.py` is untouched — the notebook still calls the same six functions in the same order.
+
+**Two new tables, both derived from existing frames — no new measurement.** §3 joins the variant pivot to `gaps()` and adds `winner = piv.idxmax(axis=1)`. §7 joins `gaps()` to the best single-feature arm per cell (`arm`, `lift_vs_random`) and prints `verdict` / `use_graph` / `best_variant` / `useful_feature` / `evidence`; `use_graph` is `original` for both *keep original* and *tie* (the original is the cheaper default), the augmented variant only on *augment*. `useful_feature` is **`not measured`** for ogbn-arxiv and ogbl-ddi — ablation D is core-four-only, so the column must not read as "no feature helped".
+
+**Unchanged on purpose:** all five figure filenames (`fig1`–`fig5`), so `results/figures/` and every doc reference stay valid; every plotting body; the `show()` helper; the kernelspec (`Python (i2v)`, `language_info` restored — the working tree had dropped it). 18 cells (7 md, 11 code), up from 16.
+
+**State:** outputs are cleared and `execution_count` is null throughout — the notebook needs one top-to-bottom run on the `i2v` kernel to re-embed the tables and the five figures. All code cells were syntax-checked (`ast.parse`); §3/§4/§7 cells have not been executed. Nothing was retrained; scoreboard, embeddings, splits and CSVs are unchanged.
