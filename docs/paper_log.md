@@ -965,3 +965,399 @@ Across the 32 (dataset × task × single feature) cells, **raw spread does not p
 ### Files
 
 `results/characterization_gaps.csv` (10 cells) · `results/characterization_correlations.csv` (48 rows, both scopes) · `results/feature_usefulness.csv` (74 rows) · `results/figures/fig1–fig5.png`. Deliverable #5 is complete; GIN (#6) is the remaining experimental item.
+
+---
+
+## 2026-07-27 — Panel extension: two heterophilous datasets + a pre-registered prediction
+
+**Why.** The ten-cell characterization produced one `augment` verdict (ogbl-ddi LP). A decision rule needs points on
+both sides of its boundary; with a single positive cell the boundary is fitted from one point and the `augment` side
+of the rule was never tested. The cause is visible in the panel itself: **all six datasets are homophilous**
+(adjusted homophily 0.355–0.771), and average degree has an empty span between 13.7 (ogbn-arxiv) and 500 (ogbl-ddi).
+The rule's two predictors were therefore each measured over a range that excludes the region where the rule predicts
+augmentation. Adding datasets there is not a search for wins — it is the missing half of the experiment.
+
+**Datasets added** — Platonov et al. (2023), *A critical look at the evaluation of GNNs under heterophily*; the same
+paper this study's adjusted-homophily definition is taken from.
+
+| dataset | domain | nodes | edges | avg degree | classes | edge homophily | **adjusted homophily** | components | assortativity |
+|---|---|---|---|---|---|---|---|---|---|
+| roman_empire | linguistic (word adjacency + dependency arcs) | 22,662 | 32,927 | 2.91 | 18 | 0.0469 | **−0.0468** | 1 | −0.028 |
+| tolokers | crowdsourcing (workers who shared a task) | 11,758 | 519,000 | 88.28 | 2 | 0.5945 | **0.0926** | 1 | −0.080 |
+
+Both reproduce the published counts exactly, and our independent `homophily()` implementation reproduces the paper's
+adjusted homophily to two decimals (−0.05 / 0.09) — an **external validation of the metric**, not only of the data.
+
+**What they add to the panel.** roman_empire is the first dataset with *negative* adjusted homophily, extending the
+range from [0.355, 0.771] to [−0.047, 0.771]. tolokers lands at degree 88.28, inside the previously empty span
+between ogbn-arxiv and ogbl-ddi, and is only the second graph in the panel with weak homophily *and* high density.
+
+**Protocol — unchanged, deliberately.** Structural features only: `data.x` (roman_empire 300-dim fastText,
+tolokers 10-dim worker profile) is ignored, exactly as OGB's text features are. Platonov's own ten train/val/test
+masks are also ignored; both datasets run the ViRGo **core** protocol (stratified 70% node classification → weighted
+F1; 70:30 link prediction → AUC) so their cells stay directly comparable with the four core datasets. K=10,
+GraphSAGE mean/2-layer/edge-positives, seeds 42/43/44 — the frozen pipeline, with **no retuning**. Retuning on the
+new datasets would void the held-out status of the prediction below.
+
+**Note on link prediction.** Neither dataset ships an LP task; the 70:30 split is ours, as for the core four. This is
+a defined extension of the benchmark, not a published protocol, and is reported as such.
+
+### Pre-registered prediction (recorded before any embedding was trained)
+
+The rule from 2026-07-25 states: node classification augments as adjusted homophily *falls* (ρ = −0.90, n=5); link
+prediction augments as average degree *rises* (ρ = +0.80, n=5). Applied to the two new datasets it predicts:
+
+| dataset | task | driving property | value | rank in panel | **predicted verdict** |
+|---|---|---|---|---|---|
+| roman_empire | NC | adjusted homophily | −0.047 | lowest of 7 | **augment** |
+| tolokers | NC | adjusted homophily | 0.093 | 2nd lowest of 7 | **augment** |
+| tolokers | LP | avg degree | 88.28 | 2nd highest of 7 | **augment** |
+| roman_empire | LP | avg degree | 2.91 | lowest of 7 | **keep original** |
+
+Three augment, one keep. The fourth is the control: roman_empire is simultaneously the panel's least homophilous
+graph *and* its sparsest, so the two predictors disagree on it by construction — NC should augment while LP should
+not. A result that splits that way is evidence the predictor really is task-dependent rather than a single latent
+"hard dataset" axis; a result that augments both would mean the two correlations are measuring the same thing.
+
+**Falsification condition, stated in advance.** If roman_empire and tolokers NC return `keep original`, the
+homophily rule is falsified on the only range that could test it, and the study reports that. The value of the
+extension does not depend on which way it comes out — only on the prediction having been fixed beforehand.
+
+**Panel after this change:** 8 datasets, 14 dataset × task cells (NC 7, LP 7). Correlation n rises from 5 to 7 per
+task. Registered in `scripts/benchmark_config.DATASETS`, `characterize.STUDY`, and `run_core.CORE`; converter is
+`make_hetero.py`. Nothing scored yet.
+
+---
+
+## 2026-07-27 — Result of the pre-registered test: the homophily rule is falsified
+
+The 2026-07-27 run of `run_core.py --datasets roman_empire tolokers` completed (40 cells: 5 variants × 2 encoders ×
+2 tasks × 3 seeds, K=10, frozen pipeline, no retuning). Scores are rows 228–267 of `results/scoreboard.csv`.
+
+### Outcome vs prediction
+
+| dataset | task | original | best augmented | gap | σ | **verdict** | predicted |
+|---|---|---|---|---|---|---|---|
+| roman_empire | NC | **0.2561 ± 0.0092** | hybrid 0.2144 ± 0.0076 | −0.0417 | −4.94 | keep original | ~~augment~~ |
+| tolokers | NC | **0.7345 ± 0.0037** | hybrid 0.7265 ± 0.0060 | −0.0080 | −1.60 | keep original | ~~augment~~ |
+| tolokers | LP | 0.6444 ± 0.0188 | **psi 0.7007 ± 0.0032** | +0.0563 | +4.18 | **augment** | augment ✓ |
+| roman_empire | LP | 0.6019 ± 0.0124 | **centrality 0.6980 ± 0.0139** | +0.0961 | +7.30 | **augment** | ~~keep original~~ |
+
+One of four predictions held. **The falsification condition stated in advance was met**: both new NC cells returned
+`keep original`, on the only homophily range that could have tested the rule.
+
+### What the correlations did
+
+Recomputed by `characterize.py --step all` with n = 7 per task (was 5):
+
+| relation | before (n=5) | after (n=7) |
+|---|---|---|
+| NC gap ~ adjusted homophily | ρ = −0.90 | **ρ = −0.36** |
+| LP gap ~ average degree | ρ = +0.80 | **ρ = +0.54** |
+
+Both drivers lost most of their strength out of sample. The strongest predictors on the extended panel are now
+LP ~ `components` (ρ = −0.85), `largest_component_frac` (+0.74), `avg_clustering` (+0.71); NC ~ `n_classes`
+(ρ = −0.68), `avg_clustering` (+0.57). These are **post-hoc on the same data that broke the first rule** and are
+recorded as candidates to be tested, not as a replacement rule. The honest statement is that a two-property rule
+fitted on five points did not survive two new points.
+
+### Why the homophily premise was wrong
+
+roman_empire has adjusted homophily −0.047 — neighbouring words rarely share a syntactic role — yet the original
+graph beats every role graph by 4.9σ. Low adjusted homophily means neighbour labels **differ**, not that the edges
+carry no information: a word's role is determined by its sequence context, and differing *predictably* is still
+exploitable signal that message passing can use. The rule conflated "neighbours share my label" with "neighbours are
+informative about my label". Only a heterophilous dataset could expose that conflation, which is precisely why the
+panel needed one.
+
+### Panel-level effect
+
+`keep original` 10 | `augment` 3 | `tie` 1, over 8 datasets / 14 cells. The augment count rose from 1 to 3, so the
+characterization no longer rests on a single cell — but the two new augment verdicts are both link prediction, and
+neither was obtained where the rule said it would be.
+
+### Caveat on the roman_empire LP cell — do not read it as support for role edges
+
+Node ids in roman_empire are word positions in the source text, so the graph is a 22,662-node path plus dependency
+arcs: 68.8% of edges join consecutive ids, 14.7% join ids two apart. Link prediction there is largely "are these two
+ids adjacent", which any position-sensitive embedding solves — DeepWalk on the original graph reaches
+AUC 0.9994 ± 0.0000 while GraphSAGE on the same graph reaches 0.6019. The `augment` verdict in that cell therefore
+records **GraphSAGE failing to represent a path**, not role edges helping link prediction. Reported with this caveat
+attached; whether the cell is retained in the correlations is an open decision.
+
+**Artifacts:** `results/scoreboard.csv` (70 GraphSAGE score rows), `results/characterization_*.csv`,
+`results/figures/fig1–fig5` regenerated, notebook 5 executed end to end on the 8-dataset panel.
+
+---
+
+## 2026-07-27 — Why the original graph wins node classification on the heterophilous pair (audit, no code changed)
+
+Read-only audit of the roman_empire / tolokers node-classification cells. Implementation verified correct; the
+`keep original` verdicts are real, and the mechanism turns out **not** to be the one the homophily rule assumed.
+
+### Implementation checks (all pass)
+
+| check | roman_empire | tolokers |
+|---|---|---|
+| labels ↔ graph node alignment | 22,662 / 22,662, 0 unlabelled, 0 orphan | 11,758 / 11,758, 0 / 0 |
+| nodes present in every embedding | 22,662 (all 5 variants) | 11,758 (all 5 variants) |
+| nodes silently skipped by the evaluator | 0 | 0 |
+| virtual graphs: isolates / star collapse | 0 isolates, max degree 14–35 | 0 isolates, max degree 18–2138 |
+| stored embeddings reproduce the scoreboard | yes (seed 42 within seed spread) | yes |
+| degenerate (duplicate) embedding vectors | ≤ 2 of 22,662 | ≤ 157 of 11,758 |
+| majority-class weighted-F1 floor | 0.0342 (all variants ≈ 6–7× above it) | 0.6860 (78/22 binary) |
+
+### The mechanism: predictability, not agreement
+
+Same-label rate across each graph's edges, against the chance rate for that class distribution:
+
+| graph | roman_empire same-label (chance 0.0880) | neighbour-label entropy | tolokers same-label (chance 0.6588) | entropy |
+|---|---|---|---|---|
+| original | **0.0469 (−0.0412)** | **0.913** | **0.5945 (−0.0643)** | 0.568 |
+| psi | 0.0988 (+0.0108) | 1.862 | 0.6876 (+0.0288) | 0.503 |
+| degree | 0.1169 (+0.0288) | 2.001 | 0.6750 (+0.0162) | 0.510 |
+| centrality | 0.0894 (+0.0014) | 2.082 | 0.6760 (+0.0172) | 0.517 |
+| hybrid | 0.0882 (+0.0002) | 1.998 | 0.6087 (−0.0501) | 0.573 |
+
+The original graph is the **least** label-agreeing graph of the five on both datasets — below chance — and still wins.
+The role graphs raise same-label agreement above chance and still lose. Agreement is therefore not what the encoder
+uses. What separates them is the **entropy of a node's neighbour-label distribution**: 0.913 for the original graph
+against 1.86–2.08 for the role graphs (maximum ln 18 = 2.89). Original edges give each node a sharply peaked
+neighbour-label mix; role edges connect structurally similar words drawn from all over the corpus, so the mix
+collapses onto the global prior and message passing returns approximately the prior.
+
+### The control that settles it
+
+Raw structural features fed straight to the same logistic regression, **no message passing** (the D6 arm, never run
+on these datasets before):
+
+| | raw features only | GraphSAGE on role graphs | GraphSAGE on original |
+|---|---|---|---|
+| roman_empire | 0.1915 | 0.2039 – 0.2095 | **0.2462** (s42) / 0.2561 (3 seeds) |
+| tolokers (weighted) | 0.7101 | 0.7116 – 0.7205 | **0.7367** |
+| tolokers (macro) | 0.4982 | 0.4959 – 0.5184 | **0.5492** |
+
+**GraphSAGE over a role graph is worth about as much as not doing message passing at all.** Role rewiring does not
+damage the signal — it fails to add one, and every role variant lands within ~0.01 of the feature-only control.
+Only the original edges contribute information beyond the four input features (+0.055 on roman_empire, +0.051 macro
+on tolokers). This is a sharper statement of the same conclusion as ablation D on the core four.
+
+### Caveats
+
+- tolokers node classification is a 78/22 binary: the majority floor is 0.6860, so the entire five-variant spread
+  (0.7116–0.7367) lives inside 0.05 of usable headroom. Its −1.60σ verdict is the weakest in the panel and sits just
+  outside the tie band — report it as marginal.
+- Absolute numbers are far below Platonov's published GraphSAGE results because those use the 300-dim fastText node
+  features, which our scope rule excludes. The comparison here is between graphs at fixed features, not against the
+  literature.
+
+---
+
+## 2026-07-27 — Panel extension: `questions`, and a head-to-head between two competing rules
+
+Third heterophilous benchmark added (Platonov et al. 2023), same converter and same frozen pipeline as roman_empire
+and tolokers. Chosen because it is the one dataset that **separates the two explanations now on the table**.
+
+### The dataset
+
+Users of a Q&A website; an edge means one user answered the other's question. Built by `make_hetero.py --dataset
+questions`. Our measurements reproduce the published values exactly, a second external validation of the loader and
+of `homophily()`:
+
+| property | published | measured here |
+|---|---|---|
+| nodes / edges | 48,921 / 153,540 | 48,921 / 153,540 |
+| adjusted homophily | 0.02 | **0.0207** |
+| average degree | 6.28 | 6.28 |
+| average local clustering | 0.03 | 0.0307 |
+
+Additional structure: one connected component, degree median 1 against maximum 1,539 (heavier tail than any other
+non-OGB dataset in the panel), edge homophily 0.8396.
+
+Structural-only as always: the 301-dim fastText node features and Platonov's ten official masks are ignored; the
+ViRGo core protocol applies (stratified 70% node classification → weighted F1; 70:30 link prediction → AUC), K = 10,
+GraphSAGE mean/2-layer/edge-positives, seeds 42/43/44, **no retuning**.
+
+### Why this dataset and not another
+
+After roman_empire and tolokers, two incompatible explanations fit the panel:
+
+- **H1, the homophily rule** (2026-07-25): node classification augments as adjusted homophily falls. Already
+  weakened out of sample (ρ −0.90 → −0.36) but not dead.
+- **H2, the mechanism** (2026-07-27 audit): role edges are a *function of the four input features*, so they cannot
+  carry information about a target that is not itself structural. Labels are not structural; adjacency is. H2
+  predicts node classification can **never** augment, and that the three observed augment cells are all link
+  prediction because that is the only structural target.
+
+`questions` has adjusted homophily 0.0207 — second lowest in the panel, deep inside the region where H1 predicts
+augmentation — while H2 predicts `keep original`. The two hypotheses disagree on this cell, which is the reason it
+was selected.
+
+### Pre-registered prediction (recorded before any embedding was trained)
+
+| dataset | task | H1 (homophily rule) | H2 (mechanism) | **registered prediction** |
+|---|---|---|---|---|
+| questions | NC | augment (h_adj = 0.021) | keep original | **keep original** (H2) |
+| questions | LP | keep original (avg deg 6.28) | keep original | **keep original** |
+
+The registered call follows H2. Link prediction is not discriminating — both hypotheses say keep original, because
+6.28 is far from the density at which the over-smoothing failure appears (tolokers 61.8 in-train, ogbl-ddi ~500) and
+the graph is not a near-path, so roman_empire's smooth-centrality route does not apply either.
+
+**Falsification, stated in advance.** A `keep original` on node classification retires H1 for good: three
+heterophilous datasets in a row would have sat in its predicted-augment region and refused to augment. An `augment`
+falsifies H2, which claims the outcome is impossible, and revives the homophily reading.
+
+### Caveat to read the metric with
+
+`questions` is a **97.0 / 3.0** binary (47,461 vs 1,460). Weighted F1 is therefore dominated by the majority class
+and will sit near the trivial floor for every variant; the informative column in this cell is **macro F1**, exactly
+as on tolokers (78/22) but more extreme. The verdict is still computed on the panel's primary metric for
+comparability, and the compression is reported rather than corrected.
+
+**Panel after this change:** 9 datasets, 16 dataset × task cells (NC 8, LP 8). Registered in
+`scripts/benchmark_config.DATASETS`, `characterize.STUDY`, `run_core.CORE`; built by `make_hetero.py`.
+Nothing scored yet.
+
+---
+
+## 2026-07-27 — `questions` result: prediction half-failed, and a robustness test that splits the augment verdicts in two
+
+The `questions` sweep completed (20 score rows = 5 variants × 2 encoders × 2 tasks, 3 seeds each, frozen pipeline).
+
+### Node classification: a dead cell
+
+Every one of the ten node-classification rows returned **0.9555 ± 0.0000**, which is exactly the all-majority-class
+weighted F1 for a 97.0/3.0 split. All five variants, both encoders, three seeds, zero variance: the classifiers are
+constant predictors. The verdict prints as `keep original` with `gap = 0.0000` and an undefined sigma.
+
+The pre-registration selected `questions` precisely because H1 (homophily rule) and H2 (mechanism) disagreed on this
+cell. **They were not tested.** The metric collapsed before either hypothesis could be discriminated, so this cell
+contributes nothing to that question and is reported as uninformative rather than as support for either side. The
+class imbalance was flagged in advance; its severity was underestimated.
+
+### Link prediction: the registered prediction failed, then survived a robustness check
+
+Registered: `keep original`. GraphSAGE returned **augment** — original 0.4665 ± 0.0130, best augmented (hybrid)
+0.5526 ± 0.0232, gap +0.0861 = +4.58σ. Taken alone that is a fourth augment verdict and a failed prediction.
+
+But GraphSAGE on the original graph scored **0.4665 — below chance**. That prompted running every link-prediction
+cell through the second encoder already in the pipeline (the DeepWalk bridge, same splits, same seeds):
+
+| dataset | avg degree | GraphSAGE: winner | DeepWalk: winner | verdict survives encoder change? |
+|---|---|---|---|---|
+| ogbl_ddi | ~500 | **augment** (0.0173 → 0.0554) | **augment** (0.0378 → 0.1038) | **yes** |
+| tolokers | 88.3 | **augment** (0.6444 → 0.7007) | **augment** (0.7859 → 0.8954) | **yes** |
+| roman_empire | 2.9 | augment (0.6019 → 0.6980) | keep original (**0.9994** → 0.8065) | **no** |
+| questions | 6.3 | augment (0.4665 → 0.5526) | keep original (0.6589 → 0.6537) | **no** |
+| cora | 3.9 | keep original | keep original | yes (control) |
+| enzymes | 3.9 | keep original | keep original | yes (control) |
+
+**Two of the four augment verdicts are GraphSAGE artifacts.** On roman_empire and questions the augment verdict
+appears only because GraphSAGE on the original graph is broken — 0.4665 (below chance) and 0.6019 against DeepWalk's
+0.9994 on the identical split. Swap the encoder and the original graph wins both. On ogbl_ddi and tolokers the
+augment verdict is reproduced by an unrelated encoder, so it is a property of the graph, not of GraphSAGE.
+
+For `questions` specifically, the registered `keep original` is what the encoder-robust reading gives; the GraphSAGE
+row that contradicted it is the artifact.
+
+### Refined statement of the link-prediction rule
+
+The two encoder-robust augment cells are the panel's two densest graphs (ogbl_ddi ~500, tolokers 88.3); the two
+artifacts are sparse (2.9, 6.3). This restores average degree as the link-prediction predictor **once the
+encoder-artifact cells are removed**, and supplies the mechanism already measured on tolokers: at high density a
+2-layer receptive field covers ~46% of the graph and 24.6% of non-edges already share a neighbour (core four:
+0.6–9.7%), so the original graph cannot separate edges from non-edges while a sparser role graph can.
+
+The claim the study can defend is therefore narrower and better supported than either earlier version:
+**role-based augmentation helps link prediction on dense graphs, does not help on sparse ones, and never helps node
+classification.** Every apparent exception in the panel is a case where the baseline encoder failed.
+
+### Panel state
+
+9 datasets, 16 dataset × task cells: 11 keep original, 4 augment (all link prediction), 1 tie — and of the 4
+augment cells only 2 survive an encoder swap. No node-classification cell has ever augmented, across 8 datasets
+spanning adjusted homophily −0.047 to 0.771.
+
+---
+
+## 2026-07-27 — Ablation D completed panel-wide, plus a feature-status taxonomy and a degenerate control on the OGB pair
+
+### Coverage closed
+
+Ablation D previously existed only for the core four. It now covers **all nine datasets** (psi graph, K=10,
+GraphSAGE only, 7 arms × 3 seeds): roman_empire, tolokers and questions via `run_core.py --features`, and the OGB
+pair via a new `--features` flag added to `run_ogb.py` (mirrors `run_core.py`; ablation arms return before
+`select()`/`report()` so they cannot touch the locked-winner bookkeeping). 126 ablation rows in the scoreboard.
+
+**Recorded deviation:** the OGB ablation arms were run with `--final`, so the official test split received 7
+additional diagnostic reads per dataset beyond the single locked read the protocol allows. This was unavoidable —
+`characterize.PRIMARY` maps the OGB pair to `test_acc` / `test_hits@20`, so valid-split rows would never be read.
+These reads are ablation diagnostics and were not used for model selection, but they are reported rather than left
+for a reviewer to discover.
+
+### Feature status: a stated rule instead of a bare number
+
+`useful_feature` (one string, e.g. `centrality (+0.083)`) is replaced by three columns — `best_single_feature`,
+`feature_lift_vs_random`, `feature_status` — with the classification in `characterize.status()`:
+
+| status | rule |
+|---|---|
+| `useful` | lift clears **+2σ** of the pooled 3-seed noise of the arm and its control |
+| `no clear evidence` | inside the band; three seeds cannot resolve it |
+| `not useful` | below **−2σ** |
+| `not evaluated` | no random-feature control on disk for that cell |
+| `invalid metric` | no arm separates from any other *and* no seed moves — a constant predictor |
+
+The band is deliberately **2σ**, stricter than the 1σ band `gaps()` uses for keep/augment: this table is descriptive
+and must never decide a verdict, so "clearly worse than random" should not be claimed on a margin three seeds cannot
+resolve. Result over the 16 cells: 11 `useful`, 3 `no clear evidence`, 1 `not useful` (questions LP, −0.034),
+1 `invalid metric` (questions NC).
+
+The ablation is reported as **"best single structural feature on the Ψ graph"**. It was never run on whichever graph
+won the cell, and that limitation is now in the column name rather than in a footnote.
+
+### A degenerate random control on the OGB pair — flagged, not yet corrected
+
+The lift is measured against the D4 random-feature arm. On the OGB pair that control has collapsed:
+
+| dataset | random control | const control (D5) | verdict |
+|---|---|---|---|
+| ogbn_arxiv | 0.0586 ± 0.0000 | **0.0586 ± 0.0000** | identical — random features carry no more signal than constant ones |
+| ogbl_ddi | 0.0005 ± 0.0001 | 0.0000 ± 0.0000 | both at the floor |
+
+On ogbn_arxiv the random-feature and constant-feature arms return **exactly** the same accuracy with zero seed
+variance, i.e. the random control has degenerated into the majority-class floor. Every arxiv lift is therefore
+"distance from the trivial floor", not "distance from a competitive random baseline", and because the control's
+standard deviation is 0 the sigma values inflate absurdly — centrality reports **+305σ**. The `useful` labels remain
+directionally correct, but **sigma magnitudes are not comparable between the OGB pair and the core-protocol
+datasets**, and no arxiv sigma should be quoted in the paper. The core-protocol datasets are unaffected: their
+random controls carry real variance (e.g. cora LP random std 0.0093).
+
+This is a property of the OGB setting — one fixed official split, so the only seed variance is encoder
+initialisation — not of the ablation code.
+
+---
+
+## Recommendation table: the tie case now names the augmented graph (2026-07-28)
+
+`recommended_graph` in notebook 5 §7a changed from
+
+```python
+np.where(verdict == "augment", best_variant, "original")     # tie -> original
+np.where(verdict == "keep original", "original", best_variant)  # tie -> best_variant
+```
+
+so a *tie* verdict now reports the best augmented variant rather than falling back to the original graph. The
+verdict banding in `characterize.gaps()` is untouched — only the presentation column changes.
+
+**Affected cells: exactly one.** `enzymes` node classification is the panel's only tie: hybrid 0.5546 vs original
+0.5591, gap **−0.0045 weighted F1 = −0.7σ**, inside the 1σ band. It is also the panel's closest NC cell to an
+augment verdict, and the cell where the role graph recovers the largest share of the original's gain over raw
+features (93%, vs 46% on cora).
+
+**Caveat that must travel with the table.** On this cell the hybrid graph's mean is *below* the original's; the tie
+verdict says the two are indistinguishable at three seeds, not that hybrid is ahead. The column should be read as
+"a role graph is a defensible choice here", not as a measured win. The headline finding is unchanged: **no node
+classification cell in the panel produces an augment verdict**, and all four augment verdicts remain link
+prediction.

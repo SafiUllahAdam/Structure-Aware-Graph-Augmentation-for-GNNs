@@ -827,3 +827,76 @@ The notebook was structured by the *internals* of `characterize.py` (§1 "build 
 **Unchanged on purpose:** all five figure filenames (`fig1`–`fig5`), so `results/figures/` and every doc reference stay valid; every plotting body; the `show()` helper; the kernelspec (`Python (i2v)`, `language_info` restored — the working tree had dropped it). 18 cells (7 md, 11 code), up from 16.
 
 **State:** outputs are cleared and `execution_count` is null throughout — the notebook needs one top-to-bottom run on the `i2v` kernel to re-embed the tables and the five figures. All code cells were syntax-checked (`ast.parse`); §3/§4/§7 cells have not been executed. Nothing was retrained; scoreboard, embeddings, splits and CSVs are unchanged.
+
+## 2026-07-27 — roman_empire + tolokers wired into the frozen pipeline
+
+Research rationale, the panel gap they fill, and the pre-registered prediction are in `docs/paper_log.md`. This entry
+is the plumbing only.
+
+- **`make_hetero.py`** (new, 3 functions) — converter mirroring `make_ogb.py`. `make_hetero(name)` pulls the PyG copy
+  (`HeterophilousGraphDataset`, cache `output/hetero_raw/`) and writes `input/<name>.edgelist` + `.nodes` sidecar +
+  `labels/<name>.labels`. Reuses `make_ogb._write_edges` / `_write_nodes` rather than duplicating them — that import
+  also installs the `torch.load` safe-globals allowlist PyG ≥ 2.6 needs. `data.x` and the ten official train/val/test
+  masks are read and discarded. `HETERO` maps the two ViRGo names to PyG's; the other three benchmarks in that class
+  (amazon_ratings, minesweeper, questions) are one dict entry away if a third dataset is chosen.
+- **`scripts/benchmark_config.DATASETS`** — registered `roman_empire` (`directed_source: True` — word order and
+  dependency arcs are a directed relation, symmetrized upstream by PyG's `to_undirected`) and `tolokers`
+  (symmetric by construction). **Neither carries an `eval` key**, which is what routes them through the core
+  protocol instead of the OGB one; no `split`/`pairs` entries exist for them.
+- **`run_core.CORE`** — now six datasets. Docstring/`--datasets` help updated ("all four" → "all six").
+- **`run_core.embed`** — the node-classification branch called `nx.read_weighted_edgelist(...)` directly and
+  **crashed if the virtual graph had not been hand-built in notebook 2**. Replaced with `run_ogb.ensure_virtual(G, ds, k, sim)`,
+  which reuses an existing build or creates it and appends a `results/graph_health.csv` row. `import run_ogb` added
+  (no cycle: run_ogb does not import run_core). Strictly additive for the four existing datasets — their virtual
+  graphs are already on disk, so the same file is read as before, node-set restore included. Removes the only manual
+  step between registering a dataset and running it.
+- **`characterize.STUDY`** — two rows added (`linguistic`, `crowdsourcing`; both `NC+LP`, scope `full`). Stale
+  "n is 4-5 datasets" comments in the module header, `correlate()` and the `rule()` printout replaced with
+  "one point per dataset" so they stop drifting as the panel grows. `--datasets` help "six" → "eight".
+
+**Build output (verbatim, matches the published counts):**
+
+```
+roman_empire: nodes=22662 edges=32927 classes=18 avg_degree=2.91 | data.x (300-dim) IGNORED | official masks IGNORED
+tolokers:     nodes=11758 edges=519000 classes=2 avg_degree=88.28 | data.x (10-dim) IGNORED | official masks IGNORED
+```
+
+**`graph_io.check` flags to carry forward:**
+
+- `roman_empire` — DIRECTED RELATION (declared, expected) and **COARSE DEGREE SIGNATURE: 11 distinct degrees over
+  22,662 nodes** (max degree 14). The `degree` virtual-graph variant on this dataset is therefore sampled inside tie
+  classes averaging ~2,000 nodes, i.e. close to a random scaffold; `psi` and `centrality` are continuous and
+  unaffected. Report this as a property of the dataset, not as a bug — it is the same mechanism as the 2026-07-18
+  tie-break fix, operating within its intended (post-fix) behaviour.
+- `tolokers` — no flags: connected, no isolates, 754 distinct degrees.
+
+**State.** Nothing trained or scored. `results/scoreboard.csv` unchanged (229 rows), no virtual graphs built yet for
+either dataset, feature caches not yet written — so `characterize.py` will fail on these two until the encoder has
+run once and cached their features.
+
+## 2026-07-27 — questions wired into the frozen pipeline
+
+Third heterophilous benchmark, same four registration points as roman_empire + tolokers, pipeline unchanged.
+
+- `make_hetero.py` — `HETERO` gains `"questions": "Questions"`. No other change; the existing converter handles it.
+- `scripts/benchmark_config.DATASETS` — `questions` entry, `directed_source: True` (answered-your-question is a
+  directed relation, symmetrized upstream by PyG's `to_undirected`). No `"eval"` key, so it routes through the ViRGo
+  core protocol exactly like the other six non-OGB datasets. 301-dim fastText features and the ten official masks
+  are not loaded.
+- `run_core.CORE` — appended; `--datasets` help text six → seven.
+- `characterize.STUDY` — appended, `domain: "q&a interaction"`, `tasks: "NC+LP"`, `scope: "full"`.
+
+Build output, verbatim:
+
+    questions: nodes=48921 edges=153540 classes=2 avg_degree=6.28 | data.x (301-dim) IGNORED (structural-only) | official masks IGNORED (ViRGo core protocol)
+    WROTE input/questions.edgelist + .nodes + labels/questions.labels
+
+Measured properties match Platonov's published table exactly (adjusted homophily 0.0207 vs 0.02, avg degree 6.28,
+avg clustering 0.0307), so the loader and `homophily()` are validated against a third external source.
+
+Notebook 5 needs no edit: its dataset list is derived from `characterize.STUDY` minus the `EXCLUDE` list, so
+`questions` appears automatically on the next run. After the sweep finishes, re-run `characterize.py --step all`
+and then the notebook.
+
+Carry-forward flags from `graph_io.check`: one connected component, degree median 1 against max 1,539, and a
+97.0/3.0 class split — the most imbalanced label distribution in the panel.
