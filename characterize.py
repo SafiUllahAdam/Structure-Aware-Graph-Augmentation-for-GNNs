@@ -6,7 +6,7 @@
 #            that ARE fed to GraphSAGE (degree, eigenvector centrality, Psi, clustering).
 # Step 1 additionally freezes the locked GraphSAGE scores this characterization will later be joined against.
 # Portion 2 then measures the original-vs-augmented gap INSIDE each dataset x task cell (so the metric is a constant
-# that cancels) and rank-correlates those gaps against the properties - descriptive only, n is 4-5 datasets per task.
+# that cancels) and rank-correlates those gaps against the properties - descriptive only, n is one point per dataset.
 # Everything is read from artifacts that already exist - dataset edgelists, the encoder's feature caches, and
 # results/scoreboard.csv - so nothing is recomputed and nothing can drift from what the study actually ran.
 
@@ -24,8 +24,9 @@ import benchmark_config as cfg
 import graph_io
 from encoder import feature_cache
 
-# The six study datasets. Domain / tasks / scope are DECLARED metadata (they cannot be measured from an edgelist);
+# The eight study datasets. Domain / tasks / scope are DECLARED metadata (they cannot be measured from an edgelist);
 # every other column in Family 1 is measured. scope records which graph the row describes: ogbl-ddi ships training edges only.
+# roman_empire + tolokers added 2026-07-27: the first six are all homophilous, so the augment side of the rule went untested.
 STUDY = {
     "cora":           {"domain": "citation",         "tasks": "NC+LP", "scope": "full"},
     "citeseer_linqs": {"domain": "citation",         "tasks": "NC+LP", "scope": "full"},
@@ -33,6 +34,9 @@ STUDY = {
     "proteins":       {"domain": "biological",       "tasks": "NC+LP", "scope": "full"},
     "ogbn_arxiv":     {"domain": "citation",         "tasks": "NC",    "scope": "full"},
     "ogbl_ddi":       {"domain": "drug interaction", "tasks": "LP",    "scope": "ogb_train_edges"},
+    "roman_empire":   {"domain": "linguistic",       "tasks": "NC+LP", "scope": "full"},
+    "tolokers":       {"domain": "crowdsourcing",    "tasks": "NC+LP", "scope": "full"},
+    "questions":      {"domain": "q&a interaction",  "tasks": "NC+LP", "scope": "full"},
 }
 FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by encoder.features()
 
@@ -213,6 +217,20 @@ def gaps(inputs):
 
 
 # PORTION 2 (B): the ablation replaces the degenerate flag - a feature is worth what it scores against random features.
+# Classifies one ablation arm against the random-feature control. The feature column EXPLAINS a verdict, it never decides one.
+# Band is 2 sigma, deliberately stricter than the 1 sigma gaps() uses for keep/augment: this table is descriptive, and
+# "clearly worse than random" should not be claimed on a margin that three seeds cannot resolve.
+def status(lift, sigma, flat):
+    '''Ablation arm vs the random-feature control: beats / worse than / tied with random, plus not measured and metric constant.'''
+    if not np.isfinite(lift):                         # no random-feature control on disk -> the arm was never run
+        return "not measured"
+    if flat:                                          # every arm ties every other AND seeds never move -> metric has no resolution
+        return "metric constant"
+    if not np.isfinite(sigma):
+        return "tied with random"
+    return "beats random" if sigma > 2 else ("worse than random" if sigma < -2 else "tied with random")
+
+
 def feature_scores(fam2):
     '''Ablation D (psi graph, K=10): each feature arm's score, its lift over the random-feature control, and that feature's raw spread.'''
     board = pd.read_csv(cfg.SCOREBOARD_CSV)
@@ -221,16 +239,24 @@ def feature_scores(fam2):
     b["arm"] = b["encoder"].map(ARMS)
     b["task_family"] = [t.split(" (")[0] for t in b["task"]]
     ctrl = b[b["arm"] == "random"].set_index(["dataset", "task"])["mean"]          # D4: message passing, zero structural signal
+    ctrl_sd = b[b["arm"] == "random"].set_index(["dataset", "task"])["std"]
     b["lift_vs_random"] = [round(m - ctrl.get((d, t), float("nan")), 4) for d, t, m in zip(b["dataset"], b["task"], b["mean"])]
+    # Same 1-sigma band as gaps(): a lift only counts when it clears the pooled 3-seed noise of the arm and its control.
+    noise = [np.hypot(s, ctrl_sd.get((d, t), float("nan"))) / np.sqrt(2) for d, t, s in zip(b["dataset"], b["task"], b["std"])]
+    b["lift_sigma"] = [round(l / n, 2) if n and np.isfinite(n) and n > 0 else float("nan") for l, n in zip(b["lift_vs_random"], noise)]
+    # Degenerate cell: no arm separates from any other AND no seed moves -> a constant predictor, e.g. a 97/3 majority collapse.
+    flat = ((b.groupby(["dataset", "task"])["mean"].transform(lambda s: s.max() - s.min()) < 1e-3)
+            & (b.groupby(["dataset", "task"])["std"].transform("max") < 1e-6))
+    b["vs_random_features"] = [status(l, s, f) for l, s, f in zip(b["lift_vs_random"], b["lift_sigma"], flat)]
     b["feature"] = b["arm"].map(ARM_FEATURE)                                        # set only for the single-feature arms
     raw = fam2.rename(columns={"std": "raw_std", "skew": "raw_skew", "pct_zero": "raw_pct_zero", "pct_unique": "raw_pct_unique"})
     return (b.merge(raw[["dataset", "feature", "raw_std", "raw_skew", "raw_pct_zero", "raw_pct_unique"]], on=["dataset", "feature"], how="left")
             [["dataset", "task", "task_family", "arm", "feature", "metric", "mean", "std", "lift_vs_random",
-              "raw_std", "raw_skew", "raw_pct_zero", "raw_pct_unique"]]
+              "lift_sigma", "vs_random_features", "raw_std", "raw_skew", "raw_pct_zero", "raw_pct_unique"]]
             .sort_values(["task_family", "dataset", "arm"]).reset_index(drop=True))
 
 
-# PORTION 2 (C): rank-correlate both scopes. n is tiny at the graph scope (4-5 datasets), so this is descriptive, not a test.
+# PORTION 2 (C): rank-correlate both scopes. n is tiny at the graph scope (one point per dataset), so this is descriptive, not a test.
 def correlate(fam1, gap, feat):
     '''Spearman rho for two scopes: graph property vs the augmentation gap, and a feature's raw spread vs its ablation lift.'''
     rows = []
@@ -256,7 +282,7 @@ def rule(gap, corr, feat):
     print(gap[["dataset", "task_family", "metric", "original", "best_augmented", "best_variant",
                "gap_abs", "gap_sigma", "original_rank", "verdict"]].to_string(index=False))
     print("\n  " + " | ".join(f"{v}: {n}" for v, n in gap["verdict"].value_counts().items()))
-    print("\nSTRONGEST PREDICTORS OF THE GAP (descriptive - n is 4-5 datasets)")
+    print("\nSTRONGEST PREDICTORS OF THE GAP (descriptive - n is one point per dataset)")
     g = corr[(corr["scope"].str.startswith("graph")) & corr["spearman_rho"].notna()]
     for name, sub in g.groupby("task_family"):
         top = sub.reindex(sub["spearman_rho"].abs().sort_values(ascending=False).index).head(3)
@@ -297,7 +323,7 @@ def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Characterization: measure the graphs and the encoder's inputs, then relate them to when augmentation helps.")
     p.add_argument('--datasets', nargs='+', default=list(STUDY), choices=list(STUDY),
-                   help='Datasets to measure. Default: all six study datasets.')
+                   help='Datasets to measure. Default: all eight study datasets.')
     p.add_argument('--step', default='all', choices=['measure', 'relate', 'all'],
                    help="'measure' = portion 1 only; 'relate' / 'all' also join the properties to the gaps. Default: all.")
     return p.parse_args()

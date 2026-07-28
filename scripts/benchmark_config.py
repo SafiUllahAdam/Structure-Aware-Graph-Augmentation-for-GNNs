@@ -37,6 +37,14 @@ DATASETS = {
                    "directed_source": True, "eval": "ogb", "split": SPLITS_DIR / "ogb" / "ogbn_arxiv_idx.npz"},   # full transductive graph, official time split -> Accuracy; data.x (128-dim text) ignored
     "ogbl_ddi":   {"edgelist": INPUT_DIR / "ogbl_ddi_train.edgelist", "labels": None,
                    "eval": "ogb", "pairs": SPLITS_DIR / "ogb" / "ogbl_ddi_pairs.npz"},   # graph = TRAINING edges only (no leakage); official pos/neg -> Hits@20; featureless
+    # Heterophilous benchmarks (Platonov et al. 2023), structural-only, scored under the ViRGo CORE protocol (stratified 70% NC, 70:30 LP)
+    # -> no "eval" key, so they route exactly like the core four. Added 2026-07-27: the panel had no low-homophily graph, so the
+    # augment side of the rule was never tested. Their official train/val/test masks are ignored. Build via make_hetero.py.
+    "roman_empire": {"edgelist": INPUT_DIR / "roman_empire.edgelist", "labels": LABELS_DIR / "roman_empire.labels",
+                     "directed_source": True},   # word order + dependency arcs = a DIRECTED relation, symmetrized upstream by PyG; 300-dim fastText features ignored
+    "tolokers":     {"edgelist": INPUT_DIR / "tolokers.edgelist", "labels": LABELS_DIR / "tolokers.labels"},   # worked-the-same-task = symmetric by construction; 10-dim worker profile ignored
+    "questions":    {"edgelist": INPUT_DIR / "questions.edgelist", "labels": LABELS_DIR / "questions.labels",
+                     "directed_source": True},   # answered-your-question = a DIRECTED relation, symmetrized upstream by PyG; 301-dim fastText features ignored
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 

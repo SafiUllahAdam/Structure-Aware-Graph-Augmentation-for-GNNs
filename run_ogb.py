@@ -57,20 +57,26 @@ def ensure_virtual(G, ds, k, sim):
     return V
 
 
+# Ablation-D arms write their own files and their own scoreboard rows; the locked D0 ("all") keeps the plain encoder name.
+def tag(encoder, feats):
+    '''Encoder id used for both the .emb filename and the scoreboard row (mirrors run_core.tag; kept local - run_core imports this module).'''
+    return encoder if feats == "all" else f"{encoder}_feat_{feats}"
+
+
 # Trains (or reuses) one embedding on the official train graph; graphsage -> notebook-3 zone, deepwalk -> notebook-2 bridge zone.
-def embed(G, V, ds, k, sim, encoder, seed, edgelist):
+def embed(G, V, ds, k, sim, encoder, seed, edgelist, feats="all"):
     '''Train one encoder over the virtual graph (official train edges only) -> .emb path; reuse if already on disk.'''
     zone = cfg.NB3_DIR if encoder == "graphsage_edge" else cfg.NB2_DIR
-    emb = zone / TASKS[ds][0] / ds / f"k{k}" / sim / f"{encoder}_s{seed}.emb"
+    emb = zone / TASKS[ds][0] / ds / f"k{k}" / sim / f"{tag(encoder, feats)}_s{seed}.emb"
     if emb.exists():
-        print(f"reuse  {sim} {encoder} seed {seed} -> {emb.name}", flush=True)
+        print(f"reuse  {sim} {tag(encoder, feats)} seed {seed} -> {emb.name}", flush=True)
         return emb
-    print(f"TRAIN  {sim} {encoder} seed {seed} | V: {V.number_of_nodes()} nodes / {V.number_of_edges()} edges", flush=True)
+    print(f"TRAIN  {sim} {tag(encoder, feats)} seed {seed} | V: {V.number_of_nodes()} nodes / {V.number_of_edges()} edges", flush=True)
     emb.parent.mkdir(parents=True, exist_ok=True)
     if encoder == "graphsage_edge":
         p = cfg.GNN_PARAMS
         enc = SageEncoder(G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
-                          agg=p["agg"], feats=p["features"], cache=feature_cache(edgelist))
+                          agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
         enc.train(p["epochs"], lr=p["lr"], negatives=p["negatives"],
                   pairs_per_epoch=p["pairs_per_epoch"], max_pairs=p["max_pairs"], positives=p["positives"])
         enc.save(emb)
@@ -209,18 +215,23 @@ def main(args):
     G = graph_io.load_graph(edgelist)
     graph_io.check(G, ds)
     encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]
+    if args.features != "all":
+        encoders = ["graphsage_edge"]                          # ablation D varies the GNN's inputs; the walk encoder has none
     sims = cfg.VG_SIMS if args.sim == "all" else [args.sim]
     for sim in sims:
         V = ensure_virtual(G, ds, args.k, sim)
         for encoder in encoders:
             per_metric = {}
             for seed in args.seeds:
-                emb = embed(G, V, ds, args.k, sim, encoder, seed, edgelist)
+                emb = embed(G, V, ds, args.k, sim, encoder, seed, edgelist, args.features)
                 for m, v in score(ds, str(emb), split, seed).items():
                     per_metric.setdefault(m, []).append(v)
+            name = tag(encoder, args.features)
             for m, vals in per_metric.items():
-                results_io.record_score(ds, encoder, sim, args.k, TASKS[ds][1], args.seeds, vals, metric=m)
-            print(f"score  {sim} {encoder} | " + " ".join(f"{m}={np.mean(v):.4f}" for m, v in per_metric.items()), flush=True)
+                results_io.record_score(ds, name, sim, args.k, TASKS[ds][1], args.seeds, vals, metric=m)
+            print(f"score  {sim} {name} | " + " ".join(f"{m}={np.mean(v):.4f}" for m, v in per_metric.items()), flush=True)
+    if args.features != "all":
+        return                                                 # ablation arms are diagnostics, not candidates: they must not touch the locked-winner bookkeeping
     if not args.final:
         print("\n" + table(ds, "valid", better=True).to_string())
     report(ds) if args.final else select(ds)                   # valid sweep locks the winner; the test read reports against the lock
@@ -235,6 +246,8 @@ def parse_args():
                    help='Score the OFFICIAL TEST split, once, AFTER selecting on validation. Refuses if no valid rows exist.')
     p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s) to run. Default all.')
     p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
+    p.add_argument('--features', default='all', choices=[f for f in cfg.D_FEATURES if f != 'none_mp'],
+                   help='Ablation D input features (D6 none_mp is layers=0 and has no training -> not run here). Default all = the locked D0.')
     p.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
     p.add_argument('--seeds', type=int, nargs='+', default=[42, 43, 44], help='Encoder seeds. Default 42 43 44.')
     return p.parse_args()

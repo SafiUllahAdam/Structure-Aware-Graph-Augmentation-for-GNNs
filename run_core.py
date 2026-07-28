@@ -1,7 +1,9 @@
-'''Run the core-4 study end-to-end under the LOCKED config: reuse the Phase-2 virtual graphs, train the encoders, score NC + LP, record.'''
+'''Run the non-OGB study end-to-end under the LOCKED config: reuse the Phase-2 virtual graphs, train the encoders, score NC + LP, record.'''
 # Headless equivalent of notebook 3 §8 (+ the notebook-2 bridge cells) for the non-OGB datasets: same reuse-or-create
-# discipline, same output zones, same scoreboard rows. Exists so the whole six-dataset study runs from two scripts
+# discipline, same output zones, same scoreboard rows. Exists so the whole study runs from two scripts
 # (this + run_ogb.py) under ONE frozen pipeline instead of by hand in a notebook.
+# roman_empire + tolokers joined this list on 2026-07-27 with the pipeline unchanged - retuning on new datasets
+# would void the held-out prediction they were added to test.
 # --train-only writes embeddings and records nothing, so several datasets/variants can train in parallel without
 # racing on results/scoreboard.csv; a later plain run reuses them and does all the scoring in one process.
 
@@ -21,11 +23,12 @@ import graph_io
 import eval_nodeclass
 import eval_linkpred
 import prepare_linkpred
+import run_ogb                                                 # for ensure_virtual only: the node-classification virtual graph is built the SAME way in both drivers
 from virtual_graph import VirtualGraph
 from encoder import SageEncoder, feature_cache
 from embedding_models import DeepWalkModel
 
-CORE = ["cora", "citeseer_linqs", "enzymes", "proteins"]      # the four non-OGB study datasets (OGB pair lives in run_ogb.py)
+CORE = ["cora", "citeseer_linqs", "enzymes", "proteins", "roman_empire", "tolokers", "questions"]   # the non-OGB study datasets, all on ONE protocol (OGB pair lives in run_ogb.py)
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
@@ -55,8 +58,7 @@ def embed(ds, k, sim, encoder, seed, task, feats="all"):
     if task == "node_classification":
         edgelist = Path(cfg.dataset(ds)["edgelist"])
         G = graph_io.load_graph(edgelist)
-        V = nx.read_weighted_edgelist(cfg.NB2_DIR / "virtual_graphs" / ds / f"k{k}" / sim / "virtual_graph.edgelist", nodetype=int)
-        V.add_nodes_from(G.nodes)                              # edgelists omit isolated nodes -> restore the full node set
+        V = run_ogb.ensure_virtual(G, ds, k, sim)              # reuse the notebook-2 build when it exists, else build it here + log a health row
     else:
         edgelist = split(ds, seed) / "train.edgelist"
         G = graph_io.load_graph(edgelist)
@@ -115,7 +117,7 @@ def main(args):
 def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Run the core-4 study under the locked ViRGo config (notebook-3 §8 headless).")
-    p.add_argument('--datasets', nargs='+', default=CORE, choices=CORE, help='Datasets to run. Default: all four.')
+    p.add_argument('--datasets', nargs='+', default=CORE, choices=CORE, help='Datasets to run. Default: all seven.')
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
     p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s). Default all.')
     p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
