@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from utils import next_run_id
+from virgo.utils import next_run_id
 
 
 # Writes one run: results/NNN.{dataset}.{task}.csv with a #META header line then metric rows.

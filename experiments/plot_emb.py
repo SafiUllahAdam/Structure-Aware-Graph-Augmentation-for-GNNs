@@ -1,8 +1,13 @@
 '''draws the node embeddings as a 2D picture, colored by degree, to check if hubs and leaves separate.'''
 
 import sys
+from pathlib import Path
+
 import numpy as np
-import graph_io
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
+
+from virgo import graph_io
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

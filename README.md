@@ -99,11 +99,13 @@ Homophily is reported **adjusted** for class count and balance - raw homophily's
 
 Feature usefulness is decided the same way - by ablation, not by inspection. Across 32 feature × cell combinations a feature's raw spread does **not** predict its usefulness (|ρ| ≤ 0.06): the best features on the molecular graphs are the ones a "too few distinct values" heuristic would discard.
 
-`python characterize.py` writes the tables; `notebooks/5-phase5_characterization.ipynb` renders the five figures into `results/figures/`.
+`python experiments/characterize.py` writes the tables; `notebooks/5-phase5_characterization.ipynb` renders the five figures into `results/figures/`.
 
 ---
 
 ## Repository map
+
+Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** Everything else is data, docs or results.
 
 ```
 identity2vec/
@@ -113,32 +115,45 @@ identity2vec/
 ├── output/                   # everything generated: notebook1_*/  notebook2_*/  notebook3_*/
 ├── results/                  # scoreboard.csv (master) · graph_health.csv · snapshots/
 ├── docs/                     # paper_log.md (research log) · notes.md (lab notebook) · designs
+├── third_party/struc2vec/    # vendored baseline, used as published (never edited)
 │
-├── identity2vec.py           # original I2V walk algorithm
-├── identity2vec_cached.py    # same algorithm with caching (identical output, ~200× faster)
-├── train.py                  # graph → I2V walks → Word2Vec → .emb
-├── virtual_graph.py          # Phase 2: build a virtual graph (psi/degree/centrality/original/hybrid)
-├── encoder.py                # Phase 3: unsupervised GraphSAGE over a virtual graph → .emb
-├── embedding_models.py       # wrappers: I2V / DeepWalk / node2vec / struc2vec → same .emb format
-├── prepare_linkpred.py       # makes the leakage-free 70/30 edge split
-├── eval_nodeclass.py         # scores node classification (weighted F1)
-├── eval_linkpred.py          # scores link prediction (AUC)
-├── make_labels.py            # downloads + builds label files
-├── make_ogb.py               # Phase 4: OGB -> ViRGo files (edgelist, .nodes, labels, official splits)
-├── eval_ogb.py               # Phase 4: official OGB metrics (arxiv Accuracy, ddi Hits@20 via a trained link decoder), one split per call
-├── run_ogb.py                # Phase 4: OGB pipeline functions (notebook 4 imports these; also a CLI)
-├── run_core.py               # Phase 4: the same sweep headless for the core four (notebook 3 §8 as a script)
-├── characterize.py           # Phase 4/5: measures graph properties + the encoder's raw inputs, then relates them to the gap
+├── virgo/                    # ── the library: import only, never run directly ──
+│   ├── config.py             # THE settings: paths, dataset registry, I2V + GNN params, seed=42
+│   ├── graph_io.py           # THE graph policy + the single loader every stage reads through
+│   ├── identity2vec.py       # original I2V walk algorithm (frozen baseline)
+│   ├── identity2vec_cached.py# same algorithm with caching (identical output, ~200× faster)
+│   ├── virtual_graph.py      # Phase 2: build a virtual graph (psi/degree/centrality/original/hybrid)
+│   ├── utils.py              # seed, embedding loader, run ids
+│   ├── encoders/             # ── the extension point: one file per encoder ──
+│   │   ├── base.py           #   GNNEncoder: features, corpus, loss, train(), save() - architecture-free
+│   │   ├── sage.py           #   GraphSAGE (locked ViRGo encoder)
+│   │   ├── gin.py            #   GIN (expressive alternative)
+│   │   ├── walk.py           #   wrappers: I2V / DeepWalk / node2vec / struc2vec → same .emb format
+│   │   └── __init__.py       #   ENCODERS registry - add an encoder here and every driver picks it up
+│   ├── data/                 # make_labels · make_ogb · make_hetero · prepare_linkpred
+│   └── eval/                 # nodeclass (F1) · linkpred (AUC) · ogb (official) · runner · results_io
 │
-├── notebooks/
-│   ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
-│   ├── 2-phase_2_virtual_graph.ipynb  # Phase 2 - build + inspect the virtual graphs
-│   ├── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
-│   ├── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
-│   └── 5-phase5_characterization.ipynb # Phase 5 - when does augmentation help? properties vs the gap, 5 figures
+├── experiments/              # ── the entry points: each one an argparse CLI ──
+│   ├── run_core.py           # the full sweep, headless, for the non-OGB datasets
+│   ├── run_ogb.py            # the same sweep under the official OGB protocol (notebook 4 imports it)
+│   ├── characterize.py       # measures graph properties + encoder inputs, relates them to the gap
+│   ├── train.py              # graph → I2V walks → Word2Vec → .emb
+│   ├── train_encoder.py      # one GNN encoder over one virtual graph → .emb (--arch picks it)
+│   ├── benchmark_baselines.py# I2V vs DeepWalk / node2vec / struc2vec
+│   ├── run_task.py           # small reproduction CLI (--task nodeclass|linkpred --dataset ...)
+│   └── plot_emb.py           # draws an embedding as a 2-D picture
 │
-└── scripts/                  # main.py (CLI) · benchmark_config.py (all settings) · runner.py · results_io.py
+└── notebooks/
+    ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
+    ├── 2-phase_2_virtual_graph.ipynb  # Phase 2 - build + inspect the virtual graphs
+    ├── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
+    ├── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
+    └── 5-phase5_characterization.ipynb # Phase 5 - when does augmentation help? properties vs the gap, 5 figures
 ```
+
+Library modules that also carry a CLI are run as modules from the repo root, e.g. `python -m virgo.virtual_graph --sim psi --k 10`.
+
+**Adding an encoder** (GIN, GAT, …): write `virgo/encoders/<name>.py` with a subclass of `GNNEncoder` defining `build_convs()`, then add one line to `ENCODERS` in `virgo/encoders/__init__.py`. `run_core.py`, `run_ogb.py` and `train_encoder.py` need no edit.
 
 ---
 
@@ -173,26 +188,26 @@ Command-line equivalents:
 
 ```bash
 # build one virtual graph
-python virtual_graph.py --input input/cora.edgelist --sim psi --k 10
+python -m virgo.virtual_graph --input input/cora.edgelist --sim psi --k 10
 
 # train GraphSAGE on it
-python encoder.py --input input/cora.edgelist --sim psi --k 10 --seed 42
+python experiments/train_encoder.py --input input/cora.edgelist --sim psi --k 10 --seed 42
 
 # I2V embedding (fast cached path)
-python train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42
+python experiments/train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42
 
 # Phase-1 tasks
-python scripts/main.py --list
-python scripts/main.py --task nodeclass --dataset cora
-python scripts/main.py --task linkpred --dataset cora --retrain
+python experiments/run_task.py --list
+python experiments/run_task.py --task nodeclass --dataset cora
+python experiments/run_task.py --task linkpred --dataset cora --retrain
 
 # the whole study, headless: core four (all variants, both tasks, both encoders), then the OGB pair
-python run_core.py
-python run_ogb.py --dataset ogbn_arxiv
+python experiments/run_core.py
+python experiments/run_ogb.py --dataset ogbn_arxiv
 
 # characterization: measure each graph + the raw structural inputs, then relate them to the gap
-python characterize.py                 # both portions (default)
-python characterize.py --step measure  # portion 1 only: the measurement tables
+python experiments/characterize.py                 # both portions (default)
+python experiments/characterize.py --step measure  # portion 1 only: the measurement tables
 ```
 
 ---
@@ -200,7 +215,7 @@ python characterize.py --step measure  # portion 1 only: the measurement tables
 ## Reproducibility and conventions
 
 - Seeds are fixed at 42/43/44 across splits, initialization and sampling; every result is a 3-seed mean ± std.
-- Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `scripts/benchmark_config.py`). Repeating a run reproduces its metric exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), which is invisible at four decimals.
+- Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `virgo/config.py`). Repeating a run reproduces its metric exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), which is invisible at four decimals.
 - `input/` is read-only. Derived files go to `output/`, scores to `results/`.
 - Link prediction retrains on the 70% training graph alone, so no test edge leaks.
 - A paper number is treated as reproduced only within ±0.05 of the original.

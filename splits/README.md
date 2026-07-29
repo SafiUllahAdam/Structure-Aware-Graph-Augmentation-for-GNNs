@@ -24,7 +24,7 @@ All files are `u v` node-id pairs, one per line. Same seed → byte-identical sp
 
 Pipeline:
 ```
-python prepare_linkpred.py --input input/cora.edgelist --seed 42   # writes splits/link_prediction/original_graph/cora/seed_42/
-python train.py --input splits/link_prediction/original_graph/cora/seed_42/train.edgelist --output output/cora_lp.emb --cached
+python -m virgo.data.prepare_linkpred --input input/cora.edgelist --seed 42   # writes splits/link_prediction/original_graph/cora/seed_42/
+python experiments/train.py --input splits/link_prediction/original_graph/cora/seed_42/train.edgelist --output output/cora_lp.emb --cached
 python eval_linkpred.py --emb output/cora_lp.emb --splits splits/link_prediction/original_graph/cora/seed_42   # reports AUC
 ```

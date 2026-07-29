@@ -2,23 +2,19 @@
 
 """Cross-model, cross-dataset benchmark: I2V vs deepwalk / node2vec / struc2vec on node-class + link-pred.
 
-Reuses the existing per-seed runners and eval scripts UNCHANGED; this file only adds the dataset x model loop
+Reuses the existing per-seed runners and eval modules UNCHANGED; this file only adds the dataset x model loop
 and the two final comparison tables (datasets x methods). Embeddings/splits are cached by filename, so reruns
 train only what is missing."""
 
 import sys
 from pathlib import Path
 
-_HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parent
-for _p in (str(_ROOT), str(_HERE)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
 
 import pandas as pd
-from benchmark_config import BENCH_DATASETS, BENCH_MODELS, RESULTS_DIR, REPRO
-from make_labels import prepare_dataset
-from runner import run_nodeclass_repeated, run_linkpred_repeated
+from virgo.config import BENCH_DATASETS, BENCH_MODELS, RESULTS_DIR, REPRO
+from virgo.data.make_labels import prepare_dataset
+from virgo.eval.runner import run_nodeclass_repeated, run_linkpred_repeated
 
 
 # Runs every (dataset, model) for both tasks over the seeds; node-class is skipped where labels can't be aligned.

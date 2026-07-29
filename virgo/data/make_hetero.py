@@ -11,7 +11,7 @@
 import argparse
 from pathlib import Path
 
-from make_ogb import _write_edges, _write_nodes   # same writers as the OGB conversion; the import also installs the torch.load allowlist
+from virgo.data.make_ogb import _write_edges, _write_nodes   # same writers as the OGB conversion; the import also installs the torch.load allowlist
 
 RAW = "output/hetero_raw"                         # PyG download cache: derived, never hand-edited, kept out of input/
 

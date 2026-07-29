@@ -16,15 +16,16 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
-sys.path.append("scripts")
-import benchmark_config as cfg
-import results_io
-import graph_io
-import eval_ogb
-import make_ogb
-from virtual_graph import VirtualGraph
-from encoder import SageEncoder, feature_cache
-from embedding_models import DeepWalkModel
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
+
+from virgo import config as cfg
+from virgo import graph_io
+from virgo.eval import results_io
+from virgo.eval import ogb as eval_ogb
+from virgo.data import make_ogb
+from virgo.virtual_graph import VirtualGraph
+from virgo.encoders import ENCODERS, feature_cache
+from virgo.encoders.walk import DeepWalkModel
 
 # Dataset -> (output task folder, scoreboard task string). Metric names carry the split ("valid_acc"), so rows never collide.
 TASKS = {"ogbn_arxiv": ("node_classification", "node classification (OGB official)"),
@@ -66,17 +67,17 @@ def tag(encoder, feats):
 # Trains (or reuses) one embedding on the official train graph; graphsage -> notebook-3 zone, deepwalk -> notebook-2 bridge zone.
 def embed(G, V, ds, k, sim, encoder, seed, edgelist, feats="all"):
     '''Train one encoder over the virtual graph (official train edges only) -> .emb path; reuse if already on disk.'''
-    zone = cfg.NB3_DIR if encoder == "graphsage_edge" else cfg.NB2_DIR
+    zone = cfg.NB3_DIR if encoder in ENCODERS else cfg.NB2_DIR
     emb = zone / TASKS[ds][0] / ds / f"k{k}" / sim / f"{tag(encoder, feats)}_s{seed}.emb"
     if emb.exists():
         print(f"reuse  {sim} {tag(encoder, feats)} seed {seed} -> {emb.name}", flush=True)
         return emb
     print(f"TRAIN  {sim} {tag(encoder, feats)} seed {seed} | V: {V.number_of_nodes()} nodes / {V.number_of_edges()} edges", flush=True)
     emb.parent.mkdir(parents=True, exist_ok=True)
-    if encoder == "graphsage_edge":
+    if encoder in ENCODERS:                                    # any registered GNN encoder; adding one needs no edit here
         p = cfg.GNN_PARAMS
-        enc = SageEncoder(G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
-                          agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
+        enc = ENCODERS[encoder](G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
+                                agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
         enc.train(p["epochs"], lr=p["lr"], negatives=p["negatives"],
                   pairs_per_epoch=p["pairs_per_epoch"], max_pairs=p["max_pairs"], positives=p["positives"])
         enc.save(emb)
@@ -214,9 +215,9 @@ def main(args):
     edgelist = str(cfg.DATASETS[ds]["edgelist"])
     G = graph_io.load_graph(edgelist)
     graph_io.check(G, ds)
-    encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]
+    encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]   # "all" = the LOCKED pair; a new encoder is opt-in by name
     if args.features != "all":
-        encoders = ["graphsage_edge"]                          # ablation D varies the GNN's inputs; the walk encoder has none
+        encoders = [e for e in encoders if e in ENCODERS]      # ablation D varies the GNN's inputs; the walk encoder has none
     sims = cfg.VG_SIMS if args.sim == "all" else [args.sim]
     for sim in sims:
         V = ensure_virtual(G, ds, args.k, sim)
@@ -244,7 +245,8 @@ def parse_args():
     p.add_argument('--dataset', required=True, choices=list(TASKS), help='ogbn_arxiv = node classification, ogbl_ddi = link prediction')
     p.add_argument('--final', action='store_true',
                    help='Score the OFFICIAL TEST split, once, AFTER selecting on validation. Refuses if no valid rows exist.')
-    p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s) to run. Default all.')
+    p.add_argument('--encoder', default='all', choices=['all', 'deepwalk'] + list(ENCODERS),
+                   help='Which encoder(s) to run. "all" = the locked graphsage_edge + deepwalk pair; name any registered encoder to opt it in. Default all.')
     p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
     p.add_argument('--features', default='all', choices=[f for f in cfg.D_FEATURES if f != 'none_mp'],
                    help='Ablation D input features (D6 none_mp is layers=0 and has no training -> not run here). Default all = the locked D0.')

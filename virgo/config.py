@@ -1,9 +1,8 @@
 """Single source of truth: paths, dataset registry, I2V hyperparameters, reproduction defaults."""
 
-import sys
 from pathlib import Path
 
-# Project root = one level above scripts/. Everything else is derived from it.
+# Project root = one level above virgo/. Everything else is derived from it.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 INPUT_DIR = PROJECT_ROOT / "input"
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -48,12 +47,12 @@ DATASETS = {
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
-# Cross-model benchmark scope: which datasets and methods the comparison loop sweeps (benchmark_baselines.py).
+# Cross-model benchmark scope: which datasets and methods the comparison loop sweeps (experiments/benchmark_baselines.py).
 # (politics dropped: no verifiable labels; webkb_wisc dropped 2026-07-02 with its deleted input files.)
 BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
-# Identity2Vec embedding hyperparameters (mirror train.py defaults; walk_length=40 = repo default, paper's 80 is a recorded deviation, see notes.md).
+# Identity2Vec embedding hyperparameters (mirror experiments/train.py defaults; walk_length=40 = repo default, paper's 80 is a recorded deviation, see notes.md).
 I2V_PARAMS = {
     "dimensions": 64, "walk_length": 40, "num_walks": 10,
     "window_size": 10, "epochs": 1, "sg": 1, "e": 2.7182,
@@ -95,8 +94,7 @@ D_FEATURES = {
 
 # THE graph policy (defined in graph_io.py, the module that owns graph semantics) re-exported so config lives at one import.
 # How every stage treats ANY dataset: self-loops, directed sources, centrality mode, signature ties, LP negatives.
-sys.path.insert(0, str(PROJECT_ROOT))
-from graph_io import GRAPH_POLICY, I2V_BASELINE_POLICY   # noqa: E402  (path must be set first)
+from virgo.graph_io import GRAPH_POLICY, I2V_BASELINE_POLICY
 
 # Reproduction defaults — fixed for every run so results are repeatable.
 REPRO = {

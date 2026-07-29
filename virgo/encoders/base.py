@@ -1,10 +1,10 @@
-'''Unsupervised GraphSAGE over a virtual graph: same Skipgram-analog objective as I2V, lookup table replaced by message passing.'''
-# Phase 3 (ViRGo-SAGE). Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
+'''Unsupervised GNN over a virtual graph: same Skipgram-analog objective as I2V, lookup table replaced by message passing.'''
+# Phase 3 (ViRGo). Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
+# Everything here is architecture-independent — a new encoder subclasses GNNEncoder and defines build_convs() only.
 # Positives = direct virtual edges by default (ablation-A winner); "walk" kept as the Phase-2-bridge-comparable option.
 # Ablation D: the `feats` knob selects which structural features enter the GNN ("random" = the no-structure control).
 # Ablation D6: layers=0 -> no convolutions, embeddings ARE the z-normed features (features without message passing; nothing to train).
 
-import argparse
 import hashlib
 from pathlib import Path
 
@@ -12,17 +12,17 @@ import numpy as np
 import networkx as nx
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import SAGEConv, GraphConv
 
-import graph_io
-from virtual_graph import VirtualGraph
+from virgo.virtual_graph import VirtualGraph
 
-# Walk-corpus settings mirror I2V_PARAMS (scripts/benchmark_config.py) — the Phase-2 bridge corpus.
+# Walk-corpus settings mirror I2V_PARAMS (virgo/config.py) — the Phase-2 bridge corpus.
 WALKS = {"num_walks": 10, "walk_length": 40, "window": 10}
 
 
-class SageEncoder():
-    '''2-layer GraphSAGE trained with Skipgram-style positives/negatives; neighbor aggregation mean/weighted/sum/max (ablation B).'''
+class GNNEncoder():
+    '''Virtual-graph GNN trained with Skipgram-style positives/negatives; subclasses supply the conv stack.'''
+
+    name = "gnn"                                           # scoreboard/filename id; every subclass overrides it
 
     def __init__(self, G, V, seed, hidden=64, dimensions=64, layers=2, agg="mean", feats="all", cache=None):
         # layers=0 (D6) -> no convs: forward() returns the features unchanged, V is unused, train() is invalid.
@@ -41,8 +41,11 @@ class SageEncoder():
             self.edge_weight = None
         self.X = self.features()
         dims = [self.X.shape[1]] + [hidden] * (layers - 1) + [dimensions]
-        Conv = GraphConv if agg == "weighted" else SAGEConv    # GraphConv = same root+neighbor form as SAGE but edge-weight-aware
-        self.convs = torch.nn.ModuleList(Conv(dims[i], dims[i + 1], aggr='add' if agg == "weighted" else agg) for i in range(layers))
+        self.convs = self.build_convs(dims, agg)
+
+    def build_convs(self, dims, agg):
+        '''Return a ModuleList of len(dims)-1 convolutions mapping dims[i] -> dims[i+1]; the ONE thing an encoder defines.'''
+        raise NotImplementedError(f"{type(self).__name__} must define build_convs(dims, agg)")
 
     def features(self):
         '''Structural node features from the ORIGINAL graph, z-normalized; ablation D `feats` selects the subset; disk-cached via `cache`.'''
@@ -151,68 +154,8 @@ class SageEncoder():
 # Content-hashed cache path: same graph bytes -> same cache file, so a changed/regenerated graph can never reuse stale features.
 def feature_cache(input_path):
     '''Cache path for a graph's structural features, keyed by the edgelist (+ .nodes sidecar) content hash.'''
+    from virgo.config import OUTPUT_DIR                  # lazy: keeps the encoders importable without the dataset registry
     p = Path(input_path)
     s = p.with_suffix(".nodes")
     h = hashlib.md5(p.read_bytes() + (s.read_bytes() if s.exists() else b"")).hexdigest()[:12]
-    return f"output/feature_cache/{p.stem}_{h}.npz"
-
-
-# Reads an edgelist file into a networkx graph (shared loader: one graph definition for every stage).
-def build_graph(path):
-    '''Read input network.'''
-    return graph_io.load_graph(path)
-
-
-# Runs the whole pipeline: load original + virtual graph -> train ViRGo-SAGE -> save .emb.
-def main(args):
-    ds = Path(args.input).stem
-    tag = ("features_only" if args.layers == 0 else                          # D6: no message passing -> not a graphsage row
-           ("graphsage_walk" if args.positives == "walk" else "graphsage_edge") + ("" if args.agg == "mean" else f"_{args.agg}")
-           + ("" if args.features == "all" else f"_feat_{args.features}"))   # each ablation writes its own files
-    virtual = args.virtual or f"output/notebook2_create_vir_graph/virtual_graphs/{ds}/k{args.k}/{args.sim}/virtual_graph.edgelist"
-    output = args.output or f"output/notebook3_gnn_encoder/node_classification/{ds}/k{args.k}/{args.sim}/{tag}_s{args.seed}.emb"
-    G = build_graph(args.input)
-    V = nx.read_weighted_edgelist(virtual, nodetype=int)
-    V.add_nodes_from(G.nodes)                                  # edgelists omit isolated nodes -> restore the full node set
-    enc = SageEncoder(G, V, args.seed, hidden=args.hidden, dimensions=args.dimensions, layers=args.layers,
-                      agg=args.agg, feats=args.features, cache=feature_cache(args.input))
-    if args.layers:                                            # D6 (layers=0): the features are the embedding, nothing to train
-        enc.train(args.epochs, lr=args.lr, negatives=args.negatives, positives=args.positives)
-    print(f"virgo-sage | sim={args.sim} k={args.k} positives={args.positives} agg={args.agg} feats={args.features} "
-          f"seed={args.seed} -> {enc.save(output)}")
-
-
-# Defines command-line options (mirrors virtual_graph.py); defaults mirror scripts/benchmark_config.GNN_PARAMS.
-def parse_args():
-    '''Parses arguments.'''
-    parser = argparse.ArgumentParser(description="Train unsupervised GraphSAGE over a saved virtual graph.")
-    parser.add_argument('--input', nargs='?', default='input/cora.edgelist', help='Original graph (features + node set)')
-    parser.add_argument('--virtual', nargs='?', default=None,
-                        help='Virtual edgelist (default: output/notebook2_create_vir_graph/virtual_graphs/<ds>/k<K>/<sim>/virtual_graph.edgelist)')
-    parser.add_argument('--output', nargs='?', default=None,
-                        help='Output .emb (default: output/notebook3_gnn_encoder/node_classification/<ds>/k<K>/<sim>/<encoder>_s<seed>.emb; '
-                             'trains on the full graph -> for link-prediction embeddings pass a train graph via --input and set --output)')
-    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality', 'original', 'hybrid'],
-                        help='Virtual-graph variant (original=copy of input graph, hybrid=original + psi top-K union). Default psi.')
-    parser.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
-    parser.add_argument('--epochs', type=int, default=50, help='Training epochs. Default 50.')
-    parser.add_argument('--lr', type=float, default=0.01, help='Adam learning rate. Default 0.01.')
-    parser.add_argument('--hidden', type=int, default=64, help='Hidden width. Default 64.')
-    parser.add_argument('--dimensions', type=int, default=64, help='Embedding size (matches I2V). Default 64.')
-    parser.add_argument('--layers', type=int, default=2,
-                        help='GraphSAGE layers (ablation C depth 1-3; 0=D6 features-only, no message passing). Default 2.')
-    parser.add_argument('--negatives', type=int, default=5, help='Negatives per positive (matches Word2Vec negative=5). Default 5.')
-    parser.add_argument('--positives', default='edge', choices=['walk', 'edge'],
-                        help='Ablation A: edge=A2 direct virtual edges (winner, default), walk=A1 walk co-occurrence (bridge-comparable).')
-    parser.add_argument('--agg', default='mean', choices=['mean', 'weighted', 'sum', 'max'],
-                        help='Ablation B neighbor aggregation: mean | weighted (Ψ-weighted mean) | sum | max. Default mean.')
-    parser.add_argument('--features', default='all',
-                        choices=['all', 'degree', 'deg_cent', 'psi', 'centrality', 'clustering', 'random', 'const'],
-                        help='Ablation D input features: all=D0 [deg,Ω,ψ,clustering] | degree=D1 | deg_cent=D2 | psi=D3 | '
-                             'centrality=D7 | clustering=D8 | random=D4 control (no structural signal) | const=D5 floor. Default all.')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility. Default 42.')
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    main(parse_args())
+    return str(OUTPUT_DIR / "feature_cache" / f"{p.stem}_{h}.npz")   # anchored to the repo root, not the cwd
