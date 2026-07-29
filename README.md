@@ -1,6 +1,6 @@
 # ViRGo - Virtual Role-Graph Embedding for Structural Identity
 
-ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation and molecular datasets. The aim is a characterization: which graph properties - homophily first - predict whether role-based rewiring improves on the original graph.
+ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation, molecular and heterophilous interaction datasets. The aim is a characterization: which graph properties predict whether role-based rewiring improves on the original graph. Current answer - **two candidate rules, both link prediction**: augment when adjusted homophily is low, or when the graph is a single connected component.
 
 The method is **purely structural**: its features are graph-derived - degree, eigenvector centrality, the I2V score Ψ, and clustering - and it never uses external node attributes such as OGB text embeddings or biological descriptions. Excluding attributes is deliberate. They would confound the study, because any gain could then come from the attributes rather than from the structural rewiring under test. For the same reason we do not compare against top OGB leaderboard entries, which may rely on those attributes; the goal is structural analysis, not leaderboard ranking. Target venue: the **Learning on Graphs (LoG)** conference; the thesis draws on the same work.
 
@@ -46,7 +46,7 @@ Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing file
 - **Phase 1 - reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
 - **Phase 2 - virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
 - **Phase 3 - GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C - three over-smooth), and the structural features are required (D - replacing them with random features drops performance to the DeepWalk baseline or below). Those four features do double duty: they define the virtual graph and serve as the encoder's input. K = 10.
-- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties to the original-vs-augmented gap - **done**, see Characterization below. (3) Swap GraphSAGE for GIN - next.
+- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties to the original-vs-augmented gap and screen candidate rules - **done**, see Characterization below; two LP rules carried forward. (3) Module 3, pre-registered validation of those two rules on unseen datasets - next. (4) Swap GraphSAGE for GIN.
 - **Configuration locked 2026-07-24 (final).** Six datasets, ten dataset x task cells, 5 graph variants x 2 encoders x 3 seeds at K = 10, every row produced by one pipeline (`run_core.py` + `run_ogb.py`). No further method change for the paper; the characterization only reads `results/scoreboard.csv`. Settings and the evidence behind the lock are in `docs/paper_log.md`.
 - **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
 
@@ -88,14 +88,17 @@ Full results live in `results/scoreboard.csv` (one row per dataset × encoder ×
 
 The study's main question: given a graph and a task, can its properties tell you in advance whether role-based rewiring is worth it? Each dataset × task cell is judged **on its own metric** - the gap is `best augmented − original` computed inside the cell, so the scorer cancels and only the *ranking* of gaps is compared across datasets. A gap counts only if it clears the pooled 3-seed noise (1σ).
 
-Across the ten cells: **8 keep the original, 1 ties, 1 augments** (ogbl-ddi link prediction, the densest graph in the panel). The predictor turns out to depend on the task:
+Panel: **seven datasets, twelve cells, eleven usable** - `questions` node classification is excluded because a 97% majority class pins weighted F1 and no variant separates from any other. Verdicts: **7 keep the original, 4 augment, 1 tie**. Every augment cell is link prediction; **no node classification cell augments at all**, so NC has a reportable boundary ("never augment"), not a predictor.
 
-| task | best predictor | Spearman ρ | reading |
-|---|---|---|---|
-| node classification | adjusted homophily | **−0.90** (n=5) | the more homophilous, the worse augmentation does |
-| link prediction | average degree | **+0.80** (n=5) | augmentation only becomes competitive on dense graphs |
+Seven primary properties were screened separately for each task as *executable* rules - one threshold, one side that says augment. Gates: |ρ| ≥ 0.7, direction stable under leave-one-dataset-out, ≤ 1 misclassified cell. Significance is **reported, not gated**: at n ≤ 8 the two-tailed 0.05 critical Spearman value is 0.738, so the |ρ| gate already sits near it. Four predictors passed, but `components` and `largest_component_frac` rank the panel at **ρ = −1.000** - one variable, not two - so they merge into a single fragmentation finding, leaving **three**. After robustness checks **two are carried forward**:
 
-Homophily is reported **adjusted** for class count and balance - raw homophily's chance floor is ~0.48 on a 3-class graph and ~0.08 on a 40-class one, so raw values are not comparable across these datasets. With 4-5 datasets per task these are offered as a conjecture, not a significance test.
+| # | finding (link prediction only) | ρ gap_rel / gap_fixed | LODO min\|ρ\| | evidence |
+|---|---|---|---|---|
+| 1 | augment when **adjusted homophily < 0.227** | −0.90 / **−1.00** | 0.80 | graded - 5 distinct values, 3 on the augment side |
+| 2 | augment when **largest-component fraction > 0.9588** | +0.78 / +0.78 | 0.71 | two-group split - all four augment cells sit at exactly 1.0 |
+| — | ~~neighbour predictability < 0.4084~~ **dropped** | −0.70 / −0.60 | 0.40 | fails the bias-free fixed-gap control; one dataset moves it |
+
+`gap_fixed` repeats every comparison against one variant fixed per task (LP `centrality`, NC `hybrid`) so no rule can ride the max-over-four selection bias; the two gap definitions agree on all twelve cells. Homophily is reported **adjusted** for class count and balance - raw homophily's chance floor is ~0.48 on a 3-class graph and ~0.08 on a 40-class one, so raw values are not comparable across datasets. These are **candidates, not proven rules**: each was read off the same datasets it scores on, and the leading rule already changed once when the panel changed. Module 3 - freeze the rules, predict unseen datasets *before* training, then run - is the test.
 
 Feature usefulness is decided the same way - by ablation, not by inspection. Across 32 feature × cell combinations a feature's raw spread does **not** predict its usefulness (|ρ| ≤ 0.06): the best features on the molecular graphs are the ones a "too few distinct values" heuristic would discard.
 
