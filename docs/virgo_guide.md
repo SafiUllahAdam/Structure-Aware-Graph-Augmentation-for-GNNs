@@ -17,7 +17,9 @@
 
 **Research question:** when is a graph's own structure enough for a GNN, and when does adding structural "role" edges/features help — and can we predict which case from the graph's properties? We build a **virtual graph** (links nodes by *structural role*, not real edges), compare it against the untouched graph, and characterize datasets to explain the difference. **Immediate target: the LoG conference; the thesis reuses it.**
 
-**Honest headline:** across four datasets the original graph wins or ties everywhere. Role graphs come close only for node classification on molecular graphs, and never help link prediction. So this is a *study* — a "when to augment" guide — not "our graph always wins".
+**Honest headline (7 datasets, 12 cells, 11 usable):** 7 keep the original, 4 augment, 1 tie. **All four augment cells are link prediction; no node classification cell augments at all.** Two candidate rules survive the screen, both LP: augment when *adjusted homophily < 0.227*, or when *largest-component fraction > 0.9588* (i.e. the graph is one connected piece). So this is a *study* — a "when to augment" guide — not "our graph always wins".
+
+> Superseded, kept so it is not re-introduced: the old line "role graphs never help link prediction" held only on the core-4 + OGB panel, before `roman_empire` / `tolokers` / `questions` were added on 2026-07-27.
 
 | # | Contribution | Status |
 |---|---|---|
@@ -31,7 +33,7 @@
 1. **Phase 1 — reproduce I2V. ✅ done** — cached I2V + cross-model baselines (used as-is, **not fine-tuned**); within ±0.05 of the paper.
 2. **Phase 2 — build the virtual graphs. ✅ done** — five variants: psi (Poisson/KL), degree, centrality, original (control), hybrid.
 3. **Phase 3 — GraphSAGE encoder. ✅ done** — design locked by ablations A–D (edge pairs, mean, 2 layers, all four features, K=10; tuned on enzymes).
-4. **Phase 4 — the study + more data ← current** — (1) run the pipeline on small/medium **OGB** datasets (ogbn-arxiv, ogbl-collab, ogbl-ddi), structural only; (2) build the characterization table (properties → original-vs-augmented gap); (3) swap GraphSAGE → **GIN**.
+4. **Phase 4 — the study + more data ← current** — (1) run the pipeline on small/medium **OGB** datasets (ogbn-arxiv, ogbl-collab, ogbl-ddi), structural only ✅; (2) build the characterization table and screen candidate rules ✅ — **two LP rules carried forward** (adjusted homophily, largest-component fraction); (3) **Module 3** — freeze those two, predict unseen datasets *before* training, then run ← next; (4) swap GraphSAGE → **GIN**.
 5. **Future work** — learnable alpha + synthetic datasets; LLM graph summaries. Anomaly detection is set aside for now.
 
 **Pipeline (the method):** `graph → structural signal (degree + eigenvector centrality, cached) → virtual graph (top-K role-similar nodes) → GraphSAGE encoder → 64-number embedding → evaluation`.
@@ -172,8 +174,9 @@ Notes: the author **citeseer** graph has no aligned labels, so the study uses **
 | —. I2V reproduction + cross-model baselines | ✅ done | used as-is, **not fine-tuned** |
 | 2. `virgo/virtual_graph.py` (five-variant builder) | ✅ done | — |
 | 3. GraphSAGE encoder over the virtual graph | ✅ done | GIN next (swap in after SAGE) |
-| 4. Node-class + link-pred eval on 4 datasets | ✅ done | numbers in `results/scoreboard.csv` |
-| 5. Characterization table + "when to augment" rule | 🔵 **current** | add small/medium OGB, compute graph properties, relate to the gap |
+| 4. Node-class + link-pred eval on 7 datasets | ✅ done | numbers in `results/scoreboard.csv` |
+| 5. Characterization table + "when to augment" rule | ✅ done | 7 properties screened per task; **2 LP candidate rules final**; `results/candidate_rules.csv` |
+| 5b. **Module 3 — pre-registered validation** | 🔵 **current** | freeze the 2 rules, predict unseen datasets before training, then run |
 | 6. GIN results | 🔵 next | after the GraphSAGE + OGB runs |
 | 7. LoG paper draft | 🔵 | thesis reuses it |
 

@@ -1479,3 +1479,85 @@ prediction** rule in the study. Right variable, wrong task — worth stating as 
 **Confound tightened, as predicted.** `proteins` (1195 components) and `citeseer_linqs` (390) were two of the four
 fragmented *keep original* LP cells; the fragmentation candidate now rests on 6 LP cells with 2 fragmented ones.
 Module 3's held-out set must carry a fragmented + heterophilous graph.
+
+---
+
+## Collinear predictors merged into findings (2026-07-29)
+
+`components` and `largest_component_frac` rank the seven-dataset panel at **Spearman −1.000** — identical information,
+no exception. They were being reported as two credible rules; they are one. `characterize.FAMILY` / `CANONICAL` now
+collapse them, `candidate_rules.csv` gains `predictor_family` / `canonical`, and the credible list prints one row per
+finding. No other primary pair exceeds |ρ| 0.85, so this is the only merge.
+
+**Canonical member is `largest_component_frac`, not `components`, and the reason is transfer.** A rule reading
+"< 39.5 components" cannot be applied to an unseen graph ten times larger; "> 0.9588 of nodes in one component" can.
+Both give ρ = ±0.7775 identically, so the choice costs nothing statistically.
+
+**Four credible predictors → three credible findings, ranked:**
+
+| finding | ρ (gap_rel / gap_fixed) | LODO min\|ρ\| | p_bonf | distinct values (all / augment side) |
+|---|---|---|---|---|
+| augment when `homophily_adjusted` < 0.227 | −0.90 / **−1.00** | 0.80 | 0.117 | 5 / 3 |
+| augment when `largest_component_frac` > 0.9588 | +0.78 / +0.78 | 0.71 | 0.481 | **3 / 1** |
+| augment when `nbr_predictability_adjusted` < 0.4084 | −0.70 / −0.60 | 0.40 | 1.000 | 5 / 3 |
+
+**New diagnostic, and it demotes the fragmentation finding.** `distinct_augment` counts how many distinct predictor
+values the *augmenting* cells span. For `largest_component_frac` it is **1**: all four augment cells sit at exactly
+1.0000, and the two keep-original cells are the only non-1.0 values (cora 0.9177, enzymes 0.0064). So the fragmentation
+"threshold" is a **group label, not a graded trend** — it says "fully connected vs not", the 0.9588 cut is arbitrary
+anywhere in (0.9177, 1.0), and it is precisely the batch confound already on record (the two fragmented graphs are
+early-panel, the four connected ones are late additions). Adjusted homophily spans 5 distinct values with 3 on the
+augment side and is graded throughout — genuinely stronger evidence, and it is also the one that separates perfectly
+under the bias-free gap.
+
+**Standing order of the LP candidates for Module 3:** adjusted homophily first (graded, perfect separation,
+LODO 0.80), fragmentation second (real but two-group, confounded), neighbour predictability third (fails the
+fixed-gap control, LODO 0.40).
+
+---
+
+## FINAL: two candidate rules locked for Module 3 (2026-07-29)
+
+Seven primary properties were screened **separately for node classification and link prediction** as executable
+decisions — one threshold, one side that says augment. Panel: seven datasets, 12 cells, 11 usable. Four predictors
+passed the gates; `components` and `largest_component_frac` rank the panel at Spearman **−1.000**, so they are one
+variable and merge, leaving **three distinct LP findings**. After the robustness checks, **two are carried forward**:
+
+### Rule 1 — augment when adjusted homophily < 0.227
+
+ρ = −0.90 on `gap_rel`, **−1.00** on the bias-free `gap_fixed_rel`; LODO min |ρ| = 0.80; 0 exceptions; n = 5.
+Graded across 5 distinct predictor values with 3 on the augment side. The strongest finding in the study, and the one
+to lead with. Mechanism: when neighbours carry no label agreement, the original edges are not the signal the encoder
+needs, so replacing them with role edges costs nothing and can help.
+
+### Rule 2 — augment when largest-component fraction > 0.9588
+
+ρ = +0.78 on both gap definitions; LODO min |ρ| = 0.71; 0 exceptions; n = 6. Canonical over `components` because it is
+scale-free — a "< 39.5 components" threshold cannot be applied to a graph ten times larger. **Weaker evidence than
+rule 1 and must be reported as such:** all four augment cells sit at exactly 1.0000, so `distinct_augment` = 1 — this
+is a *fully connected vs not* group split, not a graded trend, the 0.9588 cut is arbitrary anywhere in (0.9177, 1.0),
+and the split coincides exactly with the standing batch confound. Mechanism: on a fragmented graph, component identity
+alone makes link prediction easy, and role edges bridge components and destroy it.
+
+### Dropped — neighbour predictability < 0.4084
+
+ρ = −0.70 on `gap_rel` (exactly at the gate) but **−0.60 on `gap_fixed_rel`**, so the bias-free control rejects it;
+LODO min |ρ| = 0.40, meaning a single dataset moves it. Precision point for the write-up: its LODO **sign** was stable
+(`lodo_sign_stable = True`) — the failure is magnitude fragility plus the fixed-gap rejection, not a direction flip.
+It stays in `results/candidate_rules.csv` as a screened-and-rejected row, which is the honest record.
+
+### Node classification — no rule, by construction
+
+0 of 5 usable NC cells augment, so there is nothing for a threshold to separate and every NC row fails at
+`n_exceptions = -1`. The reportable NC result is a **boundary** — "never augment" — not a predictor. A held-out NC
+experiment is therefore a falsification attempt, not a validation.
+
+### Status
+
+Module 2 is **closed**. These two rules are frozen; Module 3 (pre-register the prediction, then run the unchanged
+pipeline on unseen datasets) is the test that decides whether they are rules or artefacts. The held-out set must
+contain a fragmented + heterophilous graph — rules 1 and 2 *disagree* there, which is exactly why it is the
+informative case.
+
+Docs updated to this state: `README.md`, `docs/virgo_guide.md`, `CLAUDE.md` §4, `experiments/README.md`,
+notebook 5 §8. Tables: `results/candidate_rules.csv`, `results/characterization_*.csv`.

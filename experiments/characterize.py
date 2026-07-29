@@ -79,6 +79,13 @@ PREDICTORS_EXPLORATORY = ["edge_homophily", "nbr_label_entropy", "density", "deg
                           "degree_assortativity", "majority_class_frac", "nodes"]
 PREDICTORS = PREDICTORS_PRIMARY + PREDICTORS_EXPLORATORY
 
+# Predictors that measure the SAME THING are collapsed into one family so the credible list cannot count one finding twice.
+# `components` and `largest_component_frac` rank the panel's graphs at Spearman -1.000: identical information, no exception.
+# The canonical member is the scale-free one - "< 39.5 components" does not transfer to a graph ten times larger, whereas
+# "> 0.9588 of nodes in one component" does, and a rule is only worth stating if it can be applied to an unseen dataset.
+FAMILY = {"components": "fragmentation", "largest_component_frac": "fragmentation"}
+CANONICAL = {"fragmentation": "largest_component_frac"}
+
 # Screening gates for portion 2 (D). Deliberately NOT significance-gated: at n=8 the two-tailed 0.05 critical Spearman
 # value is 0.738, so |rho| >= 0.7 already sits at about p <= 0.07, and demanding p as well would reject usable patterns
 # on this few datasets. Corrected p is reported alongside instead. Passing means "credible CANDIDATE", never "proven rule" -
@@ -395,9 +402,15 @@ def candidate_rules(fam1, gap):
                 y = (d[vcol] == "augment").to_numpy()
                 t, side, err, acc = (threshold(d[p].to_numpy(), y) if len(d) >= GATES["min_cells"] and y.any() and not y.all()
                                      else (float("nan"), "", -1, float("nan")))
+                fam = FAMILY.get(p, p)
                 rows.append({
                     "task_family": family, "target": target, "predictor": p,
+                    "predictor_family": fam, "canonical": bool(CANONICAL.get(fam, p) == p),
                     "n_cells": n, "n_decided": len(d), "n_augment": int(y.sum()),
+                    # How many DISTINCT predictor values each side of the split spans. 1 on the augment side means every
+                    # augmenting graph carries the SAME value, so the "threshold" is a group label, not a graded trend.
+                    "distinct_values": int(d[p].nunique()),
+                    "distinct_augment": int(d[p][y].nunique()),
                     "spearman_rho": r, "p_value": pv,
                     "p_bonferroni": round(min(1.0, pv * len(PREDICTORS_PRIMARY)), 4) if pv == pv else float("nan"),
                     "lodo_min_abs_rho": round(min(abs(v) for v in lodo), 4) if lodo else float("nan"),
@@ -430,10 +443,18 @@ def rule(gap, corr, feat, cand):
         print(f"  {name:<22} " + " | ".join(f"{r.predictor} rho={r.spearman_rho:+.2f} (n={r.n}, p_bonf={r.p_bonferroni:.3f})" for r in top.itertuples()))
     print(f"\nCANDIDATE RULES (gates: |rho|>={GATES['min_abs_rho']}, LODO sign-stable, <={GATES['max_exceptions']} exception;"
           " significance REPORTED, not gated -> a pass is a credible CANDIDATE, Module 3 is the test)")
-    print(cand[["task_family", "target", "predictor", "n_cells", "n_augment", "spearman_rho", "p_bonferroni",
-                "lodo_min_abs_rho", "lodo_sign_stable", "threshold", "augment_side", "n_exceptions", "credible"]].to_string(index=False))
-    keep = cand[cand["credible"]]
-    print("\n  CREDIBLE: " + ("; ".join(dict.fromkeys(keep["rule"])) if len(keep) else "none - no predictor clears the gates"))
+    print(cand[["task_family", "target", "predictor", "predictor_family", "canonical", "n_cells", "n_augment",
+                "distinct_values", "spearman_rho", "p_bonferroni", "lodo_min_abs_rho", "lodo_sign_stable",
+                "threshold", "augment_side", "n_exceptions", "credible"]].to_string(index=False))
+    keep = cand[cand["credible"] & cand["canonical"]]                 # one row per FINDING: collinear predictors collapse to their canonical member
+    print("\n  CREDIBLE FINDINGS (collinear predictors merged): " +
+          ("; ".join(dict.fromkeys(keep["rule"])) if len(keep) else "none - no predictor clears the gates"))
+    dropped = cand[cand["credible"] & ~cand["canonical"]]["predictor"].unique()
+    if len(dropped):
+        print("  merged away as the same finding: " + ", ".join(f"{p} (-> {CANONICAL[FAMILY[p]]})" for p in dropped))
+    thin = keep[keep["distinct_augment"] <= 1]["predictor"].unique()
+    if len(thin):
+        print("  WEAK EVIDENCE - every augmenting graph shares one predictor value, so this is a two-group split, not a graded trend: " + ", ".join(thin))
     for name, sub in cand.groupby("task_family"):
         if sub["n_augment"].max() == 0:
             print(f"  {name}: no augment cell exists -> no rule is learnable here, only the boundary 'never augment' is reportable")
