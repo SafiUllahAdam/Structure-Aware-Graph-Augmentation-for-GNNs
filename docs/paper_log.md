@@ -1361,3 +1361,121 @@ verdict says the two are indistinguishable at three seeds, not that hybrid is ah
 "a role graph is a defensible choice here", not as a measured win. The headline finding is unchanged: **no node
 classification cell in the panel produces an augment verdict**, and all four augment verdicts remain link
 prediction.
+
+---
+
+## Module 2 complete: neighbour-label predictability + an automatic credibility screen (2026-07-29)
+
+`experiments/characterize.py` gains portion 2 (D). Pipeline, seeds, K and encoder untouched — this is measurement and
+screening over the frozen scoreboard only. New output: `results/candidate_rules.csv`, plus notebook 5 §8.
+
+**New property — neighbour-label predictability.** Homophily asks "do neighbours share the label?"; this asks "does a
+node connect to a *consistent* class mix, even when the labels differ?" Naive Bayes over each node's neighbour class
+histogram, leave-one-out (the node's own contribution is removed from its class row of the compatibility matrix),
+reported adjusted against the majority-class floor so it is comparable across datasets. Entropy is reported alongside
+as descriptive only.
+
+It separates from homophily exactly where it was predicted to. **`roman_empire`: adjusted homophily −0.0468 (neighbours
+essentially never share a label) yet predictability 0.4256 raw vs a 0.1396 majority floor = +0.3324 adjusted.** The
+edges carry class information without carrying the class. That is the mechanism for why the original graph must be kept
+for `roman_empire` node classification (−0.0417 F1, −4.9σ) even though the graph is strongly heterophilous. Converse
+case: `tolokers` scores −0.3274 adjusted (below its 0.7818 majority floor) — its edges carry no usable class signal at all.
+
+**Predictor tiering.** 7 primary (`homophily_adjusted`, `nbr_predictability_adjusted`, `components`,
+`largest_component_frac`, `avg_degree`, `avg_clustering`, `n_classes`) + 8 exploratory. Only primary may gate a rule and
+only primary carries the Bonferroni correction. **Caveat that must be reported: the tier split was fixed after the
+correlations were already visible.** `components` clears corrected significance (p_bonf = 0.0406) partly because
+tiering cut the family from 12 tests to 7; at 12 it did not.
+
+**Selection-bias control.** `gap = best_augmented − original` is a max over four variants and therefore biased upward.
+Added `gap_fixed_*` against one variant fixed per task (LP = `centrality`, NC = `hybrid`; each already wins 6/8 cells).
+**Result: the two gap definitions agree on all 16 cells — `verdict_agrees` is True everywhere.** No augment verdict in
+the panel is an artefact of the max. `questions` LP is the only cell where the magnitude moves materially (+0.0861 →
++0.0413, +4.58σ → +2.14σ); the verdict stays *augment*.
+
+**Degenerate-cell exclusion.** A cell is dropped when no variant separates from any other and no seed moves
+(spread < 1e-3 and max std < 1e-6). Mechanical, not hand-named: it selects exactly one cell in the panel, `questions`
+node classification (spread 1e-4, std 0.0000, 97.0% majority class pinning weighted F1). 16 cells → 15 usable.
+
+**The screen.** Gates are |ρ| ≥ 0.7, leave-one-dataset-out sign stability, ≤ 1 misclassified cell. **Significance is
+reported but deliberately not gated**: at n = 8 the two-tailed 0.05 critical Spearman value is 0.738, so the |ρ| gate
+already sits at about p ≤ 0.07, and adding a p gate would reject usable patterns on this few datasets. A pass means
+*credible candidate*, never *proven rule*.
+
+**Three candidates clear the gates, all link prediction, all with 0 exceptions:**
+
+| rule | ρ | LODO min abs ρ | p_bonf | n |
+|------|---|----------------|--------|---|
+| augment when `components` < 39.5 | −0.8625 | 0.7881 | 0.0406 | 8 |
+| augment when `largest_component_frac` > 0.9588 | +0.7864 | 0.7412 | 0.1442 | 8 |
+| augment when `homophily_adjusted` < 0.2239 | −0.7143 | 0.5429 | 0.4991 | 7 |
+
+The first two are the same variable read two ways, so this is **one** fragmentation candidate plus one homophily
+candidate — not three independent findings. All three hold identically under `gap_fixed_rel`.
+
+**Node classification produces no rule, and the screen says so mechanically.** 0 of 7 usable NC cells are *augment*, so
+there is nothing for a threshold to separate; every NC row fails on `n_exceptions = -1` (not evaluable). The reportable
+NC result is a boundary — *never augment* — not a predictor. Any held-out NC test is therefore a falsification attempt,
+not a validation.
+
+**Open confound, unchanged by this work.** The four LP *keep original* cells are exactly the core-4 (fragmented,
+citation/molecular); the four *augment* cells are exactly the four datasets added later (single-component,
+web/interaction). `components` and dataset provenance are currently the same variable. Module 3's held-out set must
+include a fragmented + heterophilous graph and a single-component + homophilous graph or the confound survives the
+validation intact.
+
+**Flag for the write-up.** The strongest NC correlation in the whole table is an *exploratory* predictor:
+`nbr_label_entropy` vs the NC gap, ρ = +0.79 (gap_rel) and +0.89 (gap_fixed_rel, p = 0.0068) — higher than any primary
+predictor for NC. It is not screened because it is not in the primary tier, and it cannot become a rule while NC has
+zero augment cells. Promoting it now would be post-hoc; it is recorded here so the decision is visible either way.
+
+Scope, unchanged: top-K role graphs, K = 10, GraphSAGE, seeds 42/43/44, five variants.
+
+---
+
+## Panel cut to seven datasets; Module 2 re-run (2026-07-29)
+
+User decision: `citeseer_linqs` and `proteins` are excluded from all forward work. `characterize.PANEL` is now the
+default for `--datasets`; `STUDY` keeps all nine so past rows retain their meaning. **All numbers in the previous entry
+are the nine-dataset figures and are superseded by what follows.**
+
+**Panel: 7 datasets / 12 cells, 11 usable — 7 keep original, 4 augment, 1 tie.** Every verdict is unchanged from the
+nine-dataset run; only the two dropped datasets are gone. `gap_fixed` still agrees with max-over-variants on all 12 cells.
+
+**Four credible LP candidates, up from three:**
+
+| rule | ρ (gap_rel) | ρ (gap_fixed_rel) | LODO min\|ρ\| | p_bonf | n |
+|---|---|---|---|---|---|
+| augment when `homophily_adjusted` < 0.227 | −0.90 | **−1.00** | 0.80 | 0.117 | 5 |
+| augment when `components` < 39.5 | −0.78 | −0.78 | 0.71 | 0.481 | 6 |
+| augment when `largest_component_frac` > 0.9588 | +0.78 | +0.78 | 0.71 | 0.481 | 6 |
+| augment when `nbr_predictability_adjusted` < 0.4084 | −0.70 | −0.60 | 0.40 | 1.000 | 5 |
+
+**The headline reverses.** On nine datasets `components` led (ρ −0.86) and was the only predictor to clear Bonferroni.
+On seven it falls to −0.78 and **no longer survives correction**; `homophily_adjusted` takes over and separates the LP
+cells *perfectly* under the fixed-variant gap. This is a direct demonstration that the panel, not the data-generating
+process, is currently selecting the winner — exactly the fragility the pre-registered Module 3 exists to resolve.
+
+**Reportable reversal on the supervisor-proposed rules.** Adjusted homophily was proposed as the *node classification*
+predictor. It fails there (ρ = −0.30, and NC has no augment cell to predict at all) but is the **strongest link
+prediction** rule in the study. Right variable, wrong task — worth stating as a finding rather than burying.
+
+**`nbr_predictability_adjusted` is the weakest of the four and should be reported as such.** It clears the gates on
+`gap_rel` only (ρ = −0.70, exactly at the 0.7 threshold) and is *rejected* by the bias-free `gap_fixed_rel` control
+(ρ = −0.60). Its LODO floor is 0.40 — a single dataset moves it. It is a candidate to watch, not to carry.
+
+**Node classification still yields no rule:** 0 of 5 usable NC cells augment, every NC row fails on
+`n_exceptions = -1`. Only the boundary "never augment" is reportable.
+
+**Two defects fixed in the same run.**
+1. `feature_scores()` read `results/scoreboard.csv` directly with no dataset filter, so the two excluded datasets
+   reappeared in `feature_usefulness.csv` with NaN spreads. Now filtered to the panel at source (notebook 5's manual
+   `isin(DATASETS)` workaround becomes a no-op).
+2. `rho()` reported p = 1.4e-24 for a perfect rank match at n = 5, because scipy's Spearman p is a t-approximation that
+   diverges as |ρ| → 1. The smallest p any permutation of n points can produce is 2/n!, so p is now floored there:
+   the homophily rule's corrected p goes from a meaningless 0.0000 to **0.117**. The floor is negligible for larger n.
+   Any p quoted from the previous entry at n ≤ 6 with |ρ| near 1 should be re-read from the regenerated CSVs.
+
+**Confound tightened, as predicted.** `proteins` (1195 components) and `citeseer_linqs` (390) were two of the four
+fragmented *keep original* LP cells; the fragmentation candidate now rests on 6 LP cells with 2 fragmented ones.
+Module 3's held-out set must carry a fragmented + heterophilous graph.

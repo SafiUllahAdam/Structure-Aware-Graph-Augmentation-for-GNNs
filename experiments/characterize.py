@@ -6,11 +6,14 @@
 #            that ARE fed to GraphSAGE (degree, eigenvector centrality, Psi, clustering).
 # Step 1 additionally freezes the locked GraphSAGE scores this characterization will later be joined against.
 # Portion 2 then measures the original-vs-augmented gap INSIDE each dataset x task cell (so the metric is a constant
-# that cancels) and rank-correlates those gaps against the properties - descriptive only, n is one point per dataset.
+# that cancels), rank-correlates those gaps against the properties, and screens each primary property as an executable
+# keep-vs-augment rule - descriptive only, n is one point per dataset, and a screened rule is a CANDIDATE awaiting
+# validation on unseen datasets, never a proven one.
 # Everything is read from artifacts that already exist - dataset edgelists, the encoder's feature caches, and
 # results/scoreboard.csv - so nothing is recomputed and nothing can drift from what the study actually ran.
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -39,6 +42,11 @@ STUDY = {
     "tolokers":       {"domain": "crowdsourcing",    "tasks": "NC+LP", "scope": "full"},
     "questions":      {"domain": "q&a interaction",  "tasks": "NC+LP", "scope": "full"},
 }
+
+# THE ACTIVE PANEL (user decision 2026-07-29): citeseer_linqs and proteins are excluded from all forward work. They stay
+# in STUDY so their declared metadata and past rows keep their meaning, but nothing is reported on them by default.
+PANEL = [ds for ds in STUDY if ds not in ("citeseer_linqs", "proteins")]
+
 FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by GNNEncoder.features()
 
 # One primary metric per task: the OGB pair is scored under its official protocol, so its metric name differs by design.
@@ -53,10 +61,29 @@ DEGENERATE = {"pct_unique": 1.0, "pct_zero": 95.0}
 # How each non-original variant changes the graph: hybrid ADDS role edges to the real ones, the rest REPLACE them.
 KIND = {"hybrid": "additive", "psi": "replacement", "degree": "replacement", "centrality": "replacement"}
 
-# Graph properties tested as predictors of the gap. homophily_adjusted is the primary one - raw homophily's chance
-# floor depends on class count and balance, so raw values are not comparable across these six datasets.
-PREDICTORS = ["homophily_adjusted", "edge_homophily", "avg_clustering", "degree_assortativity", "degree_gini",
-              "degree_skew", "avg_degree", "density", "largest_component_frac", "components", "nodes", "n_classes"]
+# One variant fixed per task, so the gap can also be read without the max-over-variants selection bias.
+# POST-HOC: each is simply the variant that already wins most cells in the max-gap table (6/8 apiece), not a principled choice.
+FIXED_VARIANT = {"node classification": "hybrid", "link prediction": "centrality"}
+
+# A cell is unusable when the metric cannot resolve ANY variant apart and no seed moves - e.g. questions NC, where a
+# 97% majority class pins weighted F1 (spread 1e-4, std 0). Such a cell carries no signal and is excluded from portion 2 (D).
+DEGENERATE_CELL = {"spread": 1e-3, "std": 1e-6}
+
+# Graph properties tested as predictors of the gap, in two TIERS. Only PRIMARY predictors may gate a candidate rule and
+# only they carry the multiple-comparison correction; exploratory ones are still measured and reported, never promoted.
+# homophily_adjusted / nbr_predictability_adjusted are the label properties: raw values are not comparable across
+# datasets, since their chance floor moves with class count and balance.
+PREDICTORS_PRIMARY = ["homophily_adjusted", "nbr_predictability_adjusted", "components", "largest_component_frac",
+                      "avg_degree", "avg_clustering", "n_classes"]
+PREDICTORS_EXPLORATORY = ["edge_homophily", "nbr_label_entropy", "density", "degree_gini", "degree_skew",
+                          "degree_assortativity", "majority_class_frac", "nodes"]
+PREDICTORS = PREDICTORS_PRIMARY + PREDICTORS_EXPLORATORY
+
+# Screening gates for portion 2 (D). Deliberately NOT significance-gated: at n=8 the two-tailed 0.05 critical Spearman
+# value is 0.738, so |rho| >= 0.7 already sits at about p <= 0.07, and demanding p as well would reject usable patterns
+# on this few datasets. Corrected p is reported alongside instead. Passing means "credible CANDIDATE", never "proven rule" -
+# the proof is Module 3, a pre-registered prediction on unseen datasets.
+GATES = {"min_abs_rho": 0.7, "max_exceptions": 1, "min_cells": 4}
 
 # Ablation-D encoder names -> arm, and single-feature arms -> the Family 2 feature they switch on.
 ARMS = {"graphsage_edge": "all", "features_only": "none_mp",
@@ -119,6 +146,35 @@ def homophily(G, lab):
     return (edge_h, float(np.mean(per_node)) if per_node else float("nan"), adj_h, null)
 
 
+# Beyond homophily: even when a node's neighbours carry OTHER labels, do they carry a CONSISTENT mix that reveals its class?
+# Homophily only asks "same label?"; this asks "informative label mix?", which is the candidate explanation for heterophilous graphs.
+def neighbour_predictability(G, lab):
+    '''(adjusted accuracy, raw accuracy, normalized neighbour-label entropy): read a node's label off its neighbours' class histogram, leave-one-out.'''
+    classes = sorted(set(lab.values())) if lab else []
+    nodes = [n for n in G.nodes if n in lab and any(w in lab for w in G[n])] if lab else []
+    if len(classes) < 2 or not nodes:
+        return float("nan"), float("nan"), float("nan")
+    ci = {c: i for i, c in enumerate(classes)}
+    V = np.zeros((len(nodes), len(classes)))                     # per node: how many neighbours of each class
+    for r, n in enumerate(nodes):
+        for w in G[n]:
+            if w in lab:
+                V[r, ci[lab[w]]] += 1
+    y = np.array([ci[lab[n]] for n in nodes])
+    M = np.zeros((len(classes), len(classes)))
+    np.add.at(M, y, V)                                           # compatibility matrix: class -> the class mix it connects to
+    counts = np.bincount(y, minlength=len(classes))
+    prior = np.log(counts / len(y) + 1e-12)
+    logp = lambda A: np.log((A + 1) / (A + 1).sum(-1, keepdims=True))    # Laplace-smoothed log P(neighbour class | node class)
+    score = V @ logp(M).T + prior                                # naive Bayes over the neighbour histogram
+    loo = logp(M[y] - V)                                         # leave-one-out: this node's own contribution removed from its class row
+    score[np.arange(len(y)), y] = (V * loo).sum(1) + prior[y]
+    acc, major = float((score.argmax(1) == y).mean()), float(counts.max() / len(y))
+    p = V / V.sum(1, keepdims=True)
+    ent = float(np.mean(-(p * np.log(np.where(p > 0, p, 1.0))).sum(1)) / np.log(len(classes)))   # 0 log 0 = 0
+    return (round((acc - major) / (1 - major), 4) if major < 1 else float("nan")), round(acc, 4), round(ent, 4)
+
+
 # FAMILY 1: one row describing the original graph a dataset ships - the properties that will explain the results.
 def graph_properties(ds):
     '''Measure one dataset's original graph: size, connectivity, degree spread, triangles, mixing, label agreement.'''
@@ -129,6 +185,7 @@ def graph_properties(ds):
     clustering = load_cache(ds, G)[:, FEATURES.index("clustering")]   # already computed by the pipeline; exact, and free
     lab = labels_of(d["labels"], G)
     edge_h, node_h, adj_h, null_h = homophily(G, lab)
+    pred_adj, pred_raw, nbr_ent = neighbour_predictability(G, lab)
     counts = pd.Series(list(lab.values())).value_counts(normalize=True) if lab else pd.Series(dtype=float)
     return {
         "dataset": ds, "domain": meta["domain"], "tasks": meta["tasks"], "graph_scope": meta["scope"],
@@ -148,6 +205,7 @@ def graph_properties(ds):
         "node_homophily": round(node_h, 4) if node_h == node_h else float("nan"),
         "homophily_null": round(null_h, 4) if null_h == null_h else float("nan"),
         "homophily_adjusted": round(adj_h, 4) if adj_h == adj_h else float("nan"),
+        "nbr_predictability": pred_raw, "nbr_predictability_adjusted": pred_adj, "nbr_label_entropy": nbr_ent,
     }
 
 
@@ -190,29 +248,51 @@ def rho(x, y):
     if ok.sum() < 3 or x[ok].nunique() < 2 or y[ok].nunique() < 2:
         return int(ok.sum()), float("nan"), float("nan")
     r, p = spearmanr(x[ok], y[ok])
-    return int(ok.sum()), round(float(r), 4), round(float(p), 4)
+    # scipy's t-approximation diverges at |rho| = 1 (n=5 gives p=1e-24), but the smallest p ANY permutation of n points
+    # can produce is 2/n!. Floor there so a perfect rank match on five datasets cannot be quoted as overwhelming evidence.
+    p = max(float(p), 2 / float(math.factorial(int(ok.sum()))))
+    return int(ok.sum()), round(float(r), 4), round(p, 4)
+
+
+# Shared reading of one variant against the original: signed gap, that gap in units of pooled 3-seed noise, and the verdict.
+def compare(orig, row):
+    '''(gap, relative gap, gap in sigma, verdict) for one augmented variant against the original.'''
+    gap = float(row["mean"] - orig["mean"])
+    noise = float(np.hypot(orig["std"], row["std"]) / np.sqrt(2))     # pooled 3-seed std of the two sides
+    return (round(gap, 4), round(gap / float(orig["mean"]), 4), round(gap / noise, 2) if noise else float("nan"),
+            "augment" if gap > noise else ("tie" if gap > -noise else "keep original"))
 
 
 # PORTION 2 (A): the quantity to be explained - inside one cell, does any augmented graph beat the original graph?
+# Reported twice: over the BEST variant (the headline, but max-over-4 is biased upward) and over ONE variant fixed per
+# task (FIXED_VARIANT), which carries no selection bias. A rule that only holds for the max-gap is visibly the weaker one.
 def gaps(inputs):
-    '''Per dataset x task: original score, best augmented score, their signed gap, and that gap in units of seed noise.'''
+    '''Per dataset x task: original vs best-augmented and vs the task's fixed variant, each with gap, sigma and verdict.'''
     rows = []
     for (ds, task), g in inputs.groupby(["dataset", "task"]):
         s = g.set_index("graph_variant")
         assert "original" in s.index, f"{ds} / {task}: no original row to compare against"
         orig, aug = s.loc["original"], s.drop(index="original")
+        family = task.split(" (")[0]
         best = aug["mean"].idxmax()
-        gap = float(aug.loc[best, "mean"] - orig["mean"])
-        noise = float(np.hypot(orig["std"], aug.loc[best, "std"]) / np.sqrt(2))   # pooled 3-seed std of the two sides
+        gap, rel, sigma, verdict = compare(orig, aug.loc[best])
+        fixed = FIXED_VARIANT[family]
+        f_gap, f_rel, f_sigma, f_verdict = compare(orig, s.loc[fixed])
         rows.append({
-            "dataset": ds, "task": task, "task_family": task.split(" (")[0], "metric": orig["metric"],
+            "dataset": ds, "task": task, "task_family": family, "metric": orig["metric"],
             "original": float(orig["mean"]), "best_augmented": float(aug.loc[best, "mean"]),
             "best_variant": best, "best_variant_kind": KIND[best],
-            "gap_abs": round(gap, 4),                                  # native units - comparable only within this cell
-            "gap_rel": round(gap / float(orig["mean"]), 4),            # scale-free, so gaps can be RANKED across cells
-            "gap_sigma": round(gap / noise, 2) if noise else float("nan"),
+            "gap_abs": gap,                                            # native units - comparable only within this cell
+            "gap_rel": rel,                                            # scale-free, so gaps can be RANKED across cells
+            "gap_sigma": sigma,
             "original_rank": int(s["mean"].rank(ascending=False)["original"]),
-            "verdict": "augment" if gap > noise else ("tie" if gap > -noise else "keep original"),
+            "verdict": verdict,
+            "fixed_variant": fixed, "fixed_augmented": float(s.loc[fixed, "mean"]),
+            "gap_fixed_abs": f_gap, "gap_fixed_rel": f_rel, "gap_fixed_sigma": f_sigma,
+            "verdict_fixed": f_verdict, "verdict_agrees": bool(f_verdict == verdict),
+            # Unusable = no variant separates from any other AND no seed moves: the metric has no resolution in this cell.
+            "usable": not (float(s["mean"].max() - s["mean"].min()) < DEGENERATE_CELL["spread"]
+                           and float(s["std"].max()) < DEGENERATE_CELL["std"]),
         })
     return pd.DataFrame(rows).sort_values(["task_family", "dataset"]).reset_index(drop=True)
 
@@ -235,7 +315,8 @@ def status(lift, sigma, flat):
 def feature_scores(fam2):
     '''Ablation D (psi graph, K=10): each feature arm's score, its lift over the random-feature control, and that feature's raw spread.'''
     board = pd.read_csv(cfg.SCOREBOARD_CSV)
-    b = board[(board["graph_variant"] == "psi") & (board["top_K_neighbors"] == 10) & board["encoder"].isin(ARMS)].copy()
+    b = board[(board["graph_variant"] == "psi") & (board["top_K_neighbors"] == 10) & board["encoder"].isin(ARMS)
+              & board["dataset"].isin(fam2["dataset"].unique())].copy()   # the scoreboard holds every dataset ever run; report only the panel
     b = b[[PRIMARY.get(t) == m for t, m in zip(b["task"], b["metric"])]]
     b["arm"] = b["encoder"].map(ARMS)
     b["task_family"] = [t.split(" (")[0] for t in b["task"]]
@@ -258,36 +339,104 @@ def feature_scores(fam2):
 
 
 # PORTION 2 (C): rank-correlate both scopes. n is tiny at the graph scope (one point per dataset), so this is descriptive, not a test.
+# Correction is Bonferroni WITHIN the primary tier only (that is the whole point of tiering); exploratory rows carry no corrected p.
 def correlate(fam1, gap, feat):
     '''Spearman rho for two scopes: graph property vs the augmentation gap, and a feature's raw spread vs its ablation lift.'''
     rows = []
-    joined = gap.merge(fam1, on="dataset")
+    joined = gap[gap["usable"]].merge(fam1, on="dataset")
     for name, g in list(joined.groupby("task_family")) + [("pooled", joined)]:
         for p in PREDICTORS:
-            n, r, pv = rho(g[p], g["gap_rel"])
-            rows.append({"scope": "graph property -> augmentation gap", "task_family": name, "predictor": p,
-                         "target": "gap_rel", "n": n, "spearman_rho": r, "p_value": pv})
+            tier = "primary" if p in PREDICTORS_PRIMARY else "exploratory"
+            for target in ["gap_rel", "gap_fixed_rel"]:
+                n, r, pv = rho(g[p], g[target])
+                adj = round(min(1.0, pv * len(PREDICTORS_PRIMARY)), 4) if tier == "primary" and pv == pv else float("nan")
+                rows.append({"scope": "graph property -> augmentation gap", "task_family": name, "predictor": p,
+                             "tier": tier, "target": target, "n": n, "spearman_rho": r, "p_value": pv,
+                             "p_bonferroni": adj, "survives_correction": bool(adj == adj and adj < 0.05)})
     single = feat[feat["feature"].notna()]                                          # only arms that switch on one feature
     for name, g in list(single.groupby("task_family")) + [("pooled", single)]:
         for p in ["raw_std", "raw_pct_zero", "raw_pct_unique", "raw_skew"]:
             n, r, pv = rho(g[p], g["lift_vs_random"])
             rows.append({"scope": "feature spread -> ablation lift", "task_family": name, "predictor": p,
-                         "target": "lift_vs_random", "n": n, "spearman_rho": r, "p_value": pv})
+                         "tier": "exploratory", "target": "lift_vs_random", "n": n, "spearman_rho": r,
+                         "p_value": pv, "p_bonferroni": float("nan"), "survives_correction": False})
     return pd.DataFrame(rows)
 
 
+# Each gap column is screened against the verdict that was derived from it, never against the other one.
+TARGETS = {"gap_rel": "verdict", "gap_fixed_rel": "verdict_fixed"}
+
+
+# Turns a predictor into an executable decision: one split point, and which side of it says "augment".
+def threshold(x, y):
+    '''Best midpoint split of x against the binary target y: (split, the side that augments, error count, accuracy).'''
+    u = np.unique(x)
+    cuts = (u[:-1] + u[1:]) / 2 if len(u) > 1 else u
+    t, side, err = min(((float(c), s, int(((x > c if s == "high" else x < c) != y).sum()))
+                        for c in cuts for s in ("high", "low")), key=lambda z: z[2])
+    return round(t, 4), side, err, round(1 - err / len(y), 4)
+
+
+# PORTION 2 (D): screen every PRIMARY predictor as a binary keep-vs-augment rule, per task family.
+# Gates are |rho|, leave-one-dataset-out sign stability and threshold errors - see GATES for why significance is not one of them.
+# A predictor whose task family has no augment cell at all cannot be screened: there is nothing to separate, and it fails on errors.
+def candidate_rules(fam1, gap):
+    '''One row per task family x predictor x gap definition: rho, LODO stability, best threshold, exceptions, credible flag.'''
+    joined = gap[gap["usable"]].merge(fam1, on="dataset")
+    rows = []
+    for family, g in joined.groupby("task_family"):
+        for target, vcol in TARGETS.items():
+            for p in PREDICTORS_PRIMARY:
+                n, r, pv = rho(g[p], g[target])
+                lodo = [rho(g[p].drop(i), g[target].drop(i))[1] for i in g.index]
+                lodo = [v for v in lodo if v == v]
+                stable = bool(lodo) and r == r and all(np.sign(v) == np.sign(r) for v in lodo)
+                d = g[(g[vcol] != "tie") & g[p].notna()]                    # ties carry no decision to reproduce
+                y = (d[vcol] == "augment").to_numpy()
+                t, side, err, acc = (threshold(d[p].to_numpy(), y) if len(d) >= GATES["min_cells"] and y.any() and not y.all()
+                                     else (float("nan"), "", -1, float("nan")))
+                rows.append({
+                    "task_family": family, "target": target, "predictor": p,
+                    "n_cells": n, "n_decided": len(d), "n_augment": int(y.sum()),
+                    "spearman_rho": r, "p_value": pv,
+                    "p_bonferroni": round(min(1.0, pv * len(PREDICTORS_PRIMARY)), 4) if pv == pv else float("nan"),
+                    "lodo_min_abs_rho": round(min(abs(v) for v in lodo), 4) if lodo else float("nan"),
+                    "lodo_sign_stable": stable,
+                    "threshold": t, "augment_side": side, "n_exceptions": err, "accuracy": acc,
+                    "rule": f"{family}: augment when {p} is {side} ({'>' if side == 'high' else '<'} {t})" if side else "",
+                    "credible": bool(r == r and abs(r) >= GATES["min_abs_rho"] and stable
+                                     and 0 <= err <= GATES["max_exceptions"] and n >= GATES["min_cells"]),
+                })
+    return pd.DataFrame(rows).sort_values(["task_family", "target", "predictor"]).reset_index(drop=True)
+
+
 # PORTION 2 (D): the reading of the three tables - the when-to-augment rule the study set out to produce.
-def rule(gap, corr, feat):
+def rule(gap, corr, feat, cand):
     '''Print the when-to-augment conclusion: per-cell verdicts, the strongest predictor per task, best feature per cell.'''
-    print("\nVERDICT PER CELL (1 sigma band on the 3-seed noise)")
-    print(gap[["dataset", "task_family", "metric", "original", "best_augmented", "best_variant",
-               "gap_abs", "gap_sigma", "original_rank", "verdict"]].to_string(index=False))
+    print("\nVERDICT PER CELL (1 sigma band on the 3-seed noise; gap_fixed drops the max-over-variants selection bias)")
+    print(gap[["dataset", "task_family", "metric", "original", "best_augmented", "best_variant", "gap_abs", "gap_sigma",
+               "verdict", "fixed_variant", "gap_fixed_abs", "gap_fixed_sigma", "verdict_fixed", "usable"]].to_string(index=False))
     print("\n  " + " | ".join(f"{v}: {n}" for v, n in gap["verdict"].value_counts().items()))
-    print("\nSTRONGEST PREDICTORS OF THE GAP (descriptive - n is one point per dataset)")
-    g = corr[(corr["scope"].str.startswith("graph")) & corr["spearman_rho"].notna()]
+    if (~gap["usable"]).any():
+        print("  excluded (metric has no resolution): " + ", ".join(f"{r.dataset}/{r.task_family}" for r in gap[~gap["usable"]].itertuples()))
+    if (~gap["verdict_agrees"]).any():
+        print("  best-variant and fixed-variant verdicts DISAGREE: " +
+              ", ".join(f"{r.dataset}/{r.task_family} ({r.verdict} vs {r.verdict_fixed})" for r in gap[~gap["verdict_agrees"]].itertuples()))
+    print("\nSTRONGEST PREDICTORS OF THE GAP (usable cells only; descriptive - n is one point per dataset)")
+    g = corr[(corr["scope"].str.startswith("graph")) & (corr["target"] == "gap_rel")
+             & (corr["tier"] == "primary") & corr["spearman_rho"].notna()]
     for name, sub in g.groupby("task_family"):
         top = sub.reindex(sub["spearman_rho"].abs().sort_values(ascending=False).index).head(3)
-        print(f"  {name:<22} " + " | ".join(f"{r.predictor} rho={r.spearman_rho:+.2f} (n={r.n})" for r in top.itertuples()))
+        print(f"  {name:<22} " + " | ".join(f"{r.predictor} rho={r.spearman_rho:+.2f} (n={r.n}, p_bonf={r.p_bonferroni:.3f})" for r in top.itertuples()))
+    print(f"\nCANDIDATE RULES (gates: |rho|>={GATES['min_abs_rho']}, LODO sign-stable, <={GATES['max_exceptions']} exception;"
+          " significance REPORTED, not gated -> a pass is a credible CANDIDATE, Module 3 is the test)")
+    print(cand[["task_family", "target", "predictor", "n_cells", "n_augment", "spearman_rho", "p_bonferroni",
+                "lodo_min_abs_rho", "lodo_sign_stable", "threshold", "augment_side", "n_exceptions", "credible"]].to_string(index=False))
+    keep = cand[cand["credible"]]
+    print("\n  CREDIBLE: " + ("; ".join(dict.fromkeys(keep["rule"])) if len(keep) else "none - no predictor clears the gates"))
+    for name, sub in cand.groupby("task_family"):
+        if sub["n_augment"].max() == 0:
+            print(f"  {name}: no augment cell exists -> no rule is learnable here, only the boundary 'never augment' is reportable")
     print("\nBEST SINGLE FEATURE PER CELL (ablation D lift over random features)")
     s = feat[feat["feature"].notna()]
     best = s.loc[s.groupby(["dataset", "task_family"])["mean"].idxmax()]
@@ -304,10 +453,11 @@ def main(args):
     fam1 = out["dataset_characterization"] = pd.DataFrame([graph_properties(ds) for ds in args.datasets])
     fam2 = out["node_feature_characterization"] = pd.DataFrame([r for ds in args.datasets for r in feature_properties(ds)])
     step1 = out["characterization_inputs"] = frozen_inputs(args.datasets)
-    if args.step in ("relate", "all"):
+    if args.step in ("relate", "rules", "all"):
         gap = out["characterization_gaps"] = gaps(step1)
         feat = out["feature_usefulness"] = feature_scores(fam2)
         corr = out["characterization_correlations"] = correlate(fam1, gap, feat)
+        cand = out["candidate_rules"] = candidate_rules(fam1, gap)
     for name, df in out.items():
         df.to_csv(cfg.RESULTS_DIR / f"{name}.csv", index=False)
         print(f"{len(df):3d} rows -> results/{name}.csv", flush=True)
@@ -315,18 +465,18 @@ def main(args):
     print(fam1.drop(columns=["directed_source", "distinct_degrees", "isolates"]).to_string(index=False))
     print("\nFAMILY 2 - raw structural inputs, pre-z-normalization")
     print(fam2[["dataset", "feature", "mean", "std", "skew", "pct_zero", "pct_unique", "max", "degenerate"]].to_string(index=False))
-    if args.step in ("relate", "all"):
-        rule(gap, corr, feat)
+    if args.step in ("relate", "rules", "all"):
+        rule(gap, corr, feat, cand)
 
 
 # Defines command-line options (mirrors run_core.py / run_ogb.py).
 def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Characterization: measure the graphs and the encoder's inputs, then relate them to when augmentation helps.")
-    p.add_argument('--datasets', nargs='+', default=list(STUDY), choices=list(STUDY),
-                   help='Datasets to measure. Default: all eight study datasets.')
-    p.add_argument('--step', default='all', choices=['measure', 'relate', 'all'],
-                   help="'measure' = portion 1 only; 'relate' / 'all' also join the properties to the gaps. Default: all.")
+    p.add_argument('--datasets', nargs='+', default=PANEL, choices=list(STUDY),
+                   help='Datasets to measure. Default: the active seven-dataset panel (citeseer_linqs and proteins are excluded from forward work).')
+    p.add_argument('--step', default='all', choices=['measure', 'relate', 'rules', 'all'],
+                   help="'measure' = portion 1 only; 'relate' / 'rules' / 'all' also join the properties to the gaps and screen candidate rules. Default: all.")
     return p.parse_args()
 
 
