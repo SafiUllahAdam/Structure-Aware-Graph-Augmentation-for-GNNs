@@ -6,7 +6,7 @@ import os
 import random
 import networkx as nx
 
-import graph_io
+from virgo import graph_io
 
 
 # Defines command-line options: which graph, output seed-folder, test fraction, seed.

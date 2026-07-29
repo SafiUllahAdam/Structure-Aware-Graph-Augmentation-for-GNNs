@@ -9,8 +9,8 @@ import numpy as np
 import networkx as nx
 from scipy.special import gammaln
 
-import graph_io
-import identity2vec_cached
+from virgo import graph_io
+from virgo import identity2vec_cached
 
 
 class VirtualGraph():
@@ -150,7 +150,7 @@ def main(args):
           f"avg_deg={2 * V.number_of_edges() / V.number_of_nodes():.2f} isolated={isolated} -> {args.output}")
 
 
-# Defines command-line options (mirrors train.py): input graph, output edgelist, similarity variant, K, seed.
+# Defines command-line options (mirrors experiments/train.py): input graph, output edgelist, similarity variant, K, seed.
 def parse_args():
     '''Parses arguments.'''
     parser = argparse.ArgumentParser(description="Build a top-K structural-similarity virtual graph.")

@@ -45,23 +45,30 @@ Out of scope: hyperbolic/non-Euclidean space (a second paper).
 
 ## 3. Repository map (what each file does)
 
-> **Core algorithm + run scripts live in the project root. The reusable CLI framework lives in `scripts/`. Everything else is data, docs, or results.**
+> **Two code folders, one rule: `virgo/` is imported, `experiments/` is run. Everything else is data, docs, or results.**
 
 | File / folder | Purpose |
 |---|---|
-| `identity2vec.py` | **CORE baseline** (frozen, never edit). The I2V `Graph` class + guided walk: uses node degree & eigenvector centrality → KL → Poisson Ψ to pick the next node. |
-| `identity2vec_cached.py` | Same algorithm but caches the structural signals → **identical output, ~200× faster**. (Deliverable #1.) |
-| `train.py` | The **run file**: read graph → make walks → Word2Vec (Skipgram) → save `.emb`. Flag `--cached` uses the fast path. |
-| `make_labels.py` | Downloads & builds node **labels** (cora/citeseer from LINQS; webkb from the author's repo) and verifies they match our graph. |
-| `prepare_linkpred.py` | Builds the link-prediction **edge split** (70/30) + fake "negative" pairs, leakage-free. |
-| `eval_nodeclass.py` | Scores **node classification** → micro / macro / weighted F1. |
-| `eval_linkpred.py` | Scores **link prediction** → AUC (cosine = headline; Hadamard + logreg = second column). |
-| `plot_emb.py` | Draws an embedding as a 2-D picture (optional). |
-| `scripts/benchmark_config.py` | **Single source of truth**: dataset registry, hyperparameters, seed, split fractions. |
-| `scripts/runner.py` | Glue: `embed()`, `run_linkpred()`, `run_nodeclass()`, plus the 3-seed `run_*_repeated()`. |
-| `scripts/results_io.py` | Saves a run to `results/NNN.<date>.<dataset>.<task>.csv`. |
-| `scripts/utils.py` | Helpers: set seed, load embedding, next run id. |
-| `scripts/main.py` | Terminal CLI (alternative to the notebook). |
+| `virgo/identity2vec.py` | **CORE baseline** (frozen, never edit). The I2V `Graph` class + guided walk: uses node degree & eigenvector centrality → KL → Poisson Ψ to pick the next node. |
+| `virgo/identity2vec_cached.py` | Same algorithm but caches the structural signals → **identical output, ~200× faster**. (Deliverable #1.) |
+| `experiments/train.py` | The **run file**: read graph → make walks → Word2Vec (Skipgram) → save `.emb`. Flag `--cached` uses the fast path. |
+| `virgo/data/make_labels.py` | Downloads & builds node **labels** (cora/citeseer from LINQS; webkb from the author's repo) and verifies they match our graph. |
+| `virgo/data/prepare_linkpred.py` | Builds the link-prediction **edge split** (70/30) + fake "negative" pairs, leakage-free. |
+| `virgo/eval/nodeclass.py` | Scores **node classification** → micro / macro / weighted F1. |
+| `virgo/eval/linkpred.py` | Scores **link prediction** → AUC (cosine = headline; Hadamard + logreg = second column). |
+| `experiments/plot_emb.py` | Draws an embedding as a 2-D picture (optional). |
+| `virgo/config.py` | **Single source of truth**: dataset registry, hyperparameters, seed, split fractions. |
+| `virgo/eval/runner.py` | Glue: `embed()`, `run_linkpred()`, `run_nodeclass()`, plus the 3-seed `run_*_repeated()`. |
+| `virgo/eval/results_io.py` | Saves a run to `results/NNN.<date>.<dataset>.<task>.csv`. |
+| `virgo/utils.py` | Helpers: set seed, load embedding, next run id. |
+| `experiments/run_task.py` | Terminal CLI (alternative to the notebook). |
+| `virgo/graph_io.py` | **THE graph policy** + the single `load_graph()` every stage reads through. |
+| `virgo/virtual_graph.py` | Phase 2: builds the five virtual-graph variants (`psi`/`degree`/`centrality`/`original`/`hybrid`). |
+| `virgo/encoders/` | Phase 3+: `base.py` (architecture-free training), `sage.py`, `gin.py`, `walk.py`, and the `ENCODERS` registry. |
+| `experiments/train_encoder.py` | Trains ONE encoder over ONE virtual graph; `--arch` picks any registered encoder. |
+| `experiments/run_core.py` / `run_ogb.py` | The two frozen sweep drivers that produce every scoreboard row. |
+| `experiments/characterize.py` | Measures graph properties + encoder inputs, then relates them to the original-vs-augmented gap. |
+| `third_party/struc2vec/` | Vendored baseline, used as published (never edited). |
 | `notebooks/1-reproduce_i2v.ipynb` | ⭐ **Primary entry point** — click-through reproduction (see §5). |
 | `input/` | Original graphs (`.edgelist`). **Never edit.** |
 | `output/` | Trained embeddings (`.emb`). |
@@ -92,14 +99,14 @@ Open `notebooks/1-reproduce_i2v.ipynb`, run cells **top to bottom (Shift+Enter)*
 
 **CLI alternative (terminal):**
 ```bash
-python scripts/main.py --list                              # show datasets
-python scripts/main.py --task nodeclass --dataset cora
-python scripts/main.py --task linkpred  --dataset cora --retrain
+python experiments/run_task.py --list                              # show datasets
+python experiments/run_task.py --task nodeclass --dataset cora
+python experiments/run_task.py --task linkpred  --dataset cora --retrain
 ```
 
 ## 6. Datasets
 
-Registered in `scripts/benchmark_config.py` (`DATASETS`). The **four study datasets** (node classification + link prediction) are **cora** (7 classes, citation), **citeseer_linqs** (6 classes, citation), **enzymes** (3 classes, molecular), **proteins** (3 classes, molecular). Next we add small-to-medium **OGB** datasets — **ogbn-arxiv** (node property), **ogbl-collab** and **ogbl-ddi** (link property) — using their graphs only, never their built-in text features. Skip the huge 100M-node OGB graphs (too slow before the deadline). On each OGB dataset the original and virtual graphs receive the same structural features, so only the edges differ - a fair, single-variable comparison; we ignore the extra attributes (text embeddings, product descriptions, biological annotations) and do not compare against the OGB leaderboard, whose top models may use them. The goal is structural analysis, not leaderboard ranking.
+Registered in `virgo/config.py` (`DATASETS`). The **four study datasets** (node classification + link prediction) are **cora** (7 classes, citation), **citeseer_linqs** (6 classes, citation), **enzymes** (3 classes, molecular), **proteins** (3 classes, molecular). Next we add small-to-medium **OGB** datasets — **ogbn-arxiv** (node property), **ogbl-collab** and **ogbl-ddi** (link property) — using their graphs only, never their built-in text features. Skip the huge 100M-node OGB graphs (too slow before the deadline). On each OGB dataset the original and virtual graphs receive the same structural features, so only the edges differ - a fair, single-variable comparison; we ignore the extra attributes (text embeddings, product descriptions, biological annotations) and do not compare against the OGB leaderboard, whose top models may use them. The goal is structural analysis, not leaderboard ranking.
 
 Notes: the author **citeseer** graph has no aligned labels, so the study uses **`citeseer_linqs`** (the Phase-1 benchmark used author `citeseer` for link prediction only). **politics** ships no labels (link-pred only). Proteins' 3 classes are imbalanced, so report macro F1 alongside weighted.
 
@@ -140,12 +147,13 @@ Notes: the author **citeseer** graph has no aligned labels, so the study uses **
 
 **✅ Safe modification zones**
 - Pick dataset/task → notebook **Step 1** (`DATASET`), then run the node-class or link-pred cells.
-- Tune hyperparameters → notebook **Step 1** vars, or `scripts/benchmark_config.py` (`I2V_PARAMS`) for the CLI.
+- Tune hyperparameters → notebook **Step 1** vars, or `virgo/config.py` (`I2V_PARAMS`) for the CLI.
 - Add a dataset → drop the `.edgelist` in `input/`, add an entry to `DATASETS`, add labels in `labels/`.
-- Add a task → new `eval_<task>.py` + register it in `scripts/runner.py` (`TASKS`).
+- Add a task → new `virgo/eval/<task>.py` + register it in `virgo/eval/runner.py` (`TASKS`).
+- Add an encoder → new `virgo/encoders/<name>.py` subclassing `GNNEncoder` with one `build_convs()`, then one line in `ENCODERS` (`virgo/encoders/__init__.py`). No driver changes.
 
 **⛔ Do NOT touch**
-- `identity2vec.py` (frozen baseline) and don't move it or `train.py`.
+- `virgo/identity2vec.py` (frozen baseline) and don't move it or `experiments/train.py`.
 - Files in `input/`. The `seed`. The location of `CLAUDE.md` (root).
 
 ## 11. Known issues / gotchas
@@ -162,14 +170,14 @@ Notes: the author **citeseer** graph has no aligned labels, so the study uses **
 |---|---|---|
 | 1. Cached I2V (identical + faster) | ✅ done | — |
 | —. I2V reproduction + cross-model baselines | ✅ done | used as-is, **not fine-tuned** |
-| 2. `virtual_graph.py` (five-variant builder) | ✅ done | — |
+| 2. `virgo/virtual_graph.py` (five-variant builder) | ✅ done | — |
 | 3. GraphSAGE encoder over the virtual graph | ✅ done | GIN next (swap in after SAGE) |
 | 4. Node-class + link-pred eval on 4 datasets | ✅ done | numbers in `results/scoreboard.csv` |
 | 5. Characterization table + "when to augment" rule | 🔵 **current** | add small/medium OGB, compute graph properties, relate to the gap |
 | 6. GIN results | 🔵 next | after the GraphSAGE + OGB runs |
 | 7. LoG paper draft | 🔵 | thesis reuses it |
 
-**Where to start as the new intern:** (1) open `notebooks/3-phase3_gnn_encoder.ipynb` and read its result tables (§7 encoder comparison, §8 variant sweep, §10 research-question view) against `results/scoreboard.csv`; (2) read `virtual_graph.py` and `encoder.py` to see how a virtual graph and its GraphSAGE embedding are built; (3) skim `docs/paper_log.md` for the findings and `docs/notes.md` for history; (4) then start **Phase 4** — add a small OGB dataset through the `DATASETS` registry (graph only, no text features), run the pipeline, and help build the characterization table.
+**Where to start as the new intern:** (1) open `notebooks/3-phase3_gnn_encoder.ipynb` and read its result tables (§7 encoder comparison, §8 variant sweep, §10 research-question view) against `results/scoreboard.csv`; (2) read `virgo/virtual_graph.py` and `virgo/encoders/base.py` + `sage.py` to see how a virtual graph and its GraphSAGE embedding are built; (3) skim `docs/paper_log.md` for the findings and `docs/notes.md` for history; (4) then start **Phase 4** — add a small OGB dataset through the `DATASETS` registry (graph only, no text features), run the pipeline, and help build the characterization table.
 
 ## 13. Mini-glossary
 

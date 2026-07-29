@@ -5,16 +5,11 @@ import json
 import sys
 from pathlib import Path
 
-# Put repo root and scripts/ on the path before importing the framework modules.
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-for p in (str(ROOT), str(HERE)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
 
-from benchmark_config import DATASETS, RESULTS_DIR, REPRO
-from results_io import save_result
-from runner import TASKS
+from virgo.config import DATASETS, RESULTS_DIR, REPRO
+from virgo.eval.results_io import save_result
+from virgo.eval.runner import TASKS
 
 
 # Defines the command-line options: which task, which dataset, optional embedding / config / flags.
@@ -23,7 +18,7 @@ def parse_args():
     p.add_argument("--task", choices=list(TASKS), help="Reproduction task to run")
     p.add_argument("--dataset", help="Dataset name (see --list)")
     p.add_argument("--emb", default=None, help="Use an existing embedding instead of retraining")
-    p.add_argument("--retrain", action="store_true", help="Link pred: retrain I2V on the 70% train graph (no leakage)")
+    p.add_argument("--retrain", action="store_true", help="Link pred: retrain I2V on the 70%% train graph (no leakage)")
     p.add_argument("--config", default=None, help="JSON run-config; its task/dataset override the flags")
     p.add_argument("--list", action="store_true", help="List datasets and exit")
     p.add_argument("--no-save", action="store_true", help="Do not write a results CSV")

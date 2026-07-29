@@ -4,7 +4,7 @@ Degree, eigenvector centrality, neighbor lists and shortest-path lengths are inv
 graph, but the baseline recomputes them inside the walk loop. Caching them changes no computed value and removes the dominant cost. This is the I2V 'cache fix'."""
 
 import networkx as nx
-import identity2vec
+from virgo import identity2vec
 
 
 class Graph(identity2vec.Graph):

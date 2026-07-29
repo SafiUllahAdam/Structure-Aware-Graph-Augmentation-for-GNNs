@@ -75,10 +75,17 @@ Anomaly detection is set aside for now — the LoG study replaced it as the imme
 - **Mirror the I2V codebase**: `argparse` CLI; `build_graph()` / `learn_embeddings()` / `main(args)` structure; a class holding the core method (cf. `identity2vec.Graph`).
 - **Fewest functions possible.** Each short, single-purpose, self-explanatory name. No helper unless necessary.
 - **One-line comments max.** Triple-quoted one-line docstrings as in I2V.
-- Self-explanatory file names (e.g. `virtual_graph.py`, `encoder.py`, `eval_linkpred.py`).
+- Self-explanatory file names (e.g. `virgo/virtual_graph.py`, `virgo/encoders/sage.py`, `virgo/eval/linkpred.py`).
 - Models expose **`train(epochs)`**, not `fit()`.
 - Prefer the main script to call only functions defined in base/abstract classes.
 - No new dependency without need. Reuse the existing env (numpy 1.26.4, networkx, gensim 4.3.3, scipy 1.12.0; add torch/torch-geometric for the GNN).
+
+**Layout rule (restructured 2026-07-29).** Two code folders and one rule: **`virgo/` is imported, `experiments/` is run.**
+- `virgo/` — `config.py` (THE settings), `graph_io.py` (THE graph policy), `identity2vec*.py`, `virtual_graph.py`, `utils.py`, plus `encoders/`, `data/`, `eval/`.
+- `experiments/` — every `argparse` entry point (`run_core`, `run_ogb`, `characterize`, `train`, `train_encoder`, `benchmark_baselines`, `run_task`, `plot_emb`). No method code here.
+- `third_party/struc2vec/` — vendored, used as published.
+- Library modules with a CLI run as `python -m virgo.<module>` from the repo root; entry points run as `python experiments/<script>.py`.
+- **Adding an encoder** (the extension point): new `virgo/encoders/<name>.py` subclassing `GNNEncoder` with one `build_convs(dims, agg)`, then one line in `ENCODERS` (`virgo/encoders/__init__.py`). Every driver, CLI and scoreboard row picks it up with no further edit. `--encoder all` stays the locked `graphsage_edge + deepwalk` pair, so a newly registered encoder never joins a sweep unless named.
 
 ---
 
@@ -95,9 +102,9 @@ Anomaly detection is set aside for now — the LoG study replaced it as the imme
 ## 7. Deliverables
 
 1. ✅ Cached I2V — embeddings identical to the baseline, ~200× faster.
-2. ✅ `virtual_graph.py` — five-variant top-K virtual-graph builder.
-3. ✅ GraphSAGE encoder over the virtual graph (`encoder.py`); GIN to follow.
-4. ✅ Eval scripts: node classification (F1), link prediction (AUC, leakage-free).
+2. ✅ `virgo/virtual_graph.py` — five-variant top-K virtual-graph builder.
+3. ✅ GraphSAGE encoder over the virtual graph (`virgo/encoders/sage.py`, on `base.GNNEncoder`); `gin.py` is wired and registered but has produced **no results yet**.
+4. ✅ Eval scripts: node classification (F1), link prediction (AUC, leakage-free) — `virgo/eval/`.
 5. ✅ The characterization table + rule: graph properties → when augmentation helps, across our datasets **plus small/medium OGB**. Tables in `results/characterization_*.csv` + `results/feature_usefulness.csv`; figures in `results/figures/`.
 6. 🔵 GIN results next to GraphSAGE.
 7. 🔵 LoG paper draft (the thesis reuses it).

@@ -19,10 +19,11 @@ import pandas as pd
 import networkx as nx
 from scipy.stats import skew, spearmanr
 
-sys.path.append("scripts")
-import benchmark_config as cfg
-import graph_io
-from encoder import feature_cache
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
+
+from virgo import config as cfg
+from virgo import graph_io
+from virgo.encoders import feature_cache
 
 # The eight study datasets. Domain / tasks / scope are DECLARED metadata (they cannot be measured from an edgelist);
 # every other column in Family 1 is measured. scope records which graph the row describes: ogbl-ddi ships training edges only.
@@ -38,7 +39,7 @@ STUDY = {
     "tolokers":       {"domain": "crowdsourcing",    "tasks": "NC+LP", "scope": "full"},
     "questions":      {"domain": "q&a interaction",  "tasks": "NC+LP", "scope": "full"},
 }
-FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by encoder.features()
+FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by GNNEncoder.features()
 
 # One primary metric per task: the OGB pair is scored under its official protocol, so its metric name differs by design.
 PRIMARY = {"node classification (weighted F1)": "weighted_f1", "link prediction (AUC)": "auc",

@@ -1,13 +1,13 @@
 """Embedding-model wrappers: each .train() writes ONE Word2Vec-format .emb so the existing eval
-scripts (eval_nodeclass.py / eval_linkpred.py) read every model identically. Add a model = add a class."""
+scripts (virgo/eval/nodeclass.py / linkpred.py) read every model identically. Add a model = add a class."""
 
 import subprocess
 import sys
 from pathlib import Path
 
-import graph_io
+from virgo import graph_io
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]     # virgo/encoders/walk.py -> repo root
 
 
 class EmbeddingModel:
@@ -24,7 +24,7 @@ class Identity2VecModel(EmbeddingModel):
     name = "identity2vec"
 
     def train(self, edgelist, out_emb, seed, params):
-        cmd = [sys.executable, str(_ROOT / "train.py"),
+        cmd = [sys.executable, str(_ROOT / "experiments" / "train.py"),
                "--input", str(edgelist), "--output", str(out_emb),
                "--dimensions", str(params["dimensions"]), "--walk-length", str(params["walk_length"]),
                "--num-walks", str(params["num_walks"]), "--window-size", str(params["window_size"]),
@@ -66,12 +66,12 @@ class Node2VecModel(_RandomWalkModel):
 
 
 class Struc2VecModel(EmbeddingModel):
-    """struc2vec via the vendored official CLI (baselines/struc2vec/src/main.py). Note: no seed -> not bit-reproducible."""
+    """struc2vec via the vendored official CLI (third_party/struc2vec/src/main.py). Note: no seed -> not bit-reproducible."""
     name = "struc2vec"
 
     def train(self, edgelist, out_emb, seed, params):
         import shutil
-        src = _ROOT / "baselines" / "struc2vec" / "src"
+        src = _ROOT / "third_party" / "struc2vec" / "src"
         pdir = src.parent / "pickles"                                # struc2vec caches distances/walks under FIXED names here
         shutil.rmtree(pdir, ignore_errors=True); pdir.mkdir(parents=True, exist_ok=True)   # clear so each graph is fresh (no cross-dataset reuse)
         (src / "random_walks.txt").unlink(missing_ok=True)

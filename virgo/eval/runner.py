@@ -1,19 +1,12 @@
-"""Orchestrate reproduction tasks by calling the existing root scripts — nothing is moved."""
+"""Orchestrate reproduction tasks by calling the Phase-1 entry points — nothing is moved."""
 
 import subprocess
 import sys
 from pathlib import Path
 
-# Put repo root and scripts/ on the path so we can import both the root scripts and the siblings.
-_HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parent
-for _p in (str(_ROOT), str(_HERE)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from benchmark_config import (NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARAMS,
-                              I2V_BASELINE_POLICY, dataset)
-from utils import set_seed
+from virgo.config import (NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARAMS,
+                          I2V_BASELINE_POLICY, dataset)
+from virgo.utils import set_seed
 
 
 # Runs Identity2Vec (train.py) as a subprocess to learn an embedding — this is the slow step.
@@ -21,7 +14,7 @@ def embed(input_path, output_path, params=None, cached=True, seed=None):
     """Train an I2V embedding on a given edgelist (cached fast path + fixed seed by default)."""
     params = params or I2V_PARAMS
     seed = REPRO["seed"] if seed is None else seed
-    cmd = [sys.executable, str(PROJECT_ROOT / "train.py"),
+    cmd = [sys.executable, str(PROJECT_ROOT / "experiments" / "train.py"),
            "--input", str(input_path), "--output", str(output_path),
            "--dimensions", str(params["dimensions"]),
            "--walk-length", str(params["walk_length"]),
@@ -41,8 +34,8 @@ def run_linkpred(name, emb=None, retrain=False, params=None, seed=None):
     """Return link-prediction metrics + the settings used."""
     seed = REPRO["seed"] if seed is None else seed
     set_seed(seed)
-    from prepare_linkpred import prepare              # lazy: keeps --list working without sklearn
-    from eval_linkpred import evaluate as linkpred_eval
+    from virgo.data.prepare_linkpred import prepare   # lazy: keeps --list working without sklearn
+    from virgo.eval.linkpred import evaluate as linkpred_eval
 
     split_dir = LP_SPLITS_ORIG / name / f"seed_{seed}"          # splits/link_prediction/original_graph/<ds>/seed_<s>/
     counts = prepare(dataset(name)["edgelist"], split_dir, REPRO["linkpred_test_frac"], seed,
@@ -66,7 +59,7 @@ def run_nodeclass(name, emb=None, seed=None):
     """Return node-classification metrics + the settings used."""
     seed = REPRO["seed"] if seed is None else seed
     set_seed(seed)
-    from eval_nodeclass import evaluate as nodeclass_eval
+    from virgo.eval.nodeclass import evaluate as nodeclass_eval
 
     labels = dataset(name)["labels"]
     if labels is None or not Path(labels).exists():
@@ -84,8 +77,8 @@ def run_nodeclass(name, emb=None, seed=None):
 def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None, model="identity2vec"):
     """Train one embedding per seed with `model`, score node classification each time. Returns per-seed rows."""
     params = params or I2V_PARAMS
-    from eval_nodeclass import evaluate as nodeclass_eval
-    from embedding_models import get_model
+    from virgo.eval.nodeclass import evaluate as nodeclass_eval
+    from virgo.encoders.walk import get_model
     mdl = get_model(model)
     out_dir = NB1_DIR / info["safe"] / "node_classification"     # output/notebook1_reproduce_i2v/<dataset>/node_classification/
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -108,9 +101,9 @@ def run_nodeclass_repeated(info, seeds=(42, 43, 44), params=None, model="identit
 def run_linkpred_repeated(info, seeds=(42, 43, 44), params=None, model="identity2vec"):
     """Per seed: split edges, train `model` on the 70% graph only, score AUC. Returns per-seed rows."""
     params = params or I2V_PARAMS
-    from prepare_linkpred import prepare
-    from eval_linkpred import evaluate as linkpred_eval
-    from embedding_models import get_model
+    from virgo.data.prepare_linkpred import prepare
+    from virgo.eval.linkpred import evaluate as linkpred_eval
+    from virgo.encoders.walk import get_model
     mdl = get_model(model)
     out_dir = NB1_DIR / info["safe"] / "link_prediction"        # output/notebook1_reproduce_i2v/<dataset>/link_prediction/
     out_dir.mkdir(parents=True, exist_ok=True)

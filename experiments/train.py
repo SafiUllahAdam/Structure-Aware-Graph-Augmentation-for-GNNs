@@ -4,12 +4,18 @@ Email: muhammadsafi2299@gmail.com
 '''
 
 import argparse
+import sys
+from pathlib import Path
+
 from gensim.models import Word2Vec
-import graph_io
-import identity2vec
-import identity2vec_cached
 import networkx as nx
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
+
+from virgo import graph_io
+from virgo import identity2vec
+from virgo import identity2vec_cached
 
 '''This is the run file. It is the file you execute from terminal.
 

@@ -16,17 +16,18 @@ from pathlib import Path
 import numpy as np
 import networkx as nx
 
-sys.path.append("scripts")
-import benchmark_config as cfg
-import results_io
-import graph_io
-import eval_nodeclass
-import eval_linkpred
-import prepare_linkpred
-import run_ogb                                                 # for ensure_virtual only: the node-classification virtual graph is built the SAME way in both drivers
-from virtual_graph import VirtualGraph
-from encoder import SageEncoder, feature_cache
-from embedding_models import DeepWalkModel
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on the path -> `import virgo` works from any cwd
+
+from virgo import config as cfg
+from virgo import graph_io
+from virgo.eval import results_io
+from virgo.eval import nodeclass as eval_nodeclass
+from virgo.eval import linkpred as eval_linkpred
+from virgo.data import prepare_linkpred
+from virgo.virtual_graph import VirtualGraph
+from virgo.encoders import ENCODERS, feature_cache
+from virgo.encoders.walk import DeepWalkModel
+from experiments import run_ogb                                # for ensure_virtual only: the node-classification virtual graph is built the SAME way in both drivers
 
 CORE = ["cora", "citeseer_linqs", "enzymes", "proteins", "roman_empire", "tolokers", "questions"]   # the non-OGB study datasets, all on ONE protocol (OGB pair lives in run_ogb.py)
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
@@ -50,7 +51,7 @@ def split(ds, seed):
 # Trains (or reuses) one embedding: NC embeds the FULL graph, LP embeds the seed's 70% train graph (virtual graph rebuilt from it).
 def embed(ds, k, sim, encoder, seed, task, feats="all"):
     '''Train one encoder over the virtual graph for one task -> .emb path; reuse if already on disk.'''
-    zone = cfg.NB3_DIR if encoder == "graphsage_edge" else cfg.NB2_DIR
+    zone = cfg.NB3_DIR if encoder in ENCODERS else cfg.NB2_DIR
     emb = zone / task / ds / f"k{k}" / sim / f"{tag(encoder, feats)}_s{seed}.emb"
     if emb.exists():
         print(f"reuse  {ds} {task} {sim} {encoder} s{seed}", flush=True)
@@ -65,10 +66,10 @@ def embed(ds, k, sim, encoder, seed, task, feats="all"):
         V = VirtualGraph(G, seed=cfg.REPRO["seed"]).build(sim, k)   # train edges only; VG seed = project seed, NOT the loop seed
     print(f"TRAIN  {ds} {task} {sim} {encoder} s{seed} | V: {V.number_of_nodes()} nodes / {V.number_of_edges()} edges", flush=True)
     emb.parent.mkdir(parents=True, exist_ok=True)
-    if encoder == "graphsage_edge":
+    if encoder in ENCODERS:                                    # any registered GNN encoder; adding one needs no edit here
         p = cfg.GNN_PARAMS
-        enc = SageEncoder(G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
-                          agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
+        enc = ENCODERS[encoder](G, V, seed, hidden=p["hidden"], dimensions=p["dimensions"], layers=p["layers"],
+                                agg=p["agg"], feats=feats, cache=feature_cache(edgelist))
         enc.train(p["epochs"], lr=p["lr"], negatives=p["negatives"],
                   pairs_per_epoch=p["pairs_per_epoch"], max_pairs=p["max_pairs"], positives=p["positives"])
         enc.save(emb)
@@ -93,9 +94,9 @@ def score(ds, emb, task, seed):
 # Runs the sweep: for every dataset x task x variant x encoder, train-or-reuse each seed, then record one scoreboard row.
 def main(args):
     tasks = list(TASKS) if args.task == "all" else [args.task]
-    encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]
+    encoders = ["graphsage_edge", "deepwalk"] if args.encoder == "all" else [args.encoder]   # "all" = the LOCKED pair; a new encoder is opt-in by name
     if args.features != "all":
-        encoders = ["graphsage_edge"]                          # ablation D varies the GNN's inputs; the walk encoder has none
+        encoders = [e for e in encoders if e in ENCODERS]      # ablation D varies the GNN's inputs; the walk encoder has none
     sims = cfg.VG_SIMS if args.sim == "all" else [args.sim]
     for ds in args.datasets:
         for task in tasks:
@@ -119,7 +120,8 @@ def parse_args():
     p = argparse.ArgumentParser(description="Run the core-4 study under the locked ViRGo config (notebook-3 §8 headless).")
     p.add_argument('--datasets', nargs='+', default=CORE, choices=CORE, help='Datasets to run. Default: all seven.')
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
-    p.add_argument('--encoder', default='all', choices=['all', 'graphsage_edge', 'deepwalk'], help='Which encoder(s). Default all.')
+    p.add_argument('--encoder', default='all', choices=['all', 'deepwalk'] + list(ENCODERS),
+                   help='Which encoder(s). "all" = the locked graphsage_edge + deepwalk pair; name any registered encoder to opt it in. Default all.')
     p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
     p.add_argument('--features', default='all', choices=[f for f in cfg.D_FEATURES if f != 'none_mp'],
                    help='Ablation D input features (D6 none_mp is layers=0 and has no training -> not run here). Default all = the locked D0.')

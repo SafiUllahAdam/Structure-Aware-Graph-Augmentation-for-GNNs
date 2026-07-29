@@ -900,3 +900,64 @@ and then the notebook.
 
 Carry-forward flags from `graph_io.check`: one connected component, degree median 1 against max 1,539, and a
 97.0/3.0 class split — the most imbalanced label distribution in the panel.
+
+---
+
+## 2026-07-29 — repo restructured into `virgo/` (library) + `experiments/` (entry points)
+
+Pure reorganization: **no method, hyperparameter, seed, path or output-zone changed**. 18 loose `.py` files in the
+project root plus a `scripts/` folder were replaced by two code folders under one rule — **`virgo/` is imported,
+`experiments/` is run.** Motivation: the root mixed five roles (config, graph building, encoders, evaluation, drivers)
+at one level, and adding GIN would have meant a second class inside `encoder.py`.
+
+Move map (all via `git mv`, so `git log --follow` still works):
+
+    graph_io.py                -> virgo/graph_io.py
+    identity2vec.py            -> virgo/identity2vec.py
+    identity2vec_cached.py     -> virgo/identity2vec_cached.py
+    virtual_graph.py           -> virgo/virtual_graph.py
+    scripts/benchmark_config.py-> virgo/config.py
+    scripts/utils.py           -> virgo/utils.py
+    encoder.py                 -> virgo/encoders/base.py (+ sage.py; CLI -> experiments/train_encoder.py)
+    embedding_models.py        -> virgo/encoders/walk.py
+    make_labels/ogb/hetero.py  -> virgo/data/
+    prepare_linkpred.py        -> virgo/data/prepare_linkpred.py
+    eval_nodeclass.py          -> virgo/eval/nodeclass.py
+    eval_linkpred.py           -> virgo/eval/linkpred.py
+    eval_ogb.py                -> virgo/eval/ogb.py
+    scripts/runner.py          -> virgo/eval/runner.py
+    scripts/results_io.py      -> virgo/eval/results_io.py
+    run_core/run_ogb/characterize/train/plot_emb.py -> experiments/
+    scripts/benchmark_baselines.py -> experiments/benchmark_baselines.py
+    scripts/main.py            -> experiments/run_task.py
+    baselines/struc2vec/       -> third_party/struc2vec/
+
+**The encoder split (the point of the exercise).** `encoder.SageEncoder` became `base.GNNEncoder` (features, corpus,
+loss, `train()`, `save()` — architecture-free) plus `sage.SageEncoder`, whose entire body is one `build_convs()`.
+`gin.GinEncoder` was added the same way and registered in `virgo/encoders/ENCODERS`. `run_core.py` / `run_ogb.py`
+now dispatch on `encoder in ENCODERS` instead of `encoder == "graphsage_edge"`, so **adding an encoder needs one
+new file plus one registry line and no driver edit**. `--encoder all` still means the locked `graphsage_edge +
+deepwalk` pair, so a registered-but-unvalidated encoder can never join a sweep unless named on the command line.
+`gin.py` is a **scaffold: no ViRGo results have been produced with it.** Its choices (2-layer MLP per conv,
+`train_eps=True`, sum aggregation) follow Xu et al. 2019 and are open for review before the GIN run.
+
+**Reproducibility check (the thing that mattered).** Old `encoder.py` (from `git show HEAD:encoder.py`) and the new
+`base`+`sage` pair were run in separate processes on proteins_nr, `sim=degree`, K=10, 5 epochs, seed 42, features
+pinned via the shared cache. Result: `max|Δ| = 4.8e-07`, against a same-code repeat floor of `5.4e-07` measured in
+the same session. **The refactor is numerically indistinguishable from re-running the old code**, so every stored
+embedding, `.emb` file and scoreboard row remains valid. (First attempt ran both classes in one process and showed
+`3.1e-01` — that was the known ARPACK random-start instability in Ω, not the refactor; pinning the feature cache
+removed it.)
+
+Two behaviour changes, both deliberate:
+- `feature_cache()` now returns an absolute path anchored to `config.OUTPUT_DIR` instead of the cwd-relative
+  `"output/feature_cache/..."`. Same file when run from the repo root; no longer silently recomputes when not.
+- `experiments/run_task.py --help` crashed with `ValueError: unsupported format character 't'` — a pre-existing
+  unescaped `%` in the `--retrain` help string (`70%` -> `70%%`). Fixed; the flag itself never changed.
+
+Verification performed: all 28 modules import; every CLI answers `--help`; all five notebook setup cells execute;
+notebook JSON round-trips byte-exact so the only diff is the import lines. Command changes for the docs:
+`python virtual_graph.py` -> `python -m virgo.virtual_graph`, `python encoder.py` ->
+`python experiments/train_encoder.py`, `python scripts/main.py` -> `python experiments/run_task.py`, and the other
+root scripts gained an `experiments/` prefix. `docs/notes.md` and `docs/paper_log.md` keep their original command
+strings — they are historical records of what was run at the time, not current instructions.
