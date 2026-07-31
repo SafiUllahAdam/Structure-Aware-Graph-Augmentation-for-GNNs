@@ -1,4 +1,4 @@
-# ViRGo - Virtual Role-Graph Embedding for Structural Identity
+# ViRGo - <ins>Vi</ins>rtual <ins>R</ins>ole-<ins>G</ins>raph Embedding f<ins>O</ins>r Structural Identity
 
 ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation, molecular and heterophilous interaction datasets. The aim is a characterization: which graph properties predict whether role-based rewiring improves on the original graph. Current answer - **two candidate rules, both link prediction**: augment when adjusted homophily is low, or when the graph is a single connected component.
 
