@@ -8,7 +8,7 @@ and 5 import `run_ogb.py` and `characterize.py` for their functions instead of d
 |------|------|
 | `run_core.py` | the frozen sweep for the non-OGB datasets: virtual graph → encoder → NC + LP → scoreboard row |
 | `run_ogb.py` | the same sweep under the **official OGB protocol** (train-only embeddings, valid/test discipline) |
-| `characterize.py` | measures graph properties + the encoder's raw inputs, relates them to the original-vs-augmented gap, and screens each property as an executable keep-vs-augment rule (`--datasets` defaults to the seven-dataset `PANEL`) |
+| `characterize.py` | measures graph properties + the encoder's raw inputs, relates them to the original-vs-augmented gap, and screens each property as an executable keep-vs-augment rule — each rule's split is also refitted with one dataset hidden, on its own and with the property re-chosen (`--datasets` defaults to the seven-dataset `PANEL`) |
 | `train.py` | Phase-1 run file: graph → I2V walks → Word2Vec → `.emb` (`--cached` uses the fast path) |
 | `train_encoder.py` | trains ONE encoder over ONE virtual graph; `--arch` picks any encoder registered in `virgo.encoders` |
 | `benchmark_baselines.py` | I2V vs DeepWalk / node2vec / struc2vec across the benchmark datasets (no flags — runs the whole loop) |

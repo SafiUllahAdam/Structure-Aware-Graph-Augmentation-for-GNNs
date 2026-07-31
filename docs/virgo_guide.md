@@ -17,7 +17,7 @@
 
 **Research question:** when is a graph's own structure enough for a GNN, and when does adding structural "role" edges/features help — and can we predict which case from the graph's properties? We build a **virtual graph** (links nodes by *structural role*, not real edges), compare it against the untouched graph, and characterize datasets to explain the difference. **Immediate target: the LoG conference; the thesis reuses it.**
 
-**Honest headline (7 datasets, 12 cells, 11 usable):** 7 keep the original, 4 augment, 1 tie. **All four augment cells are link prediction; no node classification cell augments at all.** Two candidate rules survive the screen, both LP: augment when *adjusted homophily < 0.227*, or when *largest-component fraction > 0.9588* (i.e. the graph is one connected piece). So this is a *study* — a "when to augment" guide — not "our graph always wins".
+**Honest headline (7 datasets, 12 cells, 11 usable):** 7 keep the original, 4 augment, 1 tie. **All four augment cells are link prediction; no node classification cell augments at all.** Two candidate rules survive the screen, both LP: augment when *adjusted homophily is below ~0.23*, or when *largest-component fraction is above ~0.96* (i.e. the graph is one connected piece). Both cuts are **intervals, not numbers** — the panel pins them only to (0.093, 0.361) and (0.918, 1.0) — and refitting with one dataset hidden gives 4/5 and 5/6 against 0.60 / 0.67 majority baselines. So this is a *study* — a "when to augment" guide — not "our graph always wins".
 
 > Superseded, kept so it is not re-introduced: the old line "role graphs never help link prediction" held only on the core-4 + OGB panel, before `roman_empire` / `tolokers` / `questions` were added on 2026-07-27.
 
@@ -175,7 +175,7 @@ Notes: the author **citeseer** graph has no aligned labels, so the study uses **
 | 2. `virgo/virtual_graph.py` (five-variant builder) | ✅ done | — |
 | 3. GraphSAGE encoder over the virtual graph | ✅ done | GIN next (swap in after SAGE) |
 | 4. Node-class + link-pred eval on 7 datasets | ✅ done | numbers in `results/scoreboard.csv` |
-| 5. Characterization table + "when to augment" rule | ✅ done | 7 properties screened per task; **2 LP candidate rules final**; `results/candidate_rules.csv` |
+| 5. Characterization table + "when to augment" rule | ✅ done | 7 properties screened per task; **2 LP candidate rules final**, each with its separating interval and a hidden-dataset refit; `results/candidate_rules.csv`, `results/nested_loo.csv` |
 | 5b. **Module 3 — pre-registered validation** | 🔵 **current** | freeze the 2 rules, predict unseen datasets before training, then run |
 | 6. GIN results | 🔵 next | after the GraphSAGE + OGB runs |
 | 7. LoG paper draft | 🔵 | thesis reuses it |

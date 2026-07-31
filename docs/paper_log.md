@@ -1561,3 +1561,91 @@ informative case.
 
 Docs updated to this state: `README.md`, `docs/virgo_guide.md`, `CLAUDE.md` §4, `experiments/README.md`,
 notebook 5 §8. Tables: `results/candidate_rules.csv`, `results/characterization_*.csv`.
+
+---
+
+## 2026-07-31 — Threshold honesty: the split is fitted on the cells it is scored on
+
+### The issue
+
+The screen reported each rule as "0 exceptions", and that number was **not evidence**. `threshold()` searches every
+midpoint between adjacent predictor values and keeps the one with fewest errors, then the same cells are used to count
+those errors. Whenever the two verdict classes are linearly separable on a predictor, the search *must* find a split
+with zero errors. The count is a property of separability, not of the rule's reach.
+
+Two separate defects, worth stating apart:
+
+1. **The reported number is over-precise.** `0.227` is the midpoint between `tolokers` (0.0926, augments) and `enzymes`
+   (0.3613, keeps) — the two datasets straddling the boundary. It is a max-margin choice, which is defensible, but the
+   panel only pins the **interval** (0.0926, 0.3613); every cut inside it fits the seven-dataset panel exactly as well.
+   Quoting three decimals implies a precision the data do not contain. Same for rule 2: the interval is (0.9177, 1.0).
+2. **The error count is in-sample.** No held-out estimate existed at all, so nothing in the screen distinguished a rule
+   that generalizes from one that memorizes five points.
+
+Origin: raised by the user, who proposed hiding one dataset at a time, refitting the cutoff on the rest, and predicting
+the hidden one. That proposal is correct and is what was implemented, with one addition described below.
+
+### The design
+
+Three additions to `experiments/characterize.py`, all measurement — pipeline, seeds, K, encoder and the frozen
+scoreboard are untouched.
+
+**1. `threshold()` now returns the separating interval.** Error as a function of the cut is piecewise constant between
+adjacent data values, so the routine widens from the chosen cut across every neighbouring cut with the same error count
+and returns the two data values bounding that run. New columns `interval_lo` / `interval_hi`. The reported threshold is
+still the midpoint; the interval is what the write-up quotes.
+
+**2. `loo_threshold()` — leave-one-out refit of the split.** Hide one cell, refit the cut on the remainder, predict the
+hidden cell. New columns `loo_accuracy`, `loo_correct`, `loo_folds`, `loo_threshold_lo`, `loo_threshold_hi`, plus
+`majority_baseline` (always guessing the more common verdict) and `loo_beats_majority`. The baseline matters: with 3
+augment / 2 keep, guessing "augment" every time already scores 0.60, so raw LOO accuracy is meaningless on its own.
+
+**3. `nested_loo()` — leave-one-out over the whole screen.** LOO on the threshold alone still leaks: the *predictor*
+`homophily_adjusted` was itself chosen by looking at all cells. `nested_loo()` hides a dataset and re-runs predictor
+selection **and** thresholding inside each fold, then predicts the hidden one. Predictor selection inside a fold breaks
+ties on (fewest errors, then larger |ρ|) rather than list order, so the first-listed predictor is not favoured. A
+dataset the fold's chosen predictor cannot be evaluated on counts as a **miss, not a skip** — `ogbl_ddi` has no labels,
+so a rule built on homophily genuinely fails to predict it. New output: `results/nested_loo.csv`.
+
+**Gate change.** `GATES["loo_above_majority"] = True`; `credible` now also requires `loo_accuracy > majority_baseline`.
+Rationale: `n_exceptions` cannot fail on separable data, so it was carrying no weight. Both frozen rules pass unchanged,
+so no conclusion moves — the gate only makes an existing hand-judgement mechanical (see below).
+
+### Results
+
+| rule | reported cut | any cut in | LOO | majority baseline | fold cutoffs ranged |
+|------|--------------|-----------|-----|-------------------|---------------------|
+| augment when `homophily_adjusted` < 0.227 | 0.227 | (0.0926, 0.3613) | **4/5 = 0.80** | 0.60 | 0.191 – 0.4319 |
+| augment when `largest_component_frac` > 0.9588 | 0.9588 | (0.9177, 1.0) | **5/6 = 0.83** | 0.67 | 0.5032 – 0.9588 |
+| ~~`nbr_predictability_adjusted` < 0.4084~~ | 0.4084 | (0.3324, 0.4844) | **3/5 = 0.60** | 0.60 | 0.2402 – 0.5734 |
+
+**Both frozen rules survive, each with exactly one out-of-sample error.** The in-sample "0 exceptions" becomes "1 of 5"
+and "1 of 6" once honestly scored — that is the number the paper should quote.
+
+- Rule 1 misses **`enzymes`**: with enzymes hidden the boundary pair becomes `tolokers` (0.0926) and `cora` (0.7711),
+  the fold cutoff jumps to 0.4319, and enzymes at 0.3613 falls on the augment side. The 2.3× spread in fold cutoffs
+  (0.191 – 0.4319) is the direct measure of how weakly the panel pins the number.
+- Rule 2 misses **`cora`**: with cora hidden the only keep-side dataset left is `enzymes` (0.0064), the cutoff drops to
+  0.5032, and cora at 0.9177 is called augment. Consistent with the standing "two-group split" caveat.
+
+**`nbr_predictability_adjusted` is now rejected mechanically.** It scores exactly the majority baseline — the split
+carries zero information beyond guessing. It was already dropped on 2026-07-29 by reading the fixed-gap control and the
+LODO floor; the gate now reaches the same verdict without judgement, which is the stronger version of the same result.
+
+**Nested LOO: 4/6 on both gap definitions.** `homophily_adjusted` is re-selected in 5 of 6 folds (`tolokers`'s fold
+picks `nbr_predictability_adjusted` on `gap_rel`), so *predictor choice is stable* — the study is not fishing between
+properties. The two misses are `enzymes` (as above) and `ogbl_ddi`, which is unpredictable rather than mispredicted:
+it has no labels, hence no homophily. That is a genuine coverage limit of the leading rule and belongs in the paper —
+**rule 1 cannot be applied to an unlabelled graph at all**, which is precisely when rule 2 is needed.
+
+### What this changes in the write-up
+
+- Quote **intervals**, not points: "augment when adjusted homophily is below roughly 0.1–0.36" with 0.23 as the point
+  estimate. Do not quote 4 significant figures for either rule.
+- Report LOO 4/5 and 5/6 against their 0.60 / 0.67 baselines, never the in-sample 0 exceptions alone.
+- State the nested result 4/6 and name both failure modes (`enzymes` boundary, `ogbl_ddi` coverage).
+- This is **not** a substitute for Module 3. Same seven datasets, same provenance confound, n = 5–6 per fold. LOO tests
+  how tightly the panel pins the cut; only unseen datasets test whether the rule transfers.
+
+Code: `experiments/characterize.py` (`threshold`, `loo_threshold`, `nested_loo`, `GATES`, `rule`). Tables:
+`results/candidate_rules.csv` (9 new columns), `results/nested_loo.csv` (new). Notebook 5 §8 and new §8c.

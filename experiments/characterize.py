@@ -90,7 +90,7 @@ CANONICAL = {"fragmentation": "largest_component_frac"}
 # value is 0.738, so |rho| >= 0.7 already sits at about p <= 0.07, and demanding p as well would reject usable patterns
 # on this few datasets. Corrected p is reported alongside instead. Passing means "credible CANDIDATE", never "proven rule" -
 # the proof is Module 3, a pre-registered prediction on unseen datasets.
-GATES = {"min_abs_rho": 0.7, "max_exceptions": 1, "min_cells": 4}
+GATES = {"min_abs_rho": 0.7, "max_exceptions": 1, "min_cells": 4, "loo_above_majority": True}
 
 # Ablation-D encoder names -> arm, and single-feature arms -> the Family 2 feature they switch on.
 ARMS = {"graphsage_edge": "all", "features_only": "none_mp",
@@ -375,13 +375,77 @@ TARGETS = {"gap_rel": "verdict", "gap_fixed_rel": "verdict_fixed"}
 
 
 # Turns a predictor into an executable decision: one split point, and which side of it says "augment".
+# The split is the MIDPOINT between the two datasets straddling the boundary - a max-margin choice, but the data only
+# ever identify the INTERVAL between those two datasets, so the interval is returned alongside and is what gets reported.
 def threshold(x, y):
-    '''Best midpoint split of x against the binary target y: (split, the side that augments, error count, accuracy).'''
+    '''Best midpoint split of x against the binary target y: (split, the side that augments, error count, accuracy, and the value interval every equally-good split lies in).'''
     u = np.unique(x)
-    cuts = (u[:-1] + u[1:]) / 2 if len(u) > 1 else u
-    t, side, err = min(((float(c), s, int(((x > c if s == "high" else x < c) != y).sum()))
-                        for c in cuts for s in ("high", "low")), key=lambda z: z[2])
-    return round(t, 4), side, err, round(1 - err / len(y), 4)
+    if len(u) < 2:
+        return float("nan"), "", int(min((y == 0).sum(), (y == 1).sum())), float("nan"), float("nan"), float("nan")
+    cuts = (u[:-1] + u[1:]) / 2
+    keys = [(i, s) for i in range(len(cuts)) for s in ("high", "low")]
+    err = {k: int(((x > cuts[k[0]] if k[1] == "high" else x < cuts[k[0]]) != y).sum()) for k in keys}
+    i, side = min(keys, key=lambda k: err[k])          # ties break on the first cut, "high" before "low"
+    e, lo, hi = err[(i, side)], i, i
+    while lo > 0 and err[(lo - 1, side)] == e:         # widen across neighbouring cuts that separate exactly as well
+        lo -= 1
+    while hi < len(cuts) - 1 and err[(hi + 1, side)] == e:
+        hi += 1
+    return (round(float(cuts[i]), 4), side, e, round(1 - e / len(y), 4), round(float(u[lo]), 4), round(float(u[hi + 1]), 4))
+
+
+# The threshold above is fitted and scored on the SAME cells, so "0 exceptions" is guaranteed whenever the classes separate
+# at all - it is not evidence. This refits the split with one dataset hidden and predicts that dataset, once per dataset.
+def loo_threshold(x, y):
+    '''Leave-one-out refit of the split: (accuracy, correct, folds scored, lowest and highest cutoff the folds produced).'''
+    ok, cuts = 0, []
+    for i in range(len(x)):
+        m = np.ones(len(x), dtype=bool)
+        m[i] = False
+        if len(np.unique(x[m])) < 2 or len(np.unique(y[m])) < 2:      # a fold that cannot be fitted is skipped, not scored
+            continue
+        t, side, _, _, _, _ = threshold(x[m], y[m])
+        cuts.append(t)
+        ok += int(((x[i] > t) if side == "high" else (x[i] < t)) == y[i])
+    if not cuts:
+        return float("nan"), 0, 0, float("nan"), float("nan")
+    return round(ok / len(cuts), 4), ok, len(cuts), round(min(cuts), 4), round(max(cuts), 4)
+
+
+# loo_threshold only debiases the SPLIT. The predictor itself was chosen by looking at every cell, so that choice is still
+# fitted on the test data. This hides a dataset and re-runs the WHOLE screen - predictor choice included - inside each fold,
+# which is the only number that answers "what would this study have predicted for a dataset it had never seen".
+def nested_loo(fam1, gap):
+    '''One row per held-out dataset: the predictor and split the remaining datasets choose, and whether they call it right.'''
+    joined = gap[gap["usable"]].merge(fam1, on="dataset")
+    rows = []
+    for family, g in joined.groupby("task_family"):
+        for target, vcol in TARGETS.items():
+            d = g[g[vcol] != "tie"].reset_index(drop=True)
+            y = (d[vcol] == "augment").to_numpy()
+            if len(d) < GATES["min_cells"] or not y.any() or y.all():
+                continue
+            for i in range(len(d)):
+                tr, pick = d.drop(i), None
+                for p in PREDICTORS_PRIMARY:
+                    s = tr[tr[p].notna()]
+                    yt = (s[vcol] == "augment").to_numpy()
+                    if s[p].nunique() < 2 or not yt.any() or yt.all():
+                        continue
+                    t, side, err, _, _, _ = threshold(s[p].to_numpy(), yt)
+                    r = rho(s[p], s[target])[1]
+                    key = (err, -abs(r) if r == r else 0.0)                   # fewest errors, then the stronger correlation
+                    if pick is None or key < pick[0]:
+                        pick = (key, p, t, side)
+                v = float(d.loc[i, pick[1]]) if pick else float("nan")
+                # A missing value is scored as a miss, not skipped: a rule that cannot be evaluated on a dataset (ogbl_ddi
+                # has no labels, so no homophily) has genuinely failed to predict it.
+                pred = "n/a" if not pick or v != v else ("augment" if (v > pick[2] if pick[3] == "high" else v < pick[2]) else "keep original")
+                rows.append({"task_family": family, "target": target, "held_out": d.loc[i, "dataset"],
+                             "picked_predictor": pick[1] if pick else "", "threshold": pick[2] if pick else float("nan"),
+                             "augment_side": pick[3] if pick else "", "value": round(v, 4) if v == v else float("nan"),
+                             "predicted": pred, "actual": d.loc[i, vcol], "correct": bool(pred == d.loc[i, vcol])})
+    return pd.DataFrame(rows)
 
 
 # PORTION 2 (D): screen every PRIMARY predictor as a binary keep-vs-augment rule, per task family.
@@ -400,8 +464,12 @@ def candidate_rules(fam1, gap):
                 stable = bool(lodo) and r == r and all(np.sign(v) == np.sign(r) for v in lodo)
                 d = g[(g[vcol] != "tie") & g[p].notna()]                    # ties carry no decision to reproduce
                 y = (d[vcol] == "augment").to_numpy()
-                t, side, err, acc = (threshold(d[p].to_numpy(), y) if len(d) >= GATES["min_cells"] and y.any() and not y.all()
-                                     else (float("nan"), "", -1, float("nan")))
+                fit = len(d) >= GATES["min_cells"] and y.any() and not y.all()
+                t, side, err, acc, lo, hi = (threshold(d[p].to_numpy(), y) if fit
+                                             else (float("nan"), "", -1, float("nan"), float("nan"), float("nan")))
+                l_acc, l_ok, l_n, l_lo, l_hi = (loo_threshold(d[p].to_numpy(), y) if fit
+                                                else (float("nan"), 0, 0, float("nan"), float("nan")))
+                major = round(float(max(y.mean(), 1 - y.mean())), 4) if len(y) else float("nan")
                 fam = FAMILY.get(p, p)
                 rows.append({
                     "task_family": family, "target": target, "predictor": p,
@@ -416,15 +484,25 @@ def candidate_rules(fam1, gap):
                     "lodo_min_abs_rho": round(min(abs(v) for v in lodo), 4) if lodo else float("nan"),
                     "lodo_sign_stable": stable,
                     "threshold": t, "augment_side": side, "n_exceptions": err, "accuracy": acc,
+                    # The panel pins an INTERVAL, not a point: every cut between these two values fits it exactly as well.
+                    "interval_lo": lo, "interval_hi": hi,
+                    # Out-of-sample: split refitted with each dataset hidden. `accuracy` above is in-sample and cannot fail.
+                    "loo_accuracy": l_acc, "loo_correct": l_ok, "loo_folds": l_n,
+                    "loo_threshold_lo": l_lo, "loo_threshold_hi": l_hi,
+                    "majority_baseline": major,
+                    "loo_beats_majority": bool(l_acc == l_acc and l_acc > major),
                     "rule": f"{family}: augment when {p} is {side} ({'>' if side == 'high' else '<'} {t})" if side else "",
+                    # n_exceptions is in-sample and cannot fail on separable data, so the out-of-sample check gates too:
+                    # a split that predicts a hidden dataset no better than always guessing the majority verdict is not a rule.
                     "credible": bool(r == r and abs(r) >= GATES["min_abs_rho"] and stable
-                                     and 0 <= err <= GATES["max_exceptions"] and n >= GATES["min_cells"]),
+                                     and 0 <= err <= GATES["max_exceptions"] and n >= GATES["min_cells"]
+                                     and (l_acc == l_acc and l_acc > major if GATES["loo_above_majority"] else True)),
                 })
     return pd.DataFrame(rows).sort_values(["task_family", "target", "predictor"]).reset_index(drop=True)
 
 
 # PORTION 2 (D): the reading of the three tables - the when-to-augment rule the study set out to produce.
-def rule(gap, corr, feat, cand):
+def rule(gap, corr, feat, cand, nest):
     '''Print the when-to-augment conclusion: per-cell verdicts, the strongest predictor per task, best feature per cell.'''
     print("\nVERDICT PER CELL (1 sigma band on the 3-seed noise; gap_fixed drops the max-over-variants selection bias)")
     print(gap[["dataset", "task_family", "metric", "original", "best_augmented", "best_variant", "gap_abs", "gap_sigma",
@@ -441,23 +519,42 @@ def rule(gap, corr, feat, cand):
     for name, sub in g.groupby("task_family"):
         top = sub.reindex(sub["spearman_rho"].abs().sort_values(ascending=False).index).head(3)
         print(f"  {name:<22} " + " | ".join(f"{r.predictor} rho={r.spearman_rho:+.2f} (n={r.n}, p_bonf={r.p_bonferroni:.3f})" for r in top.itertuples()))
-    print(f"\nCANDIDATE RULES (gates: |rho|>={GATES['min_abs_rho']}, LODO sign-stable, <={GATES['max_exceptions']} exception;"
-          " significance REPORTED, not gated -> a pass is a credible CANDIDATE, Module 3 is the test)")
+    print(f"\nCANDIDATE RULES (gates: |rho|>={GATES['min_abs_rho']}, LODO sign-stable, <={GATES['max_exceptions']} exception,"
+          " leave-one-out above the majority baseline; significance REPORTED, not gated -> a pass is a credible CANDIDATE, Module 3 is the test)")
     print(cand[["task_family", "target", "predictor", "predictor_family", "canonical", "n_cells", "n_augment",
                 "distinct_values", "spearman_rho", "p_bonferroni", "lodo_min_abs_rho", "lodo_sign_stable",
-                "threshold", "augment_side", "n_exceptions", "credible"]].to_string(index=False))
+                "threshold", "interval_lo", "interval_hi", "augment_side", "n_exceptions",
+                "loo_accuracy", "majority_baseline", "credible"]].to_string(index=False))
     keep = cand[cand["credible"] & cand["canonical"]]                 # one row per FINDING: collinear predictors collapse to their canonical member
     print("\n  CREDIBLE FINDINGS (collinear predictors merged): " +
           ("; ".join(dict.fromkeys(keep["rule"])) if len(keep) else "none - no predictor clears the gates"))
     dropped = cand[cand["credible"] & ~cand["canonical"]]["predictor"].unique()
     if len(dropped):
         print("  merged away as the same finding: " + ", ".join(f"{p} (-> {CANONICAL[FAMILY[p]]})" for p in dropped))
+    # Named explicitly: a rule that passes every in-sample gate and fails only out of sample is the case this check exists for.
+    near = cand[~cand["credible"] & cand["spearman_rho"].notna() & (cand["spearman_rho"].abs() >= GATES["min_abs_rho"])
+                & cand["lodo_sign_stable"] & cand["n_exceptions"].between(0, GATES["max_exceptions"])]
+    for r in near.drop_duplicates("rule").itertuples():
+        print(f"  REJECTED out of sample - {r.rule}: leave-one-out {r.loo_accuracy} vs {r.majority_baseline} for guessing the majority verdict")
     thin = keep[keep["distinct_augment"] <= 1]["predictor"].unique()
     if len(thin):
         print("  WEAK EVIDENCE - every augmenting graph shares one predictor value, so this is a two-group split, not a graded trend: " + ", ".join(thin))
     for name, sub in cand.groupby("task_family"):
         if sub["n_augment"].max() == 0:
             print(f"  {name}: no augment cell exists -> no rule is learnable here, only the boundary 'never augment' is reportable")
+    print("\n  OUT-OF-SAMPLE CHECK - the threshold above is fitted and scored on the SAME cells, so its exception count is")
+    print("  guaranteed once the classes separate at all. These numbers refit the split with each dataset hidden:")
+    for r in keep.drop_duplicates("rule").itertuples():                # a rule that clears on both gap definitions is ONE rule
+        print(f"    {r.rule}\n      any cut in ({r.interval_lo}, {r.interval_hi}) fits the panel equally well -> quote the interval, not the point"
+              f"\n      leave-one-out {r.loo_correct}/{r.loo_folds} = {r.loo_accuracy} vs {r.majority_baseline} for always guessing the "
+              f"majority verdict; fold cutoffs ranged {r.loo_threshold_lo} to {r.loo_threshold_hi}")
+    if len(nest):
+        print("\n  NESTED LEAVE-ONE-OUT - the PREDICTOR is re-chosen inside each fold too, so choosing it on all cells is scored as well.")
+        print("  A dataset the rule cannot be evaluated on (no labels -> no homophily) counts as a miss, not a skip:")
+        for (family, target), sub in nest.groupby(["task_family", "target"]):
+            miss = [f"{r.held_out} (said {r.predicted}, was {r.actual})" for r in sub.itertuples() if not r.correct]
+            print(f"    {family} / {target}: {int(sub['correct'].sum())}/{len(sub)} correct, predictor picked "
+                  f"{' + '.join(sorted(set(sub['picked_predictor'])))}" + ("; missed " + ", ".join(miss) if miss else ""))
     print("\nBEST SINGLE FEATURE PER CELL (ablation D lift over random features)")
     s = feat[feat["feature"].notna()]
     best = s.loc[s.groupby(["dataset", "task_family"])["mean"].idxmax()]
@@ -479,6 +576,7 @@ def main(args):
         feat = out["feature_usefulness"] = feature_scores(fam2)
         corr = out["characterization_correlations"] = correlate(fam1, gap, feat)
         cand = out["candidate_rules"] = candidate_rules(fam1, gap)
+        nest = out["nested_loo"] = nested_loo(fam1, gap)
     for name, df in out.items():
         df.to_csv(cfg.RESULTS_DIR / f"{name}.csv", index=False)
         print(f"{len(df):3d} rows -> results/{name}.csv", flush=True)
@@ -487,7 +585,7 @@ def main(args):
     print("\nFAMILY 2 - raw structural inputs, pre-z-normalization")
     print(fam2[["dataset", "feature", "mean", "std", "skew", "pct_zero", "pct_unique", "max", "degenerate"]].to_string(index=False))
     if args.step in ("relate", "rules", "all"):
-        rule(gap, corr, feat, cand)
+        rule(gap, corr, feat, cand, nest)
 
 
 # Defines command-line options (mirrors run_core.py / run_ogb.py).
