@@ -49,6 +49,7 @@ DATASETS = {
     "pubmed":      {"edgelist": INPUT_DIR / "pubmed.edgelist",      "labels": LABELS_DIR / "pubmed.labels"},        # Planetoid citation, 3 classes; 500-dim TF-IDF ignored
     "actor":       {"edgelist": INPUT_DIR / "actor.edgelist",       "labels": LABELS_DIR / "actor.labels"},         # Geom-GCN film co-occurrence, low homophily, 5 classes; 932-dim features ignored
     "minesweeper": {"edgelist": INPUT_DIR / "minesweeper.edgelist", "labels": LABELS_DIR / "minesweeper.labels"},   # Platonov grid, adjusted homophily ~0.01, 2 classes; 7-dim features ignored
+    "amazon_photo": {"edgelist": INPUT_DIR / "amazon_photo.edgelist", "labels": LABELS_DIR / "amazon_photo.labels"},  # co-purchase ("bought together"), 8 classes; 745-dim bag-of-words ignored
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 

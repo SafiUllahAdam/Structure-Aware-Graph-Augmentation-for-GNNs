@@ -46,6 +46,7 @@ STUDY = {
     "pubmed":         {"domain": "citation",         "tasks": "NC+LP", "scope": "full"},
     "actor":          {"domain": "film",             "tasks": "NC+LP", "scope": "full"},
     "minesweeper":    {"domain": "grid",             "tasks": "NC+LP", "scope": "full"},
+    "amazon_photo":   {"domain": "co-purchase",      "tasks": "NC+LP", "scope": "full"},
 }
 
 # THE ACTIVE PANEL is the FIXED literal DISCOVERY_PANEL (virgo/frozen_rules.py), NOT derived here: citeseer_linqs and
