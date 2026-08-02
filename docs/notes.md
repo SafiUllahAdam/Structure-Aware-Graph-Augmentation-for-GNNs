@@ -961,3 +961,15 @@ notebook JSON round-trips byte-exact so the only diff is the import lines. Comma
 `python experiments/train_encoder.py`, `python scripts/main.py` -> `python experiments/run_task.py`, and the other
 root scripts gained an `experiments/` prefix. `docs/notes.md` and `docs/paper_log.md` keep their original command
 strings — they are historical records of what was run at the time, not current instructions.
+
+## 2026-07-31 — notebook 5: Table 2 gains a screening view (presentation only)
+
+`notebooks/5-phase5_characterization.ipynb` §5 now has three parts instead of two. The new **Part B**
+(`codet2bscreen`) tabulates all seven `PREDICTORS_PRIMARY` on link prediction — impact direction, `spearman_rho`,
+`fixed_gap_rho`, `lodo_sign_stable`, `loo_correct_folds`, `majority_baseline`, `n_exceptions`, `canonical`,
+`passes_gates` — with a `selection_reason` generated from the first gate each property fails, so the two retained
+rules and the five dropped ones are read off one table. Unfiltered: no `|rho| >= 0.7` or `credible` mask.
+The previous detail table (`codet2b`) is renamed **Part C**; `mdt2` and `mda5` follow the rename.
+
+`experiments/characterize.py` untouched — every value is read from `results/candidate_rules.csv`. No score,
+threshold, rule, dataset, seed, metric or CSV changed; `git status` shows the notebook as the only modified file.
