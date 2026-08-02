@@ -14,7 +14,7 @@ DISCOVERY_PANEL = ["cora", "enzymes", "ogbn_arxiv", "ogbl_ddi", "roman_empire", 
 
 # The Module-3 held-out datasets, stored SEPARATELY so they can never leak into fitting. Append more as they are ingested;
 # predict_module3.py defaults to this list. A dataset must live in exactly one of the two panels, never both.
-HELDOUT = ["citeseer_linqs", "proteins", "pubmed", "actor", "minesweeper"]
+HELDOUT = ["citeseer_linqs", "proteins", "pubmed", "actor", "minesweeper", "amazon_photo"]
 
 assert not (set(DISCOVERY_PANEL) & set(HELDOUT)), "a dataset is in BOTH the discovery panel and the held-out set - it must be in exactly one"
 
