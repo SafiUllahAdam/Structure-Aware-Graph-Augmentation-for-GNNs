@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on
 from virgo import config as cfg
 from virgo import graph_io
 from virgo.encoders import feature_cache
+from virgo.frozen_rules import DISCOVERY_PANEL, HELDOUT   # the locked fitting set + the held-out set: threshold-fitting may never see a dataset outside DISCOVERY_PANEL
 
 # The eight study datasets. Domain / tasks / scope are DECLARED metadata (they cannot be measured from an edgelist);
 # every other column in Family 1 is measured. scope records which graph the row describes: ogbl-ddi ships training edges only.
@@ -43,9 +44,11 @@ STUDY = {
     "questions":      {"domain": "q&a interaction",  "tasks": "NC+LP", "scope": "full"},
 }
 
-# THE ACTIVE PANEL (user decision 2026-07-29): citeseer_linqs and proteins are excluded from all forward work. They stay
-# in STUDY so their declared metadata and past rows keep their meaning, but nothing is reported on them by default.
-PANEL = [ds for ds in STUDY if ds not in ("citeseer_linqs", "proteins")]
+# THE ACTIVE PANEL is the FIXED literal DISCOVERY_PANEL (virgo/frozen_rules.py), NOT derived here: citeseer_linqs and
+# proteins were dropped 2026-07-29, but the panel must never widen just because a dataset is added to STUDY. Both panels
+# must name registered datasets, so the study can actually load them.
+assert set(DISCOVERY_PANEL) <= set(STUDY), f"discovery panel names an unregistered dataset: {sorted(set(DISCOVERY_PANEL) - set(STUDY))}"
+assert set(HELDOUT) <= set(STUDY), f"held-out set names an unregistered dataset: {sorted(set(HELDOUT) - set(STUDY))}"
 
 FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by GNNEncoder.features()
 
@@ -415,8 +418,9 @@ def loo_threshold(x, y):
 # loo_threshold only debiases the SPLIT. The predictor itself was chosen by looking at every cell, so that choice is still
 # fitted on the test data. This hides a dataset and re-runs the WHOLE screen - predictor choice included - inside each fold,
 # which is the only number that answers "what would this study have predicted for a dataset it had never seen".
-def nested_loo(fam1, gap):
+def nested_loo(fam1, gap, allow_refit=False):
     '''One row per held-out dataset: the predictor and split the remaining datasets choose, and whether they call it right.'''
+    _assert_panel(fam1["dataset"], allow_refit)
     joined = gap[gap["usable"]].merge(fam1, on="dataset")
     rows = []
     for family, g in joined.groupby("task_family"):
@@ -448,11 +452,22 @@ def nested_loo(fam1, gap):
     return pd.DataFrame(rows)
 
 
+# Guards the two functions that FIT thresholds. Fitting on a dataset outside the frozen panel would let an unseen Module-3
+# graph move the very rule it is meant to test - the data leak that makes validation circular. Predict such graphs with
+# experiments/predict_module3.py instead; pass allow_refit=True only to re-fit the panel itself on purpose.
+def _assert_panel(datasets, allow_refit):
+    '''Raise unless every dataset is inside the frozen fitting panel (or a deliberate re-fit was requested).'''
+    extra = sorted(set(datasets) - set(DISCOVERY_PANEL))
+    assert allow_refit or not extra, (f"threshold fitting must stay on the discovery panel {DISCOVERY_PANEL}; {extra} are outside it. "
+                                       "Predict them with experiments/predict_module3.py, or pass --allow-refit to re-fit deliberately.")
+
+
 # PORTION 2 (D): screen every PRIMARY predictor as a binary keep-vs-augment rule, per task family.
 # Gates are |rho|, leave-one-dataset-out sign stability and threshold errors - see GATES for why significance is not one of them.
 # A predictor whose task family has no augment cell at all cannot be screened: there is nothing to separate, and it fails on errors.
-def candidate_rules(fam1, gap):
+def candidate_rules(fam1, gap, allow_refit=False):
     '''One row per task family x predictor x gap definition: rho, LODO stability, best threshold, exceptions, credible flag.'''
+    _assert_panel(fam1["dataset"], allow_refit)
     joined = gap[gap["usable"]].merge(fam1, on="dataset")
     rows = []
     for family, g in joined.groupby("task_family"):
@@ -575,11 +590,15 @@ def main(args):
         gap = out["characterization_gaps"] = gaps(step1)
         feat = out["feature_usefulness"] = feature_scores(fam2)
         corr = out["characterization_correlations"] = correlate(fam1, gap, feat)
-        cand = out["candidate_rules"] = candidate_rules(fam1, gap)
-        nest = out["nested_loo"] = nested_loo(fam1, gap)
+        cand = out["candidate_rules"] = candidate_rules(fam1, gap, args.allow_refit)
+        nest = out["nested_loo"] = nested_loo(fam1, gap, args.allow_refit)
+    # An exploratory refit (--allow-refit) may fit rules on datasets outside the discovery panel, so it must NEVER overwrite
+    # the frozen Module-2 evidence (candidate_rules.csv, nested_loo.csv, and the tables they are read against). It writes an
+    # exploratory_ copy of every output instead; the frozen files are updated only by a plain, panel-only run.
+    prefix = "exploratory_" if args.allow_refit else ""
     for name, df in out.items():
-        df.to_csv(cfg.RESULTS_DIR / f"{name}.csv", index=False)
-        print(f"{len(df):3d} rows -> results/{name}.csv", flush=True)
+        df.to_csv(cfg.RESULTS_DIR / f"{prefix}{name}.csv", index=False)
+        print(f"{len(df):3d} rows -> results/{prefix}{name}.csv", flush=True)
     print("\nFAMILY 1 - graph properties (measured on the original graph)")
     print(fam1.drop(columns=["directed_source", "distinct_degrees", "isolates"]).to_string(index=False))
     print("\nFAMILY 2 - raw structural inputs, pre-z-normalization")
@@ -592,10 +611,13 @@ def main(args):
 def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Characterization: measure the graphs and the encoder's inputs, then relate them to when augmentation helps.")
-    p.add_argument('--datasets', nargs='+', default=PANEL, choices=list(STUDY),
-                   help='Datasets to measure. Default: the active seven-dataset panel (citeseer_linqs and proteins are excluded from forward work).')
+    p.add_argument('--datasets', nargs='+', default=DISCOVERY_PANEL, choices=list(STUDY),
+                   help='Datasets to measure (any registered dataset may be MEASURED; fitting is guarded separately). Default: the fixed seven-dataset discovery panel.')
     p.add_argument('--step', default='all', choices=['measure', 'relate', 'rules', 'all'],
                    help="'measure' = portion 1 only; 'relate' / 'rules' / 'all' also join the properties to the gaps and screen candidate rules. Default: all.")
+    p.add_argument('--allow-refit', action='store_true',
+                   help='Deliberately re-fit thresholds on a dataset set that is not the discovery panel. OFF by default so Module-3 datasets cannot silently move the rules. '
+                        'Writes exploratory_*.csv so the frozen candidate_rules.csv / nested_loo.csv are never overwritten.')
     return p.parse_args()
 
 
