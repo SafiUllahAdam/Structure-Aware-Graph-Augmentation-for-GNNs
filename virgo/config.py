@@ -44,6 +44,11 @@ DATASETS = {
     "tolokers":     {"edgelist": INPUT_DIR / "tolokers.edgelist", "labels": LABELS_DIR / "tolokers.labels"},   # worked-the-same-task = symmetric by construction; 10-dim worker profile ignored
     "questions":    {"edgelist": INPUT_DIR / "questions.edgelist", "labels": LABELS_DIR / "questions.labels",
                      "directed_source": True},   # answered-your-question = a DIRECTED relation, symmetrized upstream by PyG; 301-dim fastText features ignored
+    # Module-3 HELD-OUT (2026-08-02): genuinely unseen datasets to validate the two frozen rules. Structural-only, ViRGo core
+    # protocol (no "eval" key -> route like the core four). Build via make_pyg.py (pubmed, actor) / make_hetero.py (minesweeper).
+    "pubmed":      {"edgelist": INPUT_DIR / "pubmed.edgelist",      "labels": LABELS_DIR / "pubmed.labels"},        # Planetoid citation, 3 classes; 500-dim TF-IDF ignored
+    "actor":       {"edgelist": INPUT_DIR / "actor.edgelist",       "labels": LABELS_DIR / "actor.labels"},         # Geom-GCN film co-occurrence, low homophily, 5 classes; 932-dim features ignored
+    "minesweeper": {"edgelist": INPUT_DIR / "minesweeper.edgelist", "labels": LABELS_DIR / "minesweeper.labels"},   # Platonov grid, adjusted homophily ~0.01, 2 classes; 7-dim features ignored
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 

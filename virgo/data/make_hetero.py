@@ -15,8 +15,9 @@ from virgo.data.make_ogb import _write_edges, _write_nodes   # same writers as t
 
 RAW = "output/hetero_raw"                         # PyG download cache: derived, never hand-edited, kept out of input/
 
-# ViRGo name -> PyG name. Only the three the panel needs; amazon_ratings/minesweeper ship in the same class.
-HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions"}
+# ViRGo name -> PyG name. roman_empire/tolokers/questions = discovery panel; minesweeper added 2026-08-02 as a Module-3
+# held-out graph (connected grid, adjusted homophily ~0.01). amazon_ratings ships in the same class if ever needed.
+HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions", "minesweeper": "Minesweeper"}
 
 
 # Builds input/<name>.edgelist + .nodes + labels/<name>.labels from the PyG copy; drops data.x (structural-only).

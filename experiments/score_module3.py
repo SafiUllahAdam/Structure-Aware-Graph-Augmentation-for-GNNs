@@ -13,6 +13,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root -> `import virgo` works from any cwd
 
 from virgo import config as cfg
+from virgo import frozen_rules as fr
 from experiments.characterize import frozen_inputs, gaps
 from experiments import predict_module3 as pm
 
@@ -33,11 +34,20 @@ def score(datasets=None):
     dsets = datasets or pred["dataset"].tolist()
     act = actual_lp_verdicts(dsets).rename(columns={"verdict": "actual_verdict"})
     m = pred.merge(act, on="dataset", how="left")
-    # correct only where both a firing prediction and an actual verdict exist; blank when a rule never fired or the cell is missing/unusable.
-    m["correct"] = [bool(pv == av) if (pv in ("augment", "keep original") and isinstance(av, str)) else None
-                    for pv, av in zip(m["predicted_verdict"], m["actual_verdict"])]
-    cols = (["dataset", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule2_pred",
-             "predicted_verdict", "actual_verdict", "original", "best_augmented", "best_variant", "correct"])
+    # A cell only scores a rule when the experiment actually DECIDED: the verdict must be augment or keep original AND the
+    # metric must resolve the variants. Module 2 fitted on exactly those cells (ties dropped, unusable dropped), so counting a
+    # tie as a miss would invent an error the data cannot support - a tie means the 3-seed noise covers the gap, not that the rule was wrong.
+    decided = m["actual_verdict"].isin(["augment", "keep original"]) & m["usable"].fillna(False)
+    # Score EACH rule on its own, never the combined "rules disagree" verdict: a disagreement is not dropped, it just shows
+    # which rule was right. Four states, kept apart: "pending" = not trained yet; "no decision" = tie or unusable cell;
+    # None = the rule did not fire (property missing, e.g. homophily on an unlabelled graph); True/False = actually scored.
+    for r in fr.FROZEN_RULES:
+        m[f"{r.name}_correct"] = ["pending" if not isinstance(av, str) else "no decision" if not ok
+                                  else (bool(p == av) if p in ("augment", "keep original") else None)
+                                  for p, av, ok in zip(m[f"{r.name}_pred"], m["actual_verdict"], decided)]
+    m["actual_verdict"] = m["actual_verdict"].fillna("pending")     # untrained held-out datasets read "pending", not NaN
+    cols = (["dataset", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule1_correct",
+             "rule2_pred", "rule2_correct", "predicted_verdict", "actual_verdict", "original", "best_augmented", "best_variant"])
     return m[[c for c in cols if c in m.columns]]
 
 
@@ -47,9 +57,13 @@ def main(args):
     m.to_csv(SCORED_CSV, index=False)
     print(f"{len(m):3d} rows -> results/module3_scored.csv\n")
     print(m.to_string(index=False))
-    scored = m["correct"].dropna()
-    if len(scored):
-        print(f"\nPre-registered link-prediction accuracy: {int(scored.sum())}/{len(scored)} correct.")
+    print()
+    for r in fr.FROZEN_RULES:                              # each rule reported separately, so a disagreement is never lost
+        col = list(m[f"{r.name}_correct"])
+        c = [v for v in col if isinstance(v, bool)]        # bool only: skip pending, no decision (tie/unusable) and did-not-fire
+        skipped = [v for v in col if not isinstance(v, bool)]
+        print(f"{r.name} ({r.predictor} {r.op} {r.point}): " + (f"{sum(c)}/{len(c)} correct" if c else "nothing scored yet")
+              + (f"  [{len(skipped)} not scored: " + ", ".join(sorted({str(v) for v in skipped})) + "]" if skipped else ""))
 
 
 def parse_args():
