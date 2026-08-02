@@ -27,6 +27,11 @@ FROZEN_RULES = [
 ]
 
 
+# The lead rule, frozen with the rules themselves: Module 2 designated rule 1 the primary (rho -1.00 on the bias-free gap,
+# graded across 5 distinct values, vs rule 2's two-group split). It is what breaks a disagreement - a single call, not two.
+LEAD = FROZEN_RULES[0]
+
+
 def predict_one(rule, value):
     '''augment / keep original for one rule's point, or n/a when the property is missing (e.g. homophily on an unlabelled graph).'''
     if value is None or value != value:                    # NaN -> the property needs labels this graph does not have
