@@ -43,13 +43,28 @@ def predictions(datasets):
         p = rule_properties(ds)
         calls, combined = fr.predict(p)
         row = {"dataset": ds, "domain": p["domain"], "tasks": p["tasks"]}
-        for r in fr.FROZEN_RULES:
+        for r in fr.FROZEN_RULES:                          # per rule, in order: the property value, its frozen interval, the call
             row[r.predictor] = p[r.predictor]
-            row[f"{r.name}_pred"] = calls[r.name]
             row[f"{r.name}_interval"] = f"({r.interval[0]}, {r.interval[1]})"
+            row[f"{r.name}_pred"] = calls[r.name]
         row["predicted_verdict"] = combined
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def freeze_predictions(datasets):
+    '''Write-once pre-registration: keep every already-saved row EXACTLY as it was frozen, append only datasets not yet in the
+    file. An existing prediction is never rewritten, so re-running this after training cannot overwrite the before-training proof.'''
+    df = predictions(datasets)
+    cfg.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    if PRED_CSV.exists():
+        old = pd.read_csv(PRED_CSV)
+        new = df[~df["dataset"].isin(old["dataset"])]
+        out = pd.concat([old, new], ignore_index=True)
+    else:
+        new = out = df
+    out.to_csv(PRED_CSV, index=False)
+    return out, new["dataset"].tolist()
 
 
 def main(args):
@@ -59,11 +74,9 @@ def main(args):
         seen = sorted(set(datasets) & set(fr.DISCOVERY_PANEL))
         assert not seen, (f"{seen} are in the frozen DISCOVERY panel, not held out - predicting them is not a real Module-3 test. "
                           "Pass --allow-panel for a sanity re-check only.")
-    cfg.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    df = predictions(datasets)
-    df.to_csv(PRED_CSV, index=False)
-    print(f"{len(df):3d} rows -> results/module3_predictions.csv  (SAVED BEFORE TRAINING - do not overwrite after)\n")
-    print(df.to_string(index=False))
+    out, added = freeze_predictions(datasets)
+    print(f"{len(out):3d} rows in results/module3_predictions.csv  (froze {len(added)} new: {added or 'none'}; existing rows kept untouched)\n")
+    print(out.to_string(index=False))
 
 
 def parse_args():

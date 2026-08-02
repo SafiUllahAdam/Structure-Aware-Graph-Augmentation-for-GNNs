@@ -42,6 +42,10 @@ STUDY = {
     "roman_empire":   {"domain": "linguistic",       "tasks": "NC+LP", "scope": "full"},
     "tolokers":       {"domain": "crowdsourcing",    "tasks": "NC+LP", "scope": "full"},
     "questions":      {"domain": "q&a interaction",  "tasks": "NC+LP", "scope": "full"},
+    # Module-3 held-out (2026-08-02), added to STUDY so the pipeline can measure them; NOT in DISCOVERY_PANEL (fixed literal).
+    "pubmed":         {"domain": "citation",         "tasks": "NC+LP", "scope": "full"},
+    "actor":          {"domain": "film",             "tasks": "NC+LP", "scope": "full"},
+    "minesweeper":    {"domain": "grid",             "tasks": "NC+LP", "scope": "full"},
 }
 
 # THE ACTIVE PANEL is the FIXED literal DISCOVERY_PANEL (virgo/frozen_rules.py), NOT derived here: citeseer_linqs and

@@ -30,6 +30,10 @@ from virgo.encoders.walk import DeepWalkModel
 from experiments import run_ogb                                # for ensure_virtual only: the node-classification virtual graph is built the SAME way in both drivers
 
 CORE = ["cora", "citeseer_linqs", "enzymes", "proteins", "roman_empire", "tolokers", "questions"]   # the non-OGB study datasets, all on ONE protocol (OGB pair lives in run_ogb.py)
+# Module-3 held-out (2026-08-02), runnable but NOT in the default sweep: the pipeline is unchanged, exactly as when
+# roman_empire/tolokers joined - retuning anything on these would void the prediction frozen before they were trained.
+HELDOUT = ["pubmed", "actor", "minesweeper"]
+RUNNABLE = CORE + HELDOUT
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
@@ -118,7 +122,8 @@ def main(args):
 def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Run the core-4 study under the locked ViRGo config (notebook-3 §8 headless).")
-    p.add_argument('--datasets', nargs='+', default=CORE, choices=CORE, help='Datasets to run. Default: all seven.')
+    p.add_argument('--datasets', nargs='+', default=CORE, choices=RUNNABLE,
+                   help='Datasets to run. Default: the seven study datasets; the Module-3 held-out graphs are opt-in by name.')
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
     p.add_argument('--encoder', default='all', choices=['all', 'deepwalk'] + list(ENCODERS),
                    help='Which encoder(s). "all" = the locked graphsage_edge + deepwalk pair; name any registered encoder to opt it in. Default all.')
