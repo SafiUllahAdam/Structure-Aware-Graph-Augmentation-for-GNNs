@@ -47,6 +47,9 @@ STUDY = {
     "actor":          {"domain": "film",             "tasks": "NC+LP", "scope": "full"},
     "minesweeper":    {"domain": "grid",             "tasks": "NC+LP", "scope": "full"},
     "amazon_photo":   {"domain": "co-purchase",      "tasks": "NC+LP", "scope": "full"},
+    "lastfm_asia":    {"domain": "music social",     "tasks": "NC+LP", "scope": "full"},   # added 2026-08-04
+    "amazon_ratings": {"domain": "co-purchase",      "tasks": "NC+LP", "scope": "full"},   # added 2026-08-05; Platonov's heterophilous co-purchase graph, NOT amazon_photo
+    "squirrel_filtered": {"domain": "wikipedia",     "tasks": "NC+LP", "scope": "full"},   # added 2026-08-05; de-duplicated Squirrel, avg degree ~42 = by far the densest in the study
 }
 
 # THE ACTIVE PANEL is the FIXED literal DISCOVERY_PANEL (virgo/frozen_rules.py), NOT derived here: citeseer_linqs and

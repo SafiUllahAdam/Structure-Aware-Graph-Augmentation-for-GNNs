@@ -32,7 +32,7 @@ from experiments import run_ogb                                # for ensure_virt
 CORE = ["cora", "citeseer_linqs", "enzymes", "proteins", "roman_empire", "tolokers", "questions"]   # the non-OGB study datasets, all on ONE protocol (OGB pair lives in run_ogb.py)
 # Module-3 held-out (2026-08-02), runnable but NOT in the default sweep: the pipeline is unchanged, exactly as when
 # roman_empire/tolokers joined - retuning anything on these would void the prediction frozen before they were trained.
-HELDOUT = ["pubmed", "actor", "minesweeper", "amazon_photo"]
+HELDOUT = ["pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia", "amazon_ratings", "squirrel_filtered"]
 RUNNABLE = CORE + HELDOUT
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
