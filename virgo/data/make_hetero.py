@@ -3,7 +3,10 @@
 # only "augment" verdict was a single cell (ogbl-ddi LP) and the decision boundary was fitted from one point.
 # These two sit on the two axes the rule predicts from - adjusted homophily (node classification) and average degree
 # (link prediction) - and the prediction is recorded in docs/paper_log.md BEFORE the run, so the outcome is held out.
-# Purely structural: node_features (roman-empire 300-dim fastText, tolokers 10-dim worker profile) are IGNORED by design.
+# Purely structural: node_features (roman-empire 300-dim fastText, tolokers 10-dim worker profile, amazon-ratings 300-dim
+# fastText of the product description, squirrel-filtered 2089-dim) are IGNORED by design.
+# squirrel_filtered is the authors' de-duplicated Squirrel: the ORIGINAL WikipediaNetwork("squirrel") has repeated nodes
+# that leak between train and test, so it is deliberately not used - only the filtered .npz from the authors' own repo.
 # Platonov's own 10 train/val/test masks are also ignored: these run the ViRGo CORE protocol (stratified 70% node
 # classification, 70:30 link prediction) so their cells stay comparable with the four core datasets.
 # Adjusted homophily is the metric this panel already reports, and it comes from this same paper.
@@ -15,18 +18,37 @@ from virgo.data.make_ogb import _write_edges, _write_nodes   # same writers as t
 
 RAW = "output/hetero_raw"                         # PyG download cache: derived, never hand-edited, kept out of input/
 
-# ViRGo name -> PyG name. roman_empire/tolokers/questions = discovery panel; minesweeper added 2026-08-02 as a Module-3
-# held-out graph (connected grid, adjusted homophily ~0.01). amazon_ratings ships in the same class if ever needed.
-HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions", "minesweeper": "Minesweeper"}
+# ViRGo name -> PyG name, or None for the archives PyG's class does not list (fetched from the SAME repo it downloads
+# from, so the data path is identical). roman_empire/tolokers/questions = discovery panel; minesweeper 2026-08-02,
+# amazon_ratings 2026-08-05, squirrel_filtered 2026-08-05 = Module-3 held-out.
+HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions",
+          "minesweeper": "Minesweeper", "amazon_ratings": "Amazon-ratings", "squirrel_filtered": None}
+
+REPO = "https://github.com/yandex-research/heterophilous-graphs/raw/main/data"   # the URL HeterophilousGraphDataset itself downloads from
 
 
-# Builds input/<name>.edgelist + .nodes + labels/<name>.labels from the PyG copy; drops data.x (structural-only).
+# Reads one of the authors' .npz archives directly, for the graphs PyG's class does not expose (squirrel/chameleon filtered).
+def _npz(name):
+    '''One Platonov .npz -> PyG Data. Same file and format as the five HeterophilousGraphDataset names, different file list.'''
+    import numpy as np
+    import torch
+    from torch_geometric.data import Data, download_url
+    f = Path(download_url(f"{REPO}/{name}.npz", str(Path(RAW) / name / "raw")))
+    d = np.load(f)
+    return Data(x=torch.from_numpy(d["node_features"]), y=torch.from_numpy(d["node_labels"]),
+                edge_index=torch.from_numpy(d["edges"].T), num_nodes=len(d["node_labels"]))
+
+
+# Builds input/<name>.edgelist + .nodes + labels/<name>.labels from the authors' copy; drops data.x (structural-only).
 def make_hetero(name):
     '''One heterophilous benchmark -> edgelist + .nodes + labels. node_features and the official masks ignored by design.'''
-    from torch_geometric.datasets import HeterophilousGraphDataset
-    g = HeterophilousGraphDataset(root=RAW, name=HETERO[name])[0]
+    if HETERO[name] is None:
+        g = _npz(name)                                 # the .npz stores each undirected edge ONCE; _write_edges symmetrizes
+    else:
+        from torch_geometric.datasets import HeterophilousGraphDataset
+        g = HeterophilousGraphDataset(root=RAW, name=HETERO[name])[0]
     n = g.num_nodes
-    ne = _write_edges(f"input/{name}.edgelist", g.edge_index.numpy())   # PyG already symmetrized it (to_undirected in process)
+    ne = _write_edges(f"input/{name}.edgelist", g.edge_index.numpy())   # dedup+sort: a no-op on PyG's already-symmetric copy, symmetrizes the raw .npz
     _write_nodes(f"input/{name}.edgelist", n)
     y = g.y.numpy().reshape(-1)
     Path("labels").mkdir(exist_ok=True)
@@ -38,18 +60,18 @@ def make_hetero(name):
     print(f"WROTE input/{name}.edgelist + .nodes + labels/{name}.labels")
 
 
-# Defines command-line options: which heterophilous dataset to build (default both).
+# Defines command-line options: which heterophilous dataset to build (default all).
 def parse_args():
     '''Parses arguments.'''
     p = argparse.ArgumentParser(description="Convert the heterophilous benchmarks to ViRGo edgelist/label/.nodes files (structural-only).")
-    p.add_argument('--dataset', default='both', choices=['both'] + list(HETERO), help='Which dataset to build. Default both.')
+    p.add_argument('--dataset', default='all', choices=['all'] + list(HETERO), help='Which dataset to build. Default all.')
     return p.parse_args()
 
 
 # Builds the requested dataset(s) from the command line.
 def main(args):
     for name in HETERO:
-        if args.dataset in ('both', name):
+        if args.dataset in ('all', name):
             make_hetero(name)
 
 

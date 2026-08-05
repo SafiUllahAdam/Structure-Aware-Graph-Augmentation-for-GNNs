@@ -1649,3 +1649,257 @@ it has no labels, hence no homophily. That is a genuine coverage limit of the le
 
 Code: `experiments/characterize.py` (`threshold`, `loo_threshold`, `nested_loo`, `GATES`, `rule`). Tables:
 `results/candidate_rules.csv` (9 new columns), `results/nested_loo.csv` (new). Notebook 5 §8 and new §8c.
+
+## 2026-08-04 — LastFM Asia: the first held-out case where the two rules disagree AND the experiment decides
+
+**Why this dataset.** Module 3's two frozen rules had never been separated on unseen data. `pubmed` and `amazon_photo`
+are both homophilous + single-component, so rule 1 says *keep original* and rule 2 says *augment* — but both cells came
+back a **tie**, which scores neither rule. LastFM Asia (Rozemberczki & Sarkar 2020) sits in the same quadrant and is a
+domain the study had none of: a music-platform friendship network. 7,624 users, 27,806 undirected edges (avg degree
+7.29), 18 country classes, one connected component.
+
+**Provenance and a recorded deviation.** `torch_geometric.datasets.LastFMAsia` downloads from `graphmining.ai`, which
+no longer serves the file from this environment (TLS handshake failure; `404` when the handshake is forced). The raw
+graph is therefore read from **SNAP's primary archive of the same dataset** — the source PyG repackages — so node ids,
+edges and country labels are the publisher's own. SNAP ships features as a liked-artist JSON rather than PyG's 128-dim
+matrix; irrelevant here, since node features are dropped by design (`virgo/data/make_pyg.py`, structural-only).
+Counts reproduce the published statistics exactly (7,624 / 27,806 / 18).
+
+**Pre-registration.** `experiments/predict_module3.py --datasets lastfm_asia` was run **before any training** and the
+row is frozen write-once in `results/module3_predictions.csv`:
+
+| property | value | rule | prediction |
+|----------|-------|------|-----------|
+| `homophily_adjusted` | **0.8562** — the highest in the whole study (above `cora` 0.7711 and `amazon_photo` 0.7850) | rule 1 (`< 0.227`) | **keep original** |
+| `largest_component_frac` | **1.0000** | rule 2 (`> 0.9588`) | **augment** |
+| | | combined | **rules disagree** |
+
+**Result (pipeline unchanged: `graphsage_edge`, K=10, seeds 42/43/44, five variants, both tasks).**
+
+| task | original | best augmented | gap | 3-seed noise | gap/noise | verdict |
+|------|----------|----------------|-----|--------------|-----------|---------|
+| link prediction (AUC) | 0.7218 ± 0.0251 | 0.7002 ± 0.0086 (`hybrid`) | −0.0216 | 0.0188 | **−1.15σ** | **keep original** |
+| node classification (weighted F1) | 0.3770 ± 0.0067 | 0.2844 ± 0.0118 (`hybrid`) | −0.0926 | — | **−9.65σ** | keep original |
+
+**Rule 1 correct, rule 2 wrong.** The disagreement resolves in favour of the lead rule — the one Module 2 designated
+primary on the discovery panel. Held-out tally is now **rule 1 4/5, rule 2 3/5** (`pubmed` and `amazon_photo` still
+score neither: tie). This is the first out-of-sample evidence that separates the two, and it points the same way the
+discovery evidence did (ρ −1.00 on the bias-free gap for homophily, vs a two-group split for connectivity).
+
+**Encoder-robust.** The verdict does not depend on the study encoder: under the `deepwalk` bridge the same cell reads
+original 0.9432 ± 0.0013 vs `hybrid` 0.8304 ± 0.0029 — keep original by a wider margin.
+
+**The NC boundary holds again.** No held-out node-classification cell has ever augmented: **0 of 6 usable cells**, this
+one at −9.65σ. The `hybrid` variant is additive (it keeps every original edge) and still loses by that margin, so on a
+homophilous social graph the role edges are actively harmful to the label signal, not merely uninformative.
+
+**Caveat worth stating.** LastFM Asia does *not* break the standing confound: it is single-component like every other
+augment-side dataset, so it tests the two rules against each other but adds nothing to the fragmented + heterophilous
+cell Module 3 still needs. What it does remove is the "the disagreement quadrant is untested" limitation.
+
+Code: `virgo/data/make_pyg.py` (`_lastfm_asia`), registry entries in `virgo/config.py`, `experiments/characterize.py`
+(`STUDY`), `virgo/frozen_rules.py` (`HELDOUT`), `experiments/run_core.py` (`HELDOUT`). Tables:
+`results/module3_predictions.csv`, `results/module3_scored.csv`, `results/scoreboard.csv`.
+
+## 2026-08-05 — Amazon-ratings: rule 1's augment side fails a second time, and the Platonov family alone falsifies the threshold
+
+**Why this dataset.** Rule 1 is a low-homophily → *augment* rule, and its augment side had been tested on exactly two
+held-out graphs: `actor` (correct) and `minesweeper` (wrong). Amazon-ratings (Platonov et al. 2023) is a clean
+heterophily benchmark — explicitly built to replace Chameleon/Squirrel, which have duplicate-node leakage — and it is
+large enough to matter without being impractical: 24,492 nodes, 93,050 undirected edges (avg degree 7.60), 5 rating
+classes, one connected component. It is **not** `amazon_photo`, the homophilous co-purchase graph already held out;
+the two share a domain word and nothing else (adjusted homophily 0.1402 vs 0.7850).
+
+Counts reproduce the published statistics exactly. Built by `make_hetero.py`, the same converter as the three discovery
+heterophilous graphs, from the authors' own release; its 300-dim fastText product-description features are dropped by
+design, and the official 10 train/val/test masks are ignored so the cell stays on the ViRGo core protocol.
+
+**Pre-registration.** `experiments/predict_module3.py --datasets amazon_ratings` ran **before any training**; the row
+is frozen write-once in `results/module3_predictions.csv`:
+
+| property | value | rule | prediction |
+|----------|-------|------|-----------|
+| `homophily_adjusted` | **0.1402** — inside rule 1's frozen interval (0.0926, 0.3613) | rule 1 (`< 0.227`) | **augment** |
+| `largest_component_frac` | **1.0000** | rule 2 (`> 0.9588`) | **augment** |
+| | | combined | **augment** (rules agree) |
+
+**Result (pipeline unchanged: `graphsage_edge`, K=10, seeds 42/43/44, five variants, both tasks).**
+
+| task | original | best augmented | gap | 3-seed noise | gap/noise | verdict |
+|------|----------|----------------|-----|--------------|-----------|---------|
+| link prediction (AUC) | 0.7536 ± 0.0204 | 0.6550 ± 0.0116 (`hybrid`) | −0.0986 | 0.0166 | **−5.94σ** | **keep original** |
+| node classification (weighted F1) | 0.2875 ± 0.0029 | 0.2623 ± 0.0015 (`hybrid`) | −0.0252 | 0.0023 | **−10.92σ** | keep original |
+
+**Both rules wrong.** Held-out tally is now **rule 1 4/6, rule 2 3/6** (`pubmed` and `amazon_photo` remain ties and
+score neither). Not a marginal miss: −5.94σ, and the runner-up variants are far worse still (`psi` 0.5654, `degree`
+0.4551 — below chance). Encoder-robust in the same direction and more extreme: under the `deepwalk` bridge the
+original graph scores **0.9982 ± 0.0001** against `hybrid` 0.9407 ± 0.0011.
+
+**The asymmetry is now the headline.** Rule 1's six scored predictions split cleanly by which side they call:
+
+| rule 1 says | datasets | correct |
+|-------------|----------|---------|
+| keep original | `citeseer_linqs`, `proteins`, `lastfm_asia` | **3 / 3** |
+| augment | `actor` ✅, `minesweeper` ❌, `amazon_ratings` ❌ | **1 / 3** |
+
+Low adjusted homophily is a *necessary-looking* but plainly insufficient condition. Every graph the rule expected to
+keep its original edges did; two of the three it expected to benefit from role edges did not. The paper should report
+rule 1 as a one-sided screen — "high homophily ⇒ do not bother augmenting" is the part that has survived contact with
+unseen data — rather than as a two-sided predictor.
+
+**The Platonov family alone falsifies the threshold.** All three discovery augment cells (`roman_empire`, `tolokers`,
+`questions`) come from Platonov et al.; `minesweeper` and `amazon_ratings` come from the same paper, the same
+converter and the same protocol. Sort those five by adjusted homophily and the verdicts interleave:
+
+| dataset | `homophily_adjusted` | LP verdict |
+|---------|---------------------|------------|
+| `roman_empire` | −0.0468 | augment |
+| `minesweeper` | 0.0094 | **keep original** |
+| `questions` | 0.0207 | augment |
+| `tolokers` | 0.0926 | augment |
+| `amazon_ratings` | 0.1402 | **keep original** |
+
+**A K A A K** — no cut anywhere on this axis separates them. Within a single dataset family, held at fixed provenance,
+adjusted homophily does not order the outcome. This is the strongest negative evidence Module 3 has produced, and it
+also cuts against the lazy reading of the batch confound: dataset provenance does not explain the augment cells
+either, since these five share it and disagree.
+
+**What the interval says, and what we are not allowed to do with it.** 0.1402 is the first held-out value to land
+*inside* rule 1's frozen interval, where every cut fits the discovery panel equally well. Had the cut been set at the
+interval floor (0.0926, i.e. just below `tolokers`) this prediction would have been *keep original* and correct. So
+the evidence points to a lower cut — but `minesweeper` at 0.0094 sits below the entire interval and still keeps its
+original graph, so **no** choice inside the interval rescues the rule. Refitting the threshold on these datasets is
+forbidden regardless: it would make Module 3 circular. Reported as a falsification, not a correction.
+
+**The NC boundary holds.** Still **0 of 7** usable held-out node-classification cells augment, this one at −10.92σ.
+Notably this is a *heterophilous* graph — the case where role-based rewiring should have the most to offer NC — and
+`hybrid`, which is additive and keeps every original edge, still loses by ten sigma.
+
+**Confound status unchanged.** Amazon-ratings is single-component, so the fragmented + heterophilous cell Module 3
+needs is still missing. What it removes is a different limitation: rule 1's augment side is no longer supported by a
+single dataset family.
+
+Code: `virgo/data/make_hetero.py` (`HETERO` gains `amazon_ratings`; `--dataset both` → `all` now that the converter
+covers five graphs), registry entries in `virgo/config.py`, `experiments/characterize.py` (`STUDY`),
+`virgo/frozen_rules.py` (`HELDOUT`), `experiments/run_core.py` (`HELDOUT`). Tables:
+`results/module3_predictions.csv`, `results/module3_scored.csv`, `results/scoreboard.csv`.
+
+### 2026-08-05 (addendum) — verification of the amazon_ratings cell, and what actually tracks the verdict
+
+The `amazon_ratings` result was checked at five independent levels before being accepted as a falsification; all pass.
+
+| check | result |
+|-------|--------|
+| edge set vs the PyG source | **identical** — 186,100 directed columns → 93,050 undirected pairs, 0 self-loops, source already symmetric |
+| labels | 24,492 rows, ids exactly 0..n−1, values **match `data.y` element-wise**, 5 classes |
+| `.nodes` sidecar | 24,492 rows; 0 isolated nodes (min degree 5) |
+| LP split (seed 42) | 65,135 train / 27,915 test_pos / 27,915 test_neg; test fraction 0.3000; train ∩ test = **∅**; train ∪ test = the full edge set; **0** negatives are real edges |
+| rule inputs recomputed from scratch | adjusted homophily **0.1402** (edge 0.3804, degree-weighted null 0.2793) and largest-component fraction **1.0000** — both reproduce the frozen row exactly |
+
+**Why the augmented graph loses here, mechanically.** On the seed-42 training graph, `psi` retains **381 of 65,135**
+original edges (0.6%) — it is a nearly disjoint graph, not an enrichment of the original one. `hybrid` is additive but
+adds 140,717 role edges on top of the 65,135 real ones, so **68% of its edges are role edges** and every real edge's
+message is diluted roughly 1 : 2.16. Of those 140,717 role edges only **169 are actual held-out test links** (0.12%;
+~13× chance, so role similarity carries a faint link signal — nowhere near enough to pay for the dilution).
+
+**A cleaner correlate of the LP verdict than either frozen rule — reported as an observation, NOT promoted to a rule.**
+Sorting all 14 usable LP cells by the *original* graph's own `graphsage_edge` AUC separates the verdicts almost
+perfectly, with a single exception:
+
+| original AUC | 0.0173 | 0.4665 | 0.5953 | 0.6019 | 0.6130 | 0.6218 | 0.6392 | 0.6444 | 0.6720 | 0.7000 | 0.7093 | 0.7218 | 0.7536 | 0.7857 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| dataset | ddi | quest. | actor | roman | cora | cites. | pubmed | tolok. | prot. | enz. | mines. | lastfm | am_rat | am_photo |
+| verdict | A | A | A | A | K | K | tie | **A** | K | K | K | K | K | tie |
+
+Every cell below ~0.60 augments; every cell above ~0.65 keeps its original graph or ties. `tolokers` is the lone
+exception. This says augmentation helps exactly where the original graph is *weak for the encoder* — i.e. it buys
+headroom, not structure.
+
+**This is not usable as the study's rule and must not be swapped in for one.** The original graph's AUC is a *result*,
+not a graph property: obtaining it means already having trained on the original graph, at which point running the
+augmented variant too is cheaper than consulting any rule. Its value is explanatory — it accounts for why the
+homophily threshold keeps missing on the augment side (`minesweeper` 0.7093 and `amazon_ratings` 0.7536 are both
+*high-headroom-free* cells that happen to be heterophilous) — and it is a candidate for a future **pre-registered**
+test on unseen data, framed as a property measurable in advance. Promoting it now on the strength of the same cells
+that suggested it would be exactly the HARKing this log has refused elsewhere.
+
+## 2026-08-05 — Squirrel-filtered: both rules correct, and the sharpest evidence yet that homophily is not sufficient
+
+**Why this dataset, and which copy.** Rule 1's augment side stood at 1/3 after `minesweeper` and `amazon_ratings`.
+Squirrel-filtered is Platonov et al.'s **de-duplicated** Squirrel: the original `WikipediaNetwork("squirrel")` contains
+repeated nodes that leak between train and test, so that copy is deliberately not used. The filtered `.npz` is fetched
+from the authors' own repository — **the same URL `HeterophilousGraphDataset` itself downloads from**, so the data path
+is identical to the five names PyG exposes; only the file list differs (`virgo/data/make_hetero.py::_npz`).
+
+**Edge-count correction worth recording.** The dataset is often quoted as 23,499 undirected edges, i.e. 46,998 halved
+on the assumption that the archive stores both directions. It does not: all 46,998 rows are **distinct** sorted pairs,
+zero reciprocals. Our builds reproduce the paper's table exactly for `roman_empire` (32,927), `tolokers` (519,000) and
+`amazon_ratings` (93,050), which confirms Platonov reports *undirected* counts. So squirrel-filtered is **2,223 nodes /
+46,998 undirected edges / 5 classes / avg degree 42.28** — the densest graph in the study bar `tolokers` and `ogbl-ddi`,
+and ~14× denser than `roman_empire`.
+
+**Pre-registration** (`experiments/predict_module3.py`, run before any training, frozen write-once):
+
+| property | value | rule | prediction |
+|----------|-------|------|-----------|
+| `homophily_adjusted` | **0.0086** — below rule 1's whole interval (0.0926, 0.3613) | rule 1 (`< 0.227`) | **augment** |
+| `largest_component_frac` | **1.0000** | rule 2 (`> 0.9588`) | **augment** |
+| | | combined | **augment** (rules agree) |
+
+**Result (pipeline unchanged: `graphsage_edge`, K=10, seeds 42/43/44, five variants, both tasks).**
+
+| task | original | best augmented | gap | 3-seed noise | gap/noise | verdict |
+|------|----------|----------------|-----|--------------|-----------|---------|
+| link prediction (AUC) | 0.7399 ± 0.0114 | 0.7736 ± 0.0033 (`degree`) | +0.0337 | 0.0084 | **+4.02σ** | **augment** ✅ |
+| node classification (weighted F1) | 0.3358 ± 0.0187 | 0.3500 ± 0.0103 (`psi`) | +0.0142 | 0.0151 | **+0.94σ** | **tie** |
+
+**Both rules correct.** Held-out tally: **rule 1 5/7, rule 2 4/7**. Rule 1's two sides now read: keep original **3/3**,
+augment **2/4** (`actor` ✅, `minesweeper` ❌, `amazon_ratings` ❌, `squirrel_filtered` ✅). Unusually, all three role
+variants beat the original here (`degree` 0.7736, `centrality` 0.7728, `psi` 0.7609) — this is not one lucky variant.
+
+**The decisive pair.** `squirrel_filtered` and `minesweeper` have adjusted homophily **0.0086** and **0.0094** — a
+difference of 0.0008, the closest pair in the entire study — and **opposite LP verdicts** (+4.02σ augment vs −5.96σ
+keep original, both far outside noise). No threshold on this axis can separate them, in either direction, at any cut.
+Rule 1 predicting `squirrel_filtered` correctly is therefore a *coincidence of sign*, not evidence the variable is
+sufficient. Extending the fixed-provenance Platonov ordering to six graphs:
+
+| dataset | `homophily_adjusted` | LP verdict |
+|---------|---------------------|------------|
+| `roman_empire` | −0.0468 | augment |
+| `squirrel_filtered` | 0.0086 | **augment** |
+| `minesweeper` | 0.0094 | keep original |
+| `questions` | 0.0207 | augment |
+| `tolokers` | 0.0926 | augment |
+| `amazon_ratings` | 0.1402 | keep original |
+
+**A A K A A K.** Six graphs from one paper, one converter, one protocol; the verdicts do not order on homophily. The
+correct claim for the paper is that **low adjusted homophily is necessary but not sufficient** for augmentation to
+help: every graph above the boundary kept its original edges (3/3, plus the two ties), while below the boundary the
+outcome is genuinely mixed (2/4). That is a screen, not a rule, and it is worth reporting as exactly that.
+
+**Retraction: the "headroom" observation logged earlier today is falsified.** That addendum noted that sorting LP cells
+by the original graph's own `graphsage_edge` AUC separated the verdicts with one exception, and flagged it as an
+observation for a future pre-registered test — explicitly not promoted to a rule. `squirrel_filtered` breaks it: its
+original AUC is **0.7399**, *above* `minesweeper` (0.7093) and `lastfm_asia` (0.7218) which both keep original, and it
+augments anyway. The ordering now has two exceptions, one of them near the top, and the "augmentation only buys
+headroom" reading does not survive. Recorded here rather than deleted: it is a clean example of why a pattern found on
+the same cells that suggested it must not be adopted, and it was falsified by the very next dataset ingested.
+
+**Density is still rejected too.** Sorted by average degree the verdicts remain interleaved at the sparse end —
+`citeseer_linqs` 2.78 keeps original while `roman_empire` 2.91 augments — so the professor's density proposal gains
+nothing from this cell, even though the three densest graphs (`squirrel_filtered` 42.3, `tolokers` 88.3, `ogbl_ddi`
+500.5) do all augment.
+
+**First non-negative NC cell.** Every held-out node-classification cell so far had been keep original, most by many
+sigma. This one is a **tie** at +0.94σ — the augmented graph is nominally ahead, just inside noise. The boundary claim
+survives (**0 of 8 usable held-out NC cells augment**) but should now be stated as "never *significantly* augments"
+rather than "always loses". Consistent with the rest: a very dense, strongly heterophilous graph is where role edges
+come closest to paying off for labels.
+
+**Confound status.** Still single-component, so the untested quadrant remains **heterophilous + fragmented**, where
+rule 1 says augment and rule 2 says keep original. That is the one cell no held-out dataset has yet occupied.
+
+Code: `virgo/data/make_hetero.py` (`_npz`, `REPO`; `HETERO` maps to `None` for archives PyG does not list), registry
+entries in `virgo/config.py`, `experiments/characterize.py` (`STUDY`), `virgo/frozen_rules.py` (`HELDOUT`),
+`experiments/run_core.py` (`HELDOUT`). Tables: `results/module3_predictions.csv`, `results/module3_scored.csv`,
+`results/scoreboard.csv`.

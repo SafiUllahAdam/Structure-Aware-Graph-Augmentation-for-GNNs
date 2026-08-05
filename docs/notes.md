@@ -973,3 +973,87 @@ The previous detail table (`codet2b`) is renamed **Part C**; `mdt2` and `mda5` f
 
 `experiments/characterize.py` untouched — every value is read from `results/candidate_rules.csv`. No score,
 threshold, rule, dataset, seed, metric or CSV changed; `git status` shows the notebook as the only modified file.
+
+## 2026-08-04 — lastfm_asia added as a Module-3 held-out dataset
+
+Run settings (nothing tuned; the pipeline is the frozen one, exactly as when the other held-out graphs joined):
+`python -m virgo.data.make_pyg --dataset lastfm_asia` -> `input/lastfm_asia.edgelist` + `.nodes` +
+`labels/lastfm_asia.labels`; `python experiments/predict_module3.py --datasets lastfm_asia` (BEFORE training);
+then `python experiments/run_core.py --datasets lastfm_asia --task <t> --sim <s>` over both tasks and all five
+variants, encoders `graphsage_edge` + `deepwalk`, K=10, seeds 42 43 44; `python experiments/score_module3.py`.
+
+**Recorded deviation — raw source.** `torch_geometric.datasets.LastFMAsia` downloads from `graphmining.ai`, which is
+unreachable from this environment (TLS `unexpected eof while reading`; forcing the handshake returns `404`). The raw
+graph is read from SNAP instead (`https://snap.stanford.edu/data/lastfm_asia.zip`) — the same publisher's archive that
+PyG repackages — and converted by the shared `_write_edges` / `_write_nodes` writers, so the edgelist format is
+identical to every other dataset. The archive's inner folder is misspelled `lasftm_asia` at the source; the path
+literal in `_lastfm_asia()` matches it deliberately. Node features are not loaded (structural-only), so the 128-dim
+matrix PyG would have supplied is not needed. Counts match the published statistics: 7,624 nodes, 27,806 undirected
+edges, 18 classes.
+
+`make_pyg.py --dataset` default renamed `both` -> `all` (it had covered three datasets since 2026-08-02, four now);
+the per-dataset choices are unchanged, and no other module calls it.
+
+## 2026-08-05 — amazon_ratings added as a Module-3 held-out dataset
+
+Platonov et al. (2023) heterophilous benchmark, built by the existing converter — no new loader needed, the class
+already ships it. **Not** `amazon_photo`: different graph, different paper, different homophily (0.1402 vs 0.7850).
+Both live in `cfg.DATASETS` under distinct names.
+
+Commands, in this order (the order is the experiment — predict must precede train):
+
+```
+python -m virgo.data.make_hetero --dataset amazon_ratings
+python experiments/predict_module3.py --datasets amazon_ratings          # write-once freeze
+python experiments/run_core.py --datasets amazon_ratings --task <t> --sim <s>   # 10 chunks: 2 tasks x 5 variants
+python experiments/score_module3.py
+```
+
+Build output: `nodes=24492 edges=93050 classes=5 avg_degree=7.60 | data.x (300-dim) IGNORED (structural-only) |
+official masks IGNORED (ViRGo core protocol)` — matches the published statistics exactly.
+
+Edits (registry only, pipeline untouched): `virgo/data/make_hetero.py` `HETERO` +1 entry, `virgo/config.py`
+`DATASETS`, `experiments/characterize.py` `STUDY`, `virgo/frozen_rules.py` `HELDOUT`, `experiments/run_core.py`
+`HELDOUT` (opt-in by name, not in the default sweep).
+
+- **CLI rename:** `make_hetero.py --dataset both` → `--dataset all`. `both` had been wrong since `questions` joined and
+  is now plainly wrong at five datasets. Named datasets (`--dataset questions`) are unaffected; nothing scripted
+  called `both`.
+- Ran as 10 foreground chunks of one (task, variant) each, ~4m40s per chunk — a single full sweep would exceed the
+  600 s tool timeout. `run_core.py` reuses embeddings already on disk, so chunking is equivalent to one run.
+- The `--sim original` NC chunk was the first run and its `graphsage_edge` score line scrolled past a `tail`; the value
+  (0.2875 ± 0.0029) was read back from `results/scoreboard.csv`, which every chunk writes.
+
+## 2026-08-05 — squirrel_filtered added as a Module-3 held-out dataset
+
+Platonov et al.'s **de-duplicated** Squirrel. The original `WikipediaNetwork("squirrel")` has repeated nodes that leak
+between train and test and is deliberately NOT used.
+
+`HeterophilousGraphDataset` exposes only five names and squirrel_filtered is not one of them, so `make_hetero.py`
+gained `_npz(name)`: a direct download of `<REPO>/<name>.npz` from
+`https://github.com/yandex-research/heterophilous-graphs/raw/main/data` — **the same URL PyG's own class downloads
+from** (visible in its own progress output), so the file, format and data path are identical. `HETERO` now maps a name
+to either a PyG dataset name or `None`, and `None` routes to `_npz`. `chameleon_filtered` would be a one-word addition.
+
+Commands, in order (predict must precede train):
+
+```
+python -m virgo.data.make_hetero --dataset squirrel_filtered
+python experiments/predict_module3.py --datasets squirrel_filtered      # write-once freeze
+python experiments/run_core.py --datasets squirrel_filtered --task node_classification
+python experiments/run_core.py --datasets squirrel_filtered --task link_prediction
+python experiments/score_module3.py
+```
+
+Build output: `nodes=2223 edges=46998 classes=5 avg_degree=42.28 | data.x (2089-dim) IGNORED (structural-only) |
+official masks IGNORED (ViRGo core protocol)`.
+
+- **Edge count is 46,998 undirected, NOT 23,499.** The `.npz` `edges` array has 46,998 rows and all 46,998 sorted pairs
+  are distinct — no reciprocal storage, so it must not be halved. Verified the convention by checking our existing
+  builds against the paper's table: roman_empire 32,927, tolokers 519,000, amazon_ratings 93,050 all match exactly,
+  so Platonov reports undirected counts. (Contrast `lastfm_asia`, where PyG's advertised 55,612 *was* doubled — the
+  direction of the correction is dataset-specific, always count distinct sorted pairs.)
+- Small and fast: one whole task (5 variants x 2 encoders x 3 seeds) finishes well inside the tool timeout, so this
+  needed 2 chunks rather than amazon_ratings' 10.
+- Registry edits only, pipeline untouched: `virgo/config.py`, `experiments/characterize.py` `STUDY`,
+  `virgo/frozen_rules.py` `HELDOUT`, `experiments/run_core.py` `HELDOUT` (opt-in by name).

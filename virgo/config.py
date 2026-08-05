@@ -50,6 +50,9 @@ DATASETS = {
     "actor":       {"edgelist": INPUT_DIR / "actor.edgelist",       "labels": LABELS_DIR / "actor.labels"},         # Geom-GCN film co-occurrence, low homophily, 5 classes; 932-dim features ignored
     "minesweeper": {"edgelist": INPUT_DIR / "minesweeper.edgelist", "labels": LABELS_DIR / "minesweeper.labels"},   # Platonov grid, adjusted homophily ~0.01, 2 classes; 7-dim features ignored
     "amazon_photo": {"edgelist": INPUT_DIR / "amazon_photo.edgelist", "labels": LABELS_DIR / "amazon_photo.labels"},  # co-purchase ("bought together"), 8 classes; 745-dim bag-of-words ignored
+    "lastfm_asia": {"edgelist": INPUT_DIR / "lastfm_asia.edgelist", "labels": LABELS_DIR / "lastfm_asia.labels"},   # 2026-08-04: music-platform friendships, 18 classes (country); friendship = symmetric; 128-dim features ignored
+    "amazon_ratings": {"edgelist": INPUT_DIR / "amazon_ratings.edgelist", "labels": LABELS_DIR / "amazon_ratings.labels"},   # 2026-08-05: Platonov co-purchase ("bought together"), 5 rating classes, heterophilous; NOT amazon_photo; 300-dim fastText ignored
+    "squirrel_filtered": {"edgelist": INPUT_DIR / "squirrel_filtered.edgelist", "labels": LABELS_DIR / "squirrel_filtered.labels"},   # 2026-08-05: Platonov's DE-DUPLICATED Squirrel (the original WikipediaNetwork copy leaks train->test), 5 classes, very dense; 2089-dim features ignored
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
