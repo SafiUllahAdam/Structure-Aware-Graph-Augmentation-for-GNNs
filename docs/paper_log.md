@@ -1903,3 +1903,98 @@ Code: `virgo/data/make_hetero.py` (`_npz`, `REPO`; `HETERO` maps to `None` for a
 entries in `virgo/config.py`, `experiments/characterize.py` (`STUDY`), `virgo/frozen_rules.py` (`HELDOUT`),
 `experiments/run_core.py` (`HELDOUT`). Tables: `results/module3_predictions.csv`, `results/module3_scored.csv`,
 `results/scoreboard.csv`.
+
+## 2026-08-05 — Module 4: virtual-graph properties screened as a second variable gating the homophily rule
+
+**Motivation, restated from Module 3.** Rule 1 fails asymmetrically: on the nine held-out datasets, adjusted homophily
+*above* the boundary called "keep original" and was right **3/3**; *below* it called "augment" and was right **2/4**.
+Homophily is therefore a reliable veto, not a predictor, and a second variable is only needed inside the low-homophily
+zone — the same zone that contains `minesweeper` (0.0094, keeps) and `squirrel_filtered` (0.0086, augments), 0.0008
+apart with opposite verdicts, which no single-variable split can ever separate.
+
+**What was screened.** Four properties of the **virtual graph**, not of the original graph, so they need no labels and
+also cover `ogbl_ddi` where rule 1 cannot be evaluated at all. Measured on the built `psi` edgelists at K=10, seed 42 —
+the exact files the encoder trained on, read off disk, nothing retrained:
+
+| property | definition |
+|---|---|
+| `role_diversity` | distinct signature tie classes / nodes — how finely the signature resolves roles |
+| `role_edge_enrichment` | share of role edges that are real edges, divided by the graph's density (lift over chance) |
+| `original_retention` | share of the **original** edges the rewired graph still contains |
+| `vg_edge_ratio` | virtual edges / original edges — the volume change |
+
+Two facets kept exploratory (`role_sampled_frac`, `role_edge_overlap`). Pairwise collinearity was **measured, not
+assumed**: no pair reaches \|ρ\| ≥ 0.99, so all four are separate findings.
+
+**Panel.** `GATE_PANEL` = the seven-dataset discovery panel (minus `ogbn_arxiv`, node-classification only) **plus the
+nine Module-3 datasets**, which are no longer unseen. 11 decided LP cells (6 augment / 5 keep); the low-homophily zone
+holds 7 (5 augment / 2 keep, majority baseline 0.714). This is fitting data by construction and is declared as such.
+
+**Result — one candidate clears every gate, and it is `original_retention`, low → augment.**
+
+| scope | ρ | LODO min \|ρ\| | interval | LOO | majority | credible |
+|---|---|---|---|---|---|---|
+| low-homophily zone, `gap_rel` | −0.857 | 0.771 | (0.0062, 0.0176) | **6/7 = 0.857** | 0.714 | yes |
+| low-homophily zone, `gap_fixed_rel` | −0.714 | 0.500 | (0.0042, 0.0176) | 5/6 = 0.833 | 0.667 | yes |
+| all decided cells, `gap_rel` | −0.764 | 0.709 | (0.0062, 0.0094) | 9/11 = 0.818 | 0.545 | yes |
+
+It survives on the bias-free fixed-variant target, works standalone as well as inside the gate, and reproduces on the
+`centrality` role graph. Direction: **the less of the original graph the rewiring keeps, the more augmentation helps** —
+which is the opposite of the intuition that a virtual graph should recover real adjacency. The other three fail:
+`role_diversity` ρ +0.29, `role_edge_enrichment` −0.39, `vg_edge_ratio` +0.64 with LOO 0.00 inside the zone.
+
+**It does not solve the case it was proposed for.** `minesweeper` retention 0.0176 (keeps, called right) vs
+`squirrel_filtered` 0.0374 (augments, called **wrong**) — the decisive pair is still split the wrong way, and
+`squirrel_filtered` is precisely the one exception behind the 6/7. So the gate moves the zone from 2 errors to 1 without
+fixing the cell that motivated it. Reported as a mechanical column (`separates_decisive_pair`), not a judgement.
+
+**Status: candidate, not finding.** Fitted on a panel that includes the Module-3 datasets, so nothing here is validated;
+it is a Module-5 prediction to be pre-registered on a third, genuinely unseen set. The untested quadrant is unchanged: a
+heterophilous graph that is also **fragmented**.
+
+Code: `experiments/gate_rules.py` (new, self-contained; imports `threshold`/`loo_threshold`/`rho`/`GATES` from
+`characterize.py` and `uniformity` from `score_module3.py`, edits nothing). Tables:
+`results/vg_characterization.csv`, `results/gate_candidates.csv`, `results/gate_collinearity.csv`. The frozen Module-2/3
+artifacts (`candidate_rules.csv`, `nested_loo.csv`, `module3_*.csv`) are untouched.
+
+**Promoted to a frozen artifact (same day).** The candidate is now locked as `frozen_rules.FROZEN_GATE`
+(`original_retention < 0.0119`, interval `(0.0062, 0.0176)`, applies only when rule 1 says augment) beside `GATE_PANEL`
+and an empty `GATE_HELDOUT`. `predict_gated()` states the full decision in one place: **rule 1 vetoes on its reliable
+side → the gate decides inside the low-homophily zone → rule 2 covers unlabelled graphs**. `gate_rules.py` now asserts
+its own screen still reproduces the frozen point on `GATE_PANEL`, so a silent re-fit fails loudly rather than drifting.
+
+**Module 5 is the test.** `experiments/predict_gate.py` mirrors the Module-3 contract one level up: write-once
+pre-registration to `results/module5_predictions.csv`, scoring to `results/module5_scored.csv`, and a hard refusal of any
+dataset in `GATE_PANEL` (the gate was fitted on those, so predicting them measures fit, not transfer). One ordering
+difference that must be stated in the paper: the gate is a property of the **virtual graph**, so the rewiring has to be
+BUILT before the verdict can be written. Building touches no encoder, no split and no labels, so the prediction is still
+made with the outcome unknown — but the order is now **build → predict → train → score**, not predict → train → score.
+
+Sanity re-check on three fitted datasets (`--allow-panel`, not a test) reproduces the screen exactly: the gate fixes
+`minesweeper` (rule 1 wrong, gate right) and breaks `squirrel_filtered` (rule 1 right, gate wrong), leaving rule 1 alone,
+the gate, and the two-gate call all at 2/3. That is the trade the gate makes, visible in a single table.
+
+---
+
+## 2026-08-07 — Rule-redundancy diagnostics on the Module-3 held-out set (professor request)
+
+Two descriptive analyses justifying **keep R1, drop R2** in the paper. Both live in `experiments/score_module3.py`
+(`property_correlation()`, `decision_agreement()`) and in a new final section of notebook 6; both only READ the frozen
+`module3_predictions.csv` + scoreboard — nothing is refitted, no threshold moves.
+
+**1. Property–property correlation** (`results/module3_property_correlation.csv`, n = 9 held-out datasets):
+`homophily_adjusted` vs `largest_component_frac` Spearman **ρ = −0.297** (p 0.44, floored at 2/n!). So R2 is NOT
+redundant with R1 in the correlation sense — the two properties rank the datasets differently. R2's real weakness is
+**degeneracy, not redundancy**: only **4 distinct values** over 9 datasets, and **6/9 sit exactly at the 1.0 ceiling**
+(vs 9 distinct values for homophily). A near-constant predictor cannot grade anything; its cut stays arbitrary inside
+(0.9177, 1.0), exactly the Module-2 two-group caveat.
+
+**2. Decision-agreement table** (`results/module3_decision_agreement.csv`): rules agree **6/9**; of the **3
+disagreements** (pubmed, amazon_photo, lastfm_asia — all R1 keep / R2 augment), two came back **ties** (undecided, score
+nothing) and the one decided case, `lastfm_asia`, was **R1 correct, R2 wrong**. R2 won a disagreement **0 times**. So on
+held-out evidence R2 never adds information over R1 when they conflict.
+
+**Paper line this supports:** R1 is retained as the lead (and later as the veto in the two-gate rule); R2 is dropped
+from the labelled-graph path and kept ONLY as the no-labels fallback (`ogbl_ddi`-style graphs, where R1 cannot fire at
+all) — that coverage hole is the one thing the agreement table cannot speak to, since all 9 held-out graphs have labels.
+Caveat carried: 9 datasets, 2 of 3 disagreements tied, so "0 for R2" rests on a single decided cell.
