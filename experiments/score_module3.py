@@ -17,12 +17,14 @@ from virgo import config as cfg
 from virgo import frozen_rules as fr
 from virgo import graph_io
 from virgo.virtual_graph import VirtualGraph
-from experiments.characterize import frozen_inputs, gaps
+from experiments.characterize import frozen_inputs, gaps, rho
 from experiments import predict_module3 as pm
 
 SCORED_CSV = cfg.RESULTS_DIR / "module3_scored.csv"
 EVIDENCE_CSV = cfg.RESULTS_DIR / "module3_evidence.csv"
 DISCOVERY_CSV = cfg.RESULTS_DIR / "candidate_rules.csv"     # Module-2 evidence, READ-ONLY here
+CORR_CSV = cfg.RESULTS_DIR / "module3_property_correlation.csv"
+AGREE_CSV = cfg.RESULTS_DIR / "module3_decision_agreement.csv"
 
 
 def actual_lp_verdicts(datasets):
@@ -78,6 +80,36 @@ def evidence(datasets=None):
     return e[["dataset", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule2_pred",
               "original", "original_std", "best_augmented", "best_augmented_std", "best_variant",
               "gap_abs", "noise", "gap_sigma", "actual_verdict", "rule1_correct", "rule2_correct"]]
+
+
+def property_correlation(datasets=None):
+    '''Redundancy DIAGNOSTIC: 2x2 Spearman matrix of the two frozen rule properties on the held-out set, plus each property's variation. Never fits.'''
+    pred = pd.read_csv(pm.PRED_CSV)
+    if datasets:
+        pred = pred[pred["dataset"].isin(datasets)]
+    props = ["homophily_adjusted", "largest_component_frac"]
+    n, r, p = rho(pred[props[0]], pred[props[1]])          # rho() floors p at 2/n!, so small-n ranks are never overstated
+    mat = pd.DataFrame([[1.0, r], [r, 1.0]], index=props, columns=props)
+    mat.index.name = "property"
+    # A correlation alone cannot show rule 2's real weakness - the ceiling pile-up - so the variation counts ride along.
+    mat["distinct_values"] = [int(pred[c].nunique()) for c in props]
+    mat["n_at_1.0"] = [int((pred[c] == 1.0).sum()) for c in props]
+    mat["n_datasets"], mat["spearman_p"] = n, p            # pair-level, repeated on both rows for a single flat table
+    return mat
+
+
+def decision_agreement(datasets=None):
+    '''Redundancy DIAGNOSTIC: per held-out dataset, do the two rules agree, and in a disagreement which one was right. Never fits.'''
+    m = score(datasets)
+    m["rules_agree"] = m["rule1_pred"] == m["rule2_pred"]
+    # `is True` because the correct-columns mix bool with "pending"/"no decision" strings (object dtype, == is unreliable).
+    m["disagreement_result"] = ["rules agree" if a
+                                else "R1 correct, R2 wrong" if r1 is True
+                                else "R2 correct, R1 wrong" if r2 is True
+                                else f"disagree, {r1}"
+                                for a, r1, r2 in zip(m["rules_agree"], m["rule1_correct"], m["rule2_correct"])]
+    return m[["dataset", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule2_pred",
+              "actual_verdict", "rule1_correct", "rule2_correct", "rules_agree", "disagreement_result"]]
 
 
 def uniformity(datasets, k=10, sims=("psi", "degree", "centrality")):
@@ -136,6 +168,17 @@ def main(args):
         skipped = [v for v in col if not isinstance(v, bool)]
         print(f"{r.name} ({r.predictor} {r.op} {r.point}): " + (f"{sum(c)}/{len(c)} correct" if c else "nothing scored yet")
               + (f"  [{len(skipped)} not scored: " + ", ".join(sorted({str(v) for v in skipped})) + "]" if skipped else ""))
+
+    # Redundancy diagnostics (professor request 2026-08-07): descriptive only, justify keeping R1 and dropping R2 - no refit.
+    corr, agree = property_correlation(args.datasets), decision_agreement(args.datasets)
+    corr.to_csv(CORR_CSV)
+    agree.to_csv(AGREE_CSV, index=False)
+    print(f"\nproperty correlation matrix -> results/module3_property_correlation.csv\n{corr.to_string()}")
+    dis = agree[~agree["rules_agree"]]
+    r1w, r2w = int((dis["disagreement_result"] == "R1 correct, R2 wrong").sum()), int((dis["disagreement_result"] == "R2 correct, R1 wrong").sum())
+    print(f"\ndecision agreement -> results/module3_decision_agreement.csv\n{agree.to_string(index=False)}")
+    print(f"\nrules agree on {int(agree['rules_agree'].sum())}/{len(agree)} datasets; of {len(dis)} disagreements: "
+          f"R1 correct {r1w}, R2 correct {r2w}, undecided {len(dis) - r1w - r2w}")
 
 
 def parse_args():

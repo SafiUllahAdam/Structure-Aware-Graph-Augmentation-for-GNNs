@@ -1,4 +1,5 @@
-'''THE frozen Module-3 artifact: the seven-dataset FITTING panel and the two candidate rules, locked 2026-07-29.
+'''THE frozen rule artifacts: the Module-2 fitting panel and its two rules (locked 2026-07-29), and the Module-4 SECOND
+GATE fitted on top of them (locked 2026-08-05).
 
 Nothing here is recomputed. The point and interval of each rule are the exact numbers candidate_rules() produced on the
 panel (results/candidate_rules.csv, link-prediction credible rows) and must NEVER be re-derived from data that includes an
@@ -46,3 +47,39 @@ def predict(props):
     live = [v for v in calls.values() if v != "n/a"]
     combined = "no rule fires" if not live else ("rules disagree" if len(set(live)) > 1 else live[0])
     return calls, combined
+
+
+# --- Module 4: the SECOND GATE, locked 2026-08-05 --------------------------------------------------------------------
+# Module 3 showed rule 1 fails ASYMMETRICALLY: above the boundary it called "keep original" and was right 3/3; below it
+# called "augment" and was right only 2/4. So rule 1 is a VETO, and a second variable is needed on one side only - inside
+# the low-homophily zone. This gate is that variable: a property of the VIRTUAL graph, so it needs no labels, and the
+# rewiring must already be BUILT (never trained) to measure it.
+# Numbers are the exact low-homophily-zone / gap_rel row of results/gate_candidates.csv - never re-derive them from data
+# that includes the graph being predicted.
+Gate = namedtuple("Gate", "name predictor op point interval needs_labels applies_when fitted_on")
+FROZEN_GATE = Gate("gate", "original_retention", "<", 0.0119, (0.0062, 0.0176), False,
+                   "rule1 == augment", "GATE_PANEL")
+
+# The Module-4 FITTING panel: the Module-2 discovery panel (minus ogbn_arxiv, which is node-classification only) PLUS the
+# nine Module-3 datasets, whose verdicts are already published and so are no longer unseen. Declared, because the gate is
+# FITTED here: a dataset in this list can never test the gate, only a genuinely unseen third set can.
+GATE_PANEL = ["cora", "enzymes", "ogbl_ddi", "roman_empire", "tolokers", "questions",
+              "pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia", "amazon_ratings", "squirrel_filtered"]
+
+# Module-5 held-out: the third, genuinely unseen set the GATE is tested on. Append datasets as they are ingested.
+GATE_HELDOUT = []
+
+assert not (set(GATE_PANEL) & set(GATE_HELDOUT)), "a dataset is in BOTH the gate panel and the gate held-out set - it must be in exactly one"
+
+
+def predict_gated(props):
+    '''The two-gate call: rule 1 vetoes on its reliable side, the gate decides inside the low-homophily zone, rule 2 covers unlabelled graphs.'''
+    calls, _ = predict(props)
+    gate = predict_one(FROZEN_GATE, props.get(FROZEN_GATE.predictor))
+    if calls["rule1"] == "keep original":                  # the veto side: 3/3 in Module 3, no second variable needed
+        return calls, gate, "keep original", "rule 1 veto"
+    if calls["rule1"] == "augment":                        # the ambiguous side: this is the only place the gate speaks
+        return calls, gate, (gate if gate != "n/a" else "augment"), ("gate" if gate != "n/a" else "rule 1 (gate not measurable)")
+    # No labels -> rule 1 cannot fire at all. The gate's cut was fitted INSIDE the zone, so it does not transfer here; fall
+    # back to rule 2, exactly as Module 3 did for ogbl_ddi, and carry the gate value as information only.
+    return calls, gate, calls["rule2"], "rule 2 (no labels)"
