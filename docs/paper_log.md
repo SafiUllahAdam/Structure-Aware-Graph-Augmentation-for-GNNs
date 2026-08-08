@@ -62,7 +62,7 @@ Graph sizes (Cora, K=10): psi 16251 edges (avg deg 12.0), degree 26216 (19.4 —
 
 ## Phase 3 — GNN encoder (design locked 2026-07-04, implementation pending)
 
-- **DECISION (user + professor).** Encoder = **GraphSAGE trained unsupervised** with a **Skipgram-analog objective** — same role Skipgram plays in I2V, so the GNN is a true drop-in for the walk+Skipgram back end. Study runs **on the virtual graphs** (starting with I2V's Poisson/KL Ψ graph); the original graph is only a control row. Output stays 64-dim `.emb` → identical evaluation protocol as I2V/Phase 2.
+- **DECISION (user + review).** Encoder = **GraphSAGE trained unsupervised** with a **Skipgram-analog objective** — same role Skipgram plays in I2V, so the GNN is a true drop-in for the walk+Skipgram back end. Study runs **on the virtual graphs** (starting with I2V's Poisson/KL Ψ graph); the original graph is only a control row. Output stays 64-dim `.emb` → identical evaluation protocol as I2V/Phase 2.
 - **Core architecture (ViRGo-SAGE).** Structural input features `[degree, eigenvector centrality Ω, ψ, clustering]` (no node attributes → method stays structural + inductive) → 2-layer GraphSAGE (mean) over the virtual graph → 64-d z. Loss = GraphSAGE unsupervised objective (Skipgram with the lookup table replaced by the GNN): positives = walk co-occurrence on the *virtual* graph, negatives ∝ deg^{3/4}, Q=5 (matches I2V `negative=5`).
 - **Comparability design.** Walk corpus for positives uses the exact I2V params of the Phase-2 DeepWalk bridge (num_walks=10, walk_length=40, window=10, seeds 42/43/44) ⇒ Phase-2 bridge vs Phase-3 SAGE differ in **one component only** (Skipgram lookup vs message passing) — a clean encoder ablation.
 - **Variant axes for the study/ablations:** A positives (walk co-occurrence vs 1-hop virtual neighbors — "are walks still needed once similarity is explicit?"), B aggregation (mean / **Ψ-weighted mean** — first use of the virtual edge weights / max / sum), C depth 1–3 (over-smoothing: virtual graphs near-connected at K=10), D features (structural-4 / degree-only / random), E graph (Ψ, degree, centrality × K 5/10/20; dual virtual+original branch deferred to follow-up work).
@@ -202,7 +202,7 @@ Second dataset for the E-study (first: enzymes). Same protocol: locked ViRGo-SAG
 - **Consistent cross-dataset patterns (both datasets):** (1) hybrid is DeepWalk's best *rewired* graph on both tasks (it contains the original edges) yet mixing role edges still halves DeepWalk's cora NC (0.81 → 0.45); (2) GraphSAGE > DeepWalk on the pure role graphs' NC (Ψ, degree); (3) the GNN's LP advantage exists only on role-augmented graphs, never on the original graph.
 - **CAVEATS.** K=10 only, 3 seeds, cosine LP; no encoder tuning per dataset (locked from enzymes ablations); structural-feature handicap above means "GraphSAGE loses on cora" = "role-feature GNN loses on a homophily task", not a general GNN result.
 
-- **Result-presentation framing locked (2026-07-13, professor guidance).** PRIMARY research question: **which graph variant is best for a given dataset × task** (the virtual graph is the variable under study). SECONDARY: **within each graph**, does GraphSAGE (message passing) beat DeepWalk (walks + Skipgram) — the encoder comparison lives inside each graph, never headlines. Current K=10 answers: cora NC → original+DeepWalk (0.8100); cora LP → original+DeepWalk (0.9007); enzymes NC → original+GraphSAGE (0.5671); enzymes LP → centrality+DeepWalk (0.7382). Notable: the *best* configuration is DeepWalk-based in 3 of 4 cells — the GNN's contribution shows in the secondary Δ table (GraphSAGE > DeepWalk on Ψ everywhere, and on enzymes hybrid LP +0.188), not in the headline. Notebook 3 §11 renders both views from the scoreboard.
+- **Result-presentation framing locked (2026-07-13, review guidance).** PRIMARY research question: **which graph variant is best for a given dataset × task** (the virtual graph is the variable under study). SECONDARY: **within each graph**, does GraphSAGE (message passing) beat DeepWalk (walks + Skipgram) — the encoder comparison lives inside each graph, never headlines. Current K=10 answers: cora NC → original+DeepWalk (0.8100); cora LP → original+DeepWalk (0.9007); enzymes NC → original+GraphSAGE (0.5671); enzymes LP → centrality+DeepWalk (0.7382). Notable: the *best* configuration is DeepWalk-based in 3 of 4 cells — the GNN's contribution shows in the secondary Δ table (GraphSAGE > DeepWalk on Ψ everywhere, and on enzymes hybrid LP +0.188), not in the headline. Notebook 3 §11 renders both views from the scoreboard.
 
 - **Headline tables locked to the fixed encoder (2026-07-13, user decision).** Notebook 3 §11 Table 1 (best virtual graph per dataset × task) and Table 2 (control vs original) now use **`graphsage_edge` only** — previously "best over both encoders", which confounded graph choice with encoder choice. Rationale: the virtual graph is the variable under study, so the encoder must be held fixed; the GraphSAGE-vs-DeepWalk comparison stays in §7 as the secondary question (same graph, encoders differ). K=10 answers under the locked encoder: cora NC → hybrid 0.3109; cora LP → centrality 0.5708; enzymes NC → degree 0.5536; enzymes LP → centrality 0.7197. Control check (graphsage both sides): original wins cora NC 0.4504 / cora LP 0.6212 and enzymes NC 0.5671; best virtual wins enzymes LP 0.7197 vs 0.6459 — per-data/per-task story unchanged, now unconfounded.
 
@@ -1456,7 +1456,7 @@ On seven it falls to −0.78 and **no longer survives correction**; `homophily_a
 cells *perfectly* under the fixed-variant gap. This is a direct demonstration that the panel, not the data-generating
 process, is currently selecting the winner — exactly the fragility the pre-registered Module 3 exists to resolve.
 
-**Reportable reversal on the supervisor-proposed rules.** Adjusted homophily was proposed as the *node classification*
+**Reportable reversal on the pre-specified rules.** Adjusted homophily was proposed as the *node classification*
 predictor. It fails there (ρ = −0.30, and NC has no augment cell to predict at all) but is the **strongest link
 prediction** rule in the study. Right variable, wrong task — worth stating as a finding rather than burying.
 
@@ -1886,7 +1886,7 @@ headroom" reading does not survive. Recorded here rather than deleted: it is a c
 the same cells that suggested it must not be adopted, and it was falsified by the very next dataset ingested.
 
 **Density is still rejected too.** Sorted by average degree the verdicts remain interleaved at the sparse end —
-`citeseer_linqs` 2.78 keeps original while `roman_empire` 2.91 augments — so the professor's density proposal gains
+`citeseer_linqs` 2.78 keeps original while `roman_empire` 2.91 augments — so the pre-specified density proposal gains
 nothing from this cell, even though the three densest graphs (`squirrel_filtered` 42.3, `tolokers` 88.3, `ogbl_ddi`
 500.5) do all augment.
 
@@ -1976,7 +1976,7 @@ the gate, and the two-gate call all at 2/3. That is the trade the gate makes, vi
 
 ---
 
-## 2026-08-07 — Rule-redundancy diagnostics on the Module-3 held-out set (professor request)
+## 2026-08-07 — Rule-redundancy diagnostics on the Module-3 held-out set (review request)
 
 Two descriptive analyses justifying **keep R1, drop R2** in the paper. Both live in `experiments/score_module3.py`
 (`property_correlation()`, `decision_agreement()`) and in a new final section of notebook 6; both only READ the frozen
@@ -1998,3 +1998,42 @@ held-out evidence R2 never adds information over R1 when they conflict.
 from the labelled-graph path and kept ONLY as the no-labels fallback (`ogbl_ddi`-style graphs, where R1 cannot fire at
 all) — that coverage hole is the one thing the agreement table cannot speak to, since all 9 held-out graphs have labels.
 Caveat carried: 9 datasets, 2 of 3 disagreements tied, so "0 for R2" rests on a single decided cell.
+
+---
+
+## 2026-08-08 — Correction: property–property correlation now over ALL datasets (review re-request)
+
+The review request was the R1-vs-R2 property correlation across **all datasets (discovery + held-out)**; the
+2026-08-07 entry computed it on the 9 held-out only. New `score_module3.rule_properties()` pools the frozen Module-2
+properties (`dataset_characterization.csv`, filtered to the 7-dataset discovery panel) with the frozen held-out
+`module3_predictions.csv`; `property_correlation()` now defaults to that 16-dataset union. Nothing is refitted.
+
+**Result** (`results/module3_property_correlation.csv`, notebook 6 §6): `homophily_adjusted` vs
+`largest_component_frac` Spearman **ρ = −0.4146**, p 0.1244, over the **15 complete pairs** (`ogbl_ddi` is unlabelled →
+no homophily; 16 datasets total). The held-out-only value was −0.297 — same direction, moderately stronger at full n,
+but still far from "strongly rank-correlated", so the conclusion stands: **R2 is not redundant with R1 by
+construction**. Degeneracy remains R2's real weakness and sharpens at full n: **11/16 datasets sit exactly at the 1.0
+ceiling** and the property takes only **6 distinct values**, vs 15 distinct homophily values. The modest negative ρ
+reflects the panel pattern that this study's heterophilous graphs are all fully connected.
+
+Notebook 6 §6 now also displays the 16-row property table (dataset, panel, both properties) so the correlation's
+inputs are visible.
+
+**Point 2, same correction (review: "the 2×2 agreement table of their decisions over every dataset"):**
+`decision_agreement()` now also defaults to the 16-dataset union. Calls are recomputed from the frozen points via
+`frozen_rules.predict_one()`; an integrity assert requires every recomputed held-out call to equal the write-once
+pre-registered `module3_predictions.csv` row, so nothing can drift. Discovery rows carry a `panel` flag and are
+in-sample — their correctness describes fit, not validation.
+
+**The 2×2** (15 datasets where both rules fire; `ogbl_ddi` is R1-n/a — unlabelled, a coverage hole, not a
+disagreement): both augment **7**, both keep **4**, R1 keep / R2 augment **4**, R1 augment / R2 keep **0**.
+That empty cell is the reportable structure: on every graph in the study, R1 saying augment implies R2 says augment
+(all low-homophily graphs sit at the largest-component ceiling 1.0), so R2 never contradicts R1 on the augment side
+and **every disagreement is one-sided** — R1 keep, R2 augment.
+
+**The 4 disagreement cases** (`results/module3_decision_agreement.csv`): `ogbn_arxiv` (NEW — invisible in the
+held-out-only view; undecidable, node-classification only, no LP cell), `pubmed` (tie), `amazon_photo` (tie),
+`lastfm_asia` (the only decided one → **R1 correct, R2 wrong**). Counts: 16 rows, 1 R1-n/a, agree 11, disagree 4,
+R1 wins 1, R2 wins 0, undecided 3. Conclusion unchanged from 2026-08-07 — keep R1 as lead/veto, R2 only as the
+no-labels fallback — with the standing caveat that "R2 wins 0" still rests on a single decided cell, and the three
+discovery agreements on the augment side are in-sample.
