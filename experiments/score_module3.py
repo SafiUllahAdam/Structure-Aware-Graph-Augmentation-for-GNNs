@@ -23,6 +23,7 @@ from experiments import predict_module3 as pm
 SCORED_CSV = cfg.RESULTS_DIR / "module3_scored.csv"
 EVIDENCE_CSV = cfg.RESULTS_DIR / "module3_evidence.csv"
 DISCOVERY_CSV = cfg.RESULTS_DIR / "candidate_rules.csv"     # Module-2 evidence, READ-ONLY here
+CHARACTERIZATION_CSV = cfg.RESULTS_DIR / "dataset_characterization.csv"     # Module-2 properties, READ-ONLY here
 CORR_CSV = cfg.RESULTS_DIR / "module3_property_correlation.csv"
 AGREE_CSV = cfg.RESULTS_DIR / "module3_decision_agreement.csv"
 
@@ -82,33 +83,62 @@ def evidence(datasets=None):
               "gap_abs", "noise", "gap_sigma", "actual_verdict", "rule1_correct", "rule2_correct"]]
 
 
-def property_correlation(datasets=None):
-    '''Redundancy DIAGNOSTIC: 2x2 Spearman matrix of the two frozen rule properties on the held-out set, plus each property's variation. Never fits.'''
-    pred = pd.read_csv(pm.PRED_CSV)
-    if datasets:
-        pred = pred[pred["dataset"].isin(datasets)]
+def rule_properties(datasets=None):
+    '''The two frozen rule properties for every dataset, discovery panel + held-out, from the frozen CSVs. Never fits.'''
     props = ["homophily_adjusted", "largest_component_frac"]
-    n, r, p = rho(pred[props[0]], pred[props[1]])          # rho() floors p at 2/n!, so small-n ranks are never overstated
+    disc = pd.read_csv(CHARACTERIZATION_CSV)
+    disc = disc[disc["dataset"].isin(fr.DISCOVERY_PANEL)]  # the CSV regains dropped datasets if characterize refits with defaults
+    held = pd.read_csv(pm.PRED_CSV)
+    both = pd.concat([disc.assign(panel="discovery"), held.assign(panel="held-out")], ignore_index=True)
+    if datasets:
+        both = both[both["dataset"].isin(datasets)]
+    return both[["dataset", "panel"] + props]
+
+
+def property_correlation(datasets=None):
+    '''Redundancy DIAGNOSTIC: 2x2 Spearman matrix of the two frozen rule properties across ALL datasets (discovery panel +
+    held-out - review request 2026-08-08), plus each property's variation. Never fits.'''
+    both = rule_properties(datasets)
+    props = ["homophily_adjusted", "largest_component_frac"]
+    n, r, p = rho(both[props[0]], both[props[1]])          # rho() floors p at 2/n!, so small-n ranks are never overstated
     mat = pd.DataFrame([[1.0, r], [r, 1.0]], index=props, columns=props)
     mat.index.name = "property"
     # A correlation alone cannot show rule 2's real weakness - the ceiling pile-up - so the variation counts ride along.
-    mat["distinct_values"] = [int(pred[c].nunique()) for c in props]
-    mat["n_at_1.0"] = [int((pred[c] == 1.0).sum()) for c in props]
-    mat["n_datasets"], mat["spearman_p"] = n, p            # pair-level, repeated on both rows for a single flat table
+    mat["n_values"] = [int(both[c].notna().sum()) for c in props]      # ogbl_ddi is unlabelled -> no homophily value
+    mat["distinct_values"] = [int(both[c].nunique()) for c in props]
+    mat["n_at_1.0"] = [int((both[c] == 1.0).sum()) for c in props]
+    mat["n_datasets"], mat["spearman_p"] = n, p            # pair-level (non-missing pairs), repeated on both rows for one flat table
     return mat
 
 
 def decision_agreement(datasets=None):
-    '''Redundancy DIAGNOSTIC: per held-out dataset, do the two rules agree, and in a disagreement which one was right. Never fits.'''
-    m = score(datasets)
-    m["rules_agree"] = m["rule1_pred"] == m["rule2_pred"]
-    # `is True` because the correct-columns mix bool with "pending"/"no decision" strings (object dtype, == is unreliable).
-    m["disagreement_result"] = ["rules agree" if a
-                                else "R1 correct, R2 wrong" if r1 is True
-                                else "R2 correct, R1 wrong" if r2 is True
-                                else f"disagree, {r1}"
-                                for a, r1, r2 in zip(m["rules_agree"], m["rule1_correct"], m["rule2_correct"])]
-    return m[["dataset", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule2_pred",
+    '''Redundancy DIAGNOSTIC: R1 x R2 decisions for EVERY dataset, discovery panel + held-out (review request
+    2026-08-08), and in a disagreement which rule the LP verdict backed. Never fits - calls come from the frozen points;
+    discovery rows are IN-SAMPLE (the rules were fitted there), so their correct-columns describe fit, not validation.'''
+    m = rule_properties(datasets)
+    for r in fr.FROZEN_RULES:
+        m[f"{r.name}_pred"] = [fr.predict_one(r, v) for v in m[r.predictor]]
+    pred = pd.read_csv(pm.PRED_CSV).set_index("dataset")   # integrity check, not a fit: a recomputed held-out call must
+    for ds, p1, p2 in zip(m["dataset"], m["rule1_pred"], m["rule2_pred"]):     # equal the write-once pre-registration
+        if ds in pred.index:
+            assert (p1, p2) == (pred.loc[ds, "rule1_pred"], pred.loc[ds, "rule2_pred"]), f"{ds}: call drifted from the frozen prediction"
+    act = actual_lp_verdicts(m["dataset"].tolist()).rename(columns={"verdict": "actual_verdict"})
+    m = m.merge(act[["dataset", "actual_verdict", "usable"]], on="dataset", how="left")
+    m["actual_verdict"] = m["actual_verdict"].fillna("no LP cell")             # ogbn_arxiv is node-classification only
+    decided = m["actual_verdict"].isin(["augment", "keep original"]) & m["usable"].fillna(False)
+    for r in fr.FROZEN_RULES:
+        m[f"{r.name}_correct"] = ["n/a" if p == "n/a" else "no decision" if not ok else bool(p == av)
+                                  for p, av, ok in zip(m[f"{r.name}_pred"], m["actual_verdict"], decided)]
+    # None (not False) when R1 cannot fire: an unlabelled graph is a coverage hole, not a disagreement.
+    m["rules_agree"] = [None if "n/a" in (p1, p2) else bool(p1 == p2) for p1, p2 in zip(m["rule1_pred"], m["rule2_pred"])]
+    # `is True` because the correct-columns mix bool with "n/a"/"no decision" strings (object dtype, == is unreliable).
+    m["disagreement_result"] = ["R1 n/a (unlabelled)" if a is None
+                                else "rules agree" if a
+                                else "R1 correct, R2 wrong" if c1 is True
+                                else "R2 correct, R1 wrong" if c2 is True
+                                else f"disagree, undecided ({av})"
+                                for a, c1, c2, av in zip(m["rules_agree"], m["rule1_correct"], m["rule2_correct"], m["actual_verdict"])]
+    return m[["dataset", "panel", "homophily_adjusted", "largest_component_frac", "rule1_pred", "rule2_pred",
               "actual_verdict", "rule1_correct", "rule2_correct", "rules_agree", "disagreement_result"]]
 
 
@@ -169,15 +199,16 @@ def main(args):
         print(f"{r.name} ({r.predictor} {r.op} {r.point}): " + (f"{sum(c)}/{len(c)} correct" if c else "nothing scored yet")
               + (f"  [{len(skipped)} not scored: " + ", ".join(sorted({str(v) for v in skipped})) + "]" if skipped else ""))
 
-    # Redundancy diagnostics (professor request 2026-08-07): descriptive only, justify keeping R1 and dropping R2 - no refit.
+    # Redundancy diagnostics (review request 2026-08-07): descriptive only, justify keeping R1 and dropping R2 - no refit.
     corr, agree = property_correlation(args.datasets), decision_agreement(args.datasets)
     corr.to_csv(CORR_CSV)
     agree.to_csv(AGREE_CSV, index=False)
     print(f"\nproperty correlation matrix -> results/module3_property_correlation.csv\n{corr.to_string()}")
-    dis = agree[~agree["rules_agree"]]
+    dis = agree[agree["rules_agree"] == False]             # == because the column holds True/False/None (R1 n/a)
     r1w, r2w = int((dis["disagreement_result"] == "R1 correct, R2 wrong").sum()), int((dis["disagreement_result"] == "R2 correct, R1 wrong").sum())
     print(f"\ndecision agreement -> results/module3_decision_agreement.csv\n{agree.to_string(index=False)}")
-    print(f"\nrules agree on {int(agree['rules_agree'].sum())}/{len(agree)} datasets; of {len(dis)} disagreements: "
+    print(f"\nrules agree on {int((agree['rules_agree'] == True).sum())}/{len(agree)} datasets "
+          f"({int(agree['rules_agree'].isna().sum())} R1-n/a); of {len(dis)} disagreements: "
           f"R1 correct {r1w}, R2 correct {r2w}, undecided {len(dis) - r1w - r2w}")
 
 

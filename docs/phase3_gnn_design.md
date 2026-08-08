@@ -71,7 +71,7 @@ Fixed training details (proposal): hidden=64, out=64, full-batch (largest graph 
 
 ---
 
-## 5. Open questions for the professor
+## 5. Open questions for review
 
 1. **A1 vs A2 as the headline loss** — we propose A1 (faithful Skipgram replacement, clean vs Phase-2); A2 kept as ablation. Agree?
 2. **Dual-branch (virtual + original)** — include in this paper or defer to follow-up? We propose defer.

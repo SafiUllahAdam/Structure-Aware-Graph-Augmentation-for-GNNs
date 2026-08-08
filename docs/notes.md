@@ -142,20 +142,20 @@ Lab notebook. Append a dated entry whenever something happens. Rules:
   - cora LP AUC:          40 = ____  |  80 = ____
 - DECISION: **walk-length = 40 active.** 80 = paper value, kept as a recorded deviation, not used — 1.87x slower with no confirmed metric gain (see placeholder).
 
-## 2026-06-24 — paper-fidelity fixes (professor review), Fix 8 effect, proposed sampling
+## 2026-06-24 — paper-fidelity fixes (external review), Fix 8 effect, proposed sampling
 
-Professor diffed repo vs paper -> 8 suggested fixes. Status verified fresh from disk (line refs current). Fixes landed over the last few sessions; recorded here together.
+Review diffed repo vs paper -> 8 suggested fixes. Status verified fresh from disk (line refs current). Fixes landed over the last few sessions; recorded here together.
 
 - **Fix 1 — selection direction. DONE, version (b).** `identity2vec.py:92-94`. Compute Ψ of the current node, then pick the candidate minimizing `|Ψ_candidate − Ψ_current|` (least-dissimilar). Option (a) `max(pdn, key=pdn.get)` left commented as a record.
 - **Fix 2 — degree distribution, not raw degree. DONE.** Added `degree_distribution()` (Δ_u = n_d/n) at `identity2vec.py:27-39`; used for the `p` signal in `get_prob`. (Raw `degree_node()` now appears only in the Fix-4 divisor.)
 - **Fix 3 — p/q composition. DONE.** `get_prob:132-133`: `p = Δ`, `q = Ω·d`. Eigenvector moved out of the numerator back into the denominator; distance penalty restored. Matches paper Eqs 3-4.
-- **Fix 4 — normalize by candidate, not previous node. DONE ("4A").** `identity_score:154-158`: `normalizer = degree_node[node] + eigenvector[node]` of the candidate being scored (was `bounded_curr` — constant across candidates, so it didn't discriminate). NOTE: uses RAW degree + eigenvector; professor offered raw OR degree-distribution for ω -> confirm the choice.
+- **Fix 4 — normalize by candidate, not previous node. DONE ("4A").** `identity_score:154-158`: `normalizer = degree_node[node] + eigenvector[node]` of the candidate being scored (was `bounded_curr` — constant across candidates, so it didn't discriminate). NOTE: uses RAW degree + eigenvector; review offered raw OR degree-distribution for ω -> confirm the choice.
 - **Fix 5 — walk-length 80. NOT applied (intentional).** Kept 40 (timing 1.87× slower, see 2026-06-23 entry). Paper's 80 = recorded deviation.
 - **Fix 6 — Word2Vec hyperparameters. DONE.** `train.py:86`: `alpha 0.25 -> 0.025`, `sample 1e-5 -> 1e-3` (min_alpha / negative / seed unchanged). Removes the 10× learning rate that only I2V used.
 - **Fix 7 — cached walker in sync. DONE.** `degree_distribution` cached at `identity2vec_cached.py:29-43` (`_deg_dist`). `identity_score` (Fixes 4A+8) is inherited (not overridden) and calls the cached signals via `self` -> cached and non-cached paths stay identical.
 - **Fix 8 — Poisson in log-space. DONE.** `identity2vec.py:160-167`, `from scipy.special import gammaln` (:9). `drt = max(drt, 1e-12)`; `log_poiss = k·log(drt) − drt − gammaln(k+1)`. Fixes underflow-to-0 on hubs AND the latent `factorial(k)` overflow for k>170.
 
-- **REVERSAL of the 2026-06-20 "DO NOT change" decision.** That audit kept the released-code deviations (p=deg·eigcent, q=dist, norm=deg+cent) for baseline comparability. Per the professor review + the paper-fidelity goal, Fixes 2/3/4 now move the code to the paper's Eqs 2-4. The original released-code baseline stays in git history (can be a separate comparison column if needed).
+- **REVERSAL of the 2026-06-20 "DO NOT change" decision.** That audit kept the released-code deviations (p=deg·eigcent, q=dist, norm=deg+cent) for baseline comparability. Per the external review + the paper-fidelity goal, Fixes 2/3/4 now move the code to the paper's Eqs 2-4. The original released-code baseline stays in git history (can be a separate comparison column if needed).
 
 - **FINDING — Fix 8 effect (cora):** node classification improved and now matches the paper; link-pred AUC dropped from best-recorded **0.8494 -> ~0.81**.
   - Why: before Fix 8 the Poisson underflowed to 0 on high-degree nodes -> many tied scores -> selection effectively RANDOM -> the walk wandered the local neighborhood (proximity) -> accidentally boosted LP. Fix 8 made the scores meaningful -> the walk now follows structural identity as intended -> NC up, LP down.
@@ -203,10 +203,10 @@ Goal: identical Skipgram/Word2Vec **training** across all 4 models so the compar
 - [x] Build cached I2V variant; verify embeddings identical + measure speedup (Deliverable #1) — done 2026-06-17: webkb 207.7× faster, byte-identical; pipeline uses `--cached`.
 - [x] walk-length = **40** (active; flipped 40 -> 80 -> 40 again on 2026-06-23 after timing 80 = slower, see entry below). `train.py` + `benchmark_config` = 40. Paper's 80 = recorded deviation.
 - [ ] On-disk `output/cora_lp.emb` is an 80-walk embedding (AUC 0.7972); retrain at 40 to refresh a 40 link-pred number if wanted.
-- [x] Paper-fidelity fixes (professor review), done 2026-06-24: Fix 1b selection, Fix 2 Δ, Fix 3 p/q, Fix 4A normalizer, Fix 6 Word2Vec, Fix 7 cache sync, Fix 8 log-space. Fix 5 (walk-80) intentionally NOT applied.
+- [x] Paper-fidelity fixes (external review), done 2026-06-24: Fix 1b selection, Fix 2 Δ, Fix 3 p/q, Fix 4A normalizer, Fix 6 Word2Vec, Fix 7 cache sync, Fix 8 log-space. Fix 5 (walk-80) intentionally NOT applied.
 - [ ] Regenerate all `.emb` — fixes 1/3/4/6/8 changed the math, on-disk results are stale.
 - [ ] Confirm Fix 8 LP drop 0.8494 -> 0.81 is real vs seed noise (3-seed mean±std).
-- [ ] Confirm Fix 4 ω choice (raw degree vs degree-distribution) with professor.
+- [ ] Confirm Fix 4 ω choice (raw degree vs degree-distribution) at review.
 - [x] Temperature sampling (2026-06-24 ablation, τ=0.3) — **removed 2026-07-07**, I2V restored to paper-exact greedy; τ TODOs (seed sweep, runner threading) dropped with it. Regenerate I2V `.emb`.
 - [x] Cross-model Skipgram config standardized to I2V 2026-06-24 (node2vec/DeepWalk `min_alpha=0.01`; struc2vec hs→negative sampling; walk_length 40 all). I2V untouched; per-model walk knobs kept.
 - [ ] Regenerate the 3 baselines' `.emb` (config changed) + re-run benchmark; I2V embeddings stay valid (no retrain).
@@ -420,7 +420,7 @@ Project flow locked into 5 phases (Phase 1 done):
 ## 2026-07-13 — Notebook 3 §11: research-question view (presentation only)
 
 - New cells `03228a47` + `f1ce4139` after §10: PRIMARY table (graph variants × dataset·task, cell = best-over-encoders score, ★ winner), ANSWER table (best graph + achieving encoder per dataset × task), SECONDARY table (Δ = graphsage_edge − deepwalk within each graph). `RQ_K` knob; reads scoreboard directly; display only.
-- Framing per professor: virtual graph = primary variable; encoder = secondary within-graph comparison.
+- Framing per review: virtual graph = primary variable; encoder = secondary within-graph comparison.
 - Revised same day (user): §11 reduced from 3 tables to 2 — Table 1 = best graph + winning encoder per dataset × task; Table 2 = biggest GraphSAGE gain/loss vs DeepWalk per dataset × task ("no loss" when all Δ positive). Big per-variant pivot dropped (duplicated §10).
 - Revised again (user): §11 = Table 1 best NON-original graph per dataset × task + Table 2 control check (original vs best virtual, meaning column; thresholds: Δ>0.05 much / >0 slightly / <0 virtual better). `original` framed as control baseline, not ViRGo contribution.
 
