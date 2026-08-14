@@ -241,6 +241,44 @@ def contrast(win, prop, tier="all", cut=None):
             .reset_index(drop=True))
 
 
+# --- the two thesis-facing views -------------------------------------------------------------------------------------
+# What the rule was derived FROM: per dataset, the original graph against the best AUGMENTED variant, and which signal won.
+# Reads the same scoreboard rows winners() does, so it cannot disagree with the analysis below it.
+def panel_table(datasets, band="sem"):
+    '''One row per panel dataset: original score, best augmented variant and score, and the winning signal.'''
+    win = winners(datasets, band).set_index("dataset")
+    board = pd.read_csv(cfg.SCOREBOARD_CSV)
+    board = board[(board["encoder"] == "graphsage_edge") & (board["top_K_neighbors"] == 10)
+                  & board["graph_variant"].isin(cfg.VG_SIMS) & board["dataset"].isin(datasets)
+                  & board["task"].isin(LP_TASKS)]
+    rows = []
+    for ds in win.index:
+        aug = board[(board["dataset"] == ds) & (board["graph_variant"] != "original")]
+        best = aug.loc[aug["mean"].idxmax()]
+        w = win.loc[ds]
+        rows.append({"Dataset": ds, "Original score": round(float(w["original"]), 4),
+                     "Best augmented variant": best["graph_variant"], "Best score": round(float(best["mean"]), 4),
+                     # The signal of the OVERALL winner: "original" whenever the unchanged graph is still on top.
+                     "Winning signal": SIGNAL[w["best_variant"]]})
+    return pd.DataFrame(rows).sort_values("Dataset").reset_index(drop=True)
+
+
+# The one rule that survived the screen, with its evidence - the rejected candidates stay in strategy_patterns.csv.
+def rule_table():
+    '''The accepted strategy rule as one row: condition, prediction, what it was fitted on, and the evidence behind it.'''
+    s = fr.FROZEN_STRATEGY
+    e = pd.read_csv(cfg.RESULTS_DIR / "strategy_patterns.csv")
+    e = e[(e["scope"] == "augmented") & (e["signal"] == s.signal) & (e["predictor"] == s.predictor)].iloc[0]
+    return pd.DataFrame([{
+        "Rule": s.name,
+        "Condition": f"{s.predictor} {s.op} {s.point}  (interval {s.interval[0]}-{s.interval[1]})",
+        "Prediction": f"{s.signal}, else psi or degree (undetermined) - only when {s.applies_when}",
+        "Fitted datasets": f"{int(e['n_scored'])} augmenting, of {len(STRATEGY_PANEL := fr.STRATEGY_PANEL)} in the panel",
+        "Evidence": (f"{int(e['n_exceptions'])} exceptions, rho {e['spearman_rho']}, "
+                     f"LOO {int(e['loo_correct'])}/{int(e['loo_folds'])} vs {e['majority_baseline']} majority; sem band only"),
+    }])
+
+
 # The reading of the two tables: how much the panel can decide at all, then anything that clears the gates.
 def report(win, pat):
     '''Print the winners, how many datasets name a single signal, and every credible signal rule.'''
