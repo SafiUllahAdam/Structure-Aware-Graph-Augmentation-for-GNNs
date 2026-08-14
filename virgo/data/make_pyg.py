@@ -6,6 +6,9 @@
 # fetches graphmining.ai, which no longer serves the file (TLS handshake failure / 404), so the raw graph is read from
 # SNAP's primary archive of the same dataset (Rozemberczki & Sarkar 2020) instead. Node ids, labels and edges are the
 # source's own; SNAP ships features as a liked-artist JSON rather than PyG's 128-dim matrix, which we would drop anyway.
+# reed98/amherst41/johnshopkins55 (2026-08-14) are the LINKX non-homophilous Facebook100 college networks. Their label is
+# gender, which is MISSING for some users - PyG codes that as y = -1, and those nodes are left out of the .labels file
+# rather than written as a third class, exactly as the LINKX benchmark evaluates them. The graph keeps every node.
 
 import argparse
 from pathlib import Path
@@ -14,19 +17,22 @@ from virgo.data.make_ogb import _write_edges, _write_nodes   # shared writers; t
 
 RAW = "output/pyg_raw"                         # PyG download cache: derived, never hand-edited, kept out of input/
 
-PYG = ["pubmed", "actor", "amazon_photo", "lastfm_asia"]
+PYG = ["pubmed", "actor", "amazon_photo", "lastfm_asia", "reed98", "amherst41", "johnshopkins55", "cornell5"]
+LINKX = ["reed98", "amherst41", "johnshopkins55", "cornell5"]
 
 
 # Returns the single PyG graph for a supported benchmark; node features are dropped downstream (structural-only).
 def _load(name):
-    '''Load one PyG benchmark graph. PubMed = Planetoid citation (3 classes); Actor = Geom-GCN film (5); Amazon Photo = co-purchase (8); LastFM Asia = music social (18).'''
-    from torch_geometric.datasets import Planetoid, Actor, Amazon
+    '''Load one PyG benchmark graph. PubMed = Planetoid citation (3 classes); Actor = Geom-GCN film (5); Amazon Photo = co-purchase (8); LastFM Asia = music social (18); the LINKX trio = Facebook100 college networks (2, gender).'''
+    from torch_geometric.datasets import Planetoid, Actor, Amazon, LINKXDataset
     if name == "pubmed":
         return Planetoid(root=RAW, name="PubMed")[0]
     if name == "actor":
         return Actor(root=f"{RAW}/actor")[0]
     if name == "amazon_photo":
         return Amazon(root=RAW, name="Photo")[0]
+    if name in LINKX:
+        return LINKXDataset(root=RAW, name=name)[0]
     if name == "lastfm_asia":
         return _lastfm_asia()                             # SNAP archive, not the PyG class: its host is dead (see header)
     raise ValueError(f"Unknown dataset '{name}'. Use: {PYG}.")
@@ -59,9 +65,10 @@ def make_pyg(name):
     Path("labels").mkdir(exist_ok=True)
     with open(f"labels/{name}.labels", "w") as f:
         for i in range(n):
-            f.write(f"{i} {int(y[i])}\n")
+            if y[i] >= 0:                                 # Facebook100 codes a missing gender as -1: unlabelled, not a class
+                f.write(f"{i} {int(y[i])}\n")
     feats = f"data.x ({g.x.shape[1]}-dim) IGNORED" if g.x is not None else "node features NOT LOADED"
-    print(f"{name}: nodes={n} edges={ne} classes={len(set(y))} avg_degree={2 * ne / n:.2f} | "
+    print(f"{name}: nodes={n} edges={ne} classes={len(set(y[y >= 0]))} labelled={int((y >= 0).sum())}/{n} avg_degree={2 * ne / n:.2f} | "
           f"{feats} (structural-only) | official masks IGNORED (ViRGo core protocol)")
     print(f"WROTE input/{name}.edgelist + .nodes + labels/{name}.labels")
 

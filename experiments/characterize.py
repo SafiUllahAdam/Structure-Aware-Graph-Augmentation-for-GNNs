@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on
 from virgo import config as cfg
 from virgo import graph_io
 from virgo.encoders import feature_cache
-from virgo.frozen_rules import DISCOVERY_PANEL, HELDOUT   # the locked fitting set + the held-out set: threshold-fitting may never see a dataset outside DISCOVERY_PANEL
+from virgo.frozen_rules import DISCOVERY_PANEL, HELDOUT, STRATEGY_HELDOUT   # the locked fitting set + the two held-out sets: threshold-fitting may never see a dataset outside DISCOVERY_PANEL
 
 # The eight study datasets. Domain / tasks / scope are DECLARED metadata (they cannot be measured from an edgelist);
 # every other column in Family 1 is measured. scope records which graph the row describes: ogbl-ddi ships training edges only.
@@ -50,6 +50,11 @@ STUDY = {
     "lastfm_asia":    {"domain": "music social",     "tasks": "NC+LP", "scope": "full"},   # added 2026-08-04
     "amazon_ratings": {"domain": "co-purchase",      "tasks": "NC+LP", "scope": "full"},   # added 2026-08-05; Platonov's heterophilous co-purchase graph, NOT amazon_photo
     "squirrel_filtered": {"domain": "wikipedia",     "tasks": "NC+LP", "scope": "full"},   # added 2026-08-05; de-duplicated Squirrel, avg degree ~42 = by far the densest in the study
+    # LINKX Facebook100 college networks (2026-08-14), registered so the pipeline can measure them; held out, never fitted on.
+    "reed98":         {"domain": "college social",   "tasks": "NC+LP", "scope": "full"},
+    "amherst41":      {"domain": "college social",   "tasks": "NC+LP", "scope": "full"},
+    "johnshopkins55": {"domain": "college social",   "tasks": "NC+LP", "scope": "full"},
+    "cornell5":       {"domain": "college social",   "tasks": "NC+LP", "scope": "full"},
 }
 
 # THE ACTIVE PANEL is the FIXED literal DISCOVERY_PANEL (virgo/frozen_rules.py), NOT derived here: citeseer_linqs and
@@ -57,6 +62,7 @@ STUDY = {
 # must name registered datasets, so the study can actually load them.
 assert set(DISCOVERY_PANEL) <= set(STUDY), f"discovery panel names an unregistered dataset: {sorted(set(DISCOVERY_PANEL) - set(STUDY))}"
 assert set(HELDOUT) <= set(STUDY), f"held-out set names an unregistered dataset: {sorted(set(HELDOUT) - set(STUDY))}"
+assert set(STRATEGY_HELDOUT) <= set(STUDY), f"strategy held-out set names an unregistered dataset: {sorted(set(STRATEGY_HELDOUT) - set(STUDY))}"
 
 FEATURES = ["degree", "eigenvector_centrality", "psi", "clustering"]   # the cached column order, set by GNNEncoder.features()
 
@@ -70,7 +76,8 @@ DEGENERATE = {"pct_unique": 1.0, "pct_zero": 95.0}
 
 # --- portion 2 ---------------------------------------------------------------------------------------------------
 # How each non-original variant changes the graph: hybrid ADDS role edges to the real ones, the rest REPLACE them.
-KIND = {"hybrid": "additive", "psi": "replacement", "degree": "replacement", "centrality": "replacement"}
+KIND = {"hybrid": "additive", "hybrid_degree": "additive", "hybrid_centrality": "additive",
+        "psi": "replacement", "degree": "replacement", "centrality": "replacement"}
 
 # One variant fixed per task, so the gap can also be read without the max-over-variants selection bias.
 # POST-HOC: each is simply the variant that already wins most cells in the max-gap table (6/8 apiece), not a principled choice.
@@ -253,7 +260,9 @@ def frozen_inputs(datasets):
     '''Snapshot the locked GraphSAGE (K=10, 3-seed) primary score for every dataset x task x graph variant.'''
     board = pd.read_csv(cfg.SCOREBOARD_CSV)
     b = board[(board["encoder"] == "graphsage_edge") & (board["top_K_neighbors"] == 10)
-              & board["graph_variant"].isin(cfg.VG_SIMS) & board["dataset"].isin(datasets)]
+              # VG_SIMS_LOCKED, not VG_SIMS: the frozen rules were fitted on those five variants, and the gap is a max
+              # OVER variants - letting a newly promoted variant in would silently refit Module 2 on a wider set.
+              & board["graph_variant"].isin(cfg.VG_SIMS_LOCKED) & board["dataset"].isin(datasets)]
     b = b[[PRIMARY.get(t) == m for t, m in zip(b["task"], b["metric"])]]   # one primary metric per task, never mixed
     return (b[["dataset", "task", "graph_variant", "metric", "mean", "std", "seeds"]]
             .sort_values(["dataset", "task", "graph_variant"]).reset_index(drop=True))

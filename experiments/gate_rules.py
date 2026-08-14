@@ -61,8 +61,8 @@ def vg_measure(ds, sims, k):
     n, m = G.number_of_nodes(), G.number_of_edges()
     density = 2 * m / (n * (n - 1))
     A = {(min(u, v), max(u, v)) for u, v in G.edges}
-    # hybrid is original union the psi top-K, so its ROLE signal is psi's: diversity is measured on the underlying signature.
-    base = {s: ("psi" if s == "hybrid" else s) for s in sims}
+    # a hybrid is original union a role top-K, so its ROLE signal is that role's: diversity is measured on the underlying signature.
+    base = {s: {"hybrid": "psi", "hybrid_degree": "degree", "hybrid_centrality": "centrality"}.get(s, s) for s in sims}
     div = uniformity([ds], k=k, sims=tuple(sorted(set(base.values())))).iloc[0]
     rows = []
     for sim in sims:
@@ -286,8 +286,9 @@ def parse_args():
     p = argparse.ArgumentParser(description="Module 4: screen virtual-graph properties as the second variable gating the homophily rule.")
     p.add_argument('--datasets', nargs='+', default=GATE_PANEL, choices=list(STUDY),
                    help='Datasets to measure and screen. Default: the declared Module-4 fitting panel.')
-    p.add_argument('--sims', nargs='+', default=[s for s in cfg.VG_SIMS if s != "original"],
-                   help="Virtual-graph variants to measure. 'psi' is canonical; the rest are a robustness check.")
+    p.add_argument('--sims', nargs='+', default=[s for s in cfg.VG_SIMS_LOCKED if s != "original"],
+                   help="Virtual-graph variants to measure. 'psi' is canonical; the rest are a robustness check. "
+                        "Default = the LOCKED five the frozen gate was fitted on (name a promoted variant to measure it too).")
     p.add_argument('--k', type=int, default=10, help='Top-K the virtual graphs were built with. Default 10 (the locked setting).')
     p.add_argument('--step', default='all', choices=['measure', 'screen', 'all'],
                    help="'measure' = Family 3 only; 'screen' / 'all' also fit the gate. Default: all.")

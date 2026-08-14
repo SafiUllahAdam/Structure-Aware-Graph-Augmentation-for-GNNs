@@ -33,6 +33,7 @@ TASKS = {"ogbn_arxiv": ("node_classification", "node classification (OGB officia
 
 # Display-only names: the scoreboard keeps the raw ids, the printed tables read like the paper.
 LABELS = {"psi": "Ψ", "degree": "Degree", "centrality": "Centrality", "original": "Original", "hybrid": "Hybrid",
+          "hybrid_degree": "Hybrid+Deg", "hybrid_centrality": "Hybrid+Cent",
           "graphsage_edge": "GraphSAGE", "deepwalk": "DeepWalk"}
 UNIT = {"acc": "Accuracy", "hits@20": "Hits@20"}              # primary-metric suffix -> display name
 PRIMARY = ["acc", "hits@20"]                                  # secondaries (weighted/macro F1) stay out of the main table
@@ -192,7 +193,8 @@ def report(ds):
     print("\nTest\n" + t.to_string())
     sec = rows[rows["metric"].isin(["test_weighted_f1", "test_macro_f1"])]
     if not sec.empty:                                          # arxiv only: OGB-secondary F1 scores, reported not selected on
-        s = sec.pivot(index="graph_variant", columns=["encoder", "metric"], values="mean").reindex(cfg.VG_SIMS).round(4)
+        s = (sec.pivot(index="graph_variant", columns=["encoder", "metric"], values="mean")
+             .reindex(cfg.VG_SIMS).dropna(how="all").round(4))   # dropna: a variant not yet run on this dataset is absent, not an empty row
         print("\nTest (secondary F1)\n" + s.to_string())
     hl = rows[(rows["encoder"] == lock["encoder"]) & (rows["graph_variant"] == lock["graph_variant"])
               & rows["metric"].isin(["test_acc", "test_hits@20"])]

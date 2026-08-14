@@ -2037,3 +2037,276 @@ held-out-only view; undecidable, node-classification only, no LP cell), `pubmed`
 R1 wins 1, R2 wins 0, undecided 3. Conclusion unchanged from 2026-08-07 — keep R1 as lead/veto, R2 only as the
 no-labels fallback — with the standing caveat that "R2 wins 0" still rests on a single decided cell, and the three
 discovery agreements on the augment side are in-sample.
+
+---
+
+## 2026-08-11 — Supervisor reframe: structural graph AUGMENTATION; two new hybrid variants (hybrid_degree, hybrid_centrality)
+
+**Framing decision (supervisor meeting).** The study is presented as "when should the original graph be augmented
+with structural information, and which structural augmentation" — not "which virtual graph is best" (virtual
+graphs/embeddings already exist as an area). R1 is restated accordingly: adjusted homophily predicts when structural
+graph augmentation may help **link prediction** (low → consider augmenting; high → keep the original). Existing
+pipeline, results and conclusions are unchanged.
+
+**Method addition.** `virgo/virtual_graph.py` now builds `hybrid_degree` (original ∪ degree top-K) and
+`hybrid_centrality` (original ∪ centrality top-K), the exact construction of the existing `hybrid`
+(= original ∪ psi top-K, name kept) with only the role side swapped. Union semantics as before: every original edge
+kept at weight 1.0 (overlap → 1.0), role edges carry the similarity weight; NOTE the union is not a 50/50 blend —
+whichever side contributes more edges dominates, and the locked mean aggregation ignores edge weights anyway.
+Same GraphSAGE, K=10, features, seeds 42/43/44, evaluation.
+
+**Exposure decision.** The two new hybrids are LOCAL to notebooks 2+3 (`EXTRA_HYBRIDS` in notebook 2 setup;
+`SWEEP_SIMS`/`VG_ORDER` in notebook 3) and deliberately NOT in `cfg.VG_SIMS`, so notebook 4's automatic sweep is
+untouched. Promotion to `VG_SIMS` (+ notebooks 4/5/6) only if they beat the existing variants over 3 seeds.
+Edge counts land in `results/graph_health.csv` as for every build.
+
+**Pre-registered hypothesis (to test, not claim).** Actor LP: original ≈ 0.595, pure degree 0.662 — does
+original + degree retain useful original edges and exceed 0.662? If a hybrid wins strongly, distinguish
+"more edges" from "meaningful edges" against the existing density controls (`original_k`/`random_k`, ddi-only so far).
+If the hybrids do not help, report the negative result and keep current conclusions.
+
+## 2026-08-12 — hybrid_degree / hybrid_centrality PROMOTED to the official variant set
+
+**Decision.** The two hybrids leave the notebook-local `EXTRA_HYBRIDS` staging area and become official graph
+variants. `cfg.VG_SIMS` is now the seven-variant candidate set: `original`, `psi`, `degree`, `centrality`,
+`hybrid` (= original ∪ Ψ, name kept), `hybrid_degree`, `hybrid_centrality`. Every driver that loops `cfg.VG_SIMS`
+(`experiments/run_core.py`, `experiments/run_ogb.py`, notebooks 2/3/4) therefore sweeps all seven under the same
+locked GraphSAGE, K=10, seeds 42/43/44 and the same NC/LP evaluation — the notebook-2/3 experiment that motivated
+the promotion is kept, not deleted.
+
+**Guard against silently refitting the frozen rules.** `cfg.VG_SIMS_LOCKED` holds the original five, and the two
+FITTING scripts read that list, not `VG_SIMS`: `characterize.py` (Module-2 gap is a max OVER variants, so a new
+variant would widen the max and move the frozen rules) and `gate_rules.py --sims` (the Module-4 gate was fitted on
+those five). Module-2 and Module-4 numbers are therefore unchanged by this promotion, by construction. `gate_rules`'
+role-signal map now also resolves `hybrid_degree → degree` and `hybrid_centrality → centrality`, so measuring a
+promoted hybrid there is correct whenever it is asked for explicitly.
+
+## 2026-08-13 — seven-variant sweep over the discovery panel (results)
+
+**Run.** All seven `cfg.VG_SIMS` variants × the 7 `frozen_rules.DISCOVERY_PANEL` datasets × {GraphSAGE, DeepWalk},
+K=10, seeds 42/43/44, same NC/LP evaluation; core five through `experiments/run_core.py`, `ogbn_arxiv`/`ogbl_ddi`
+through `experiments/run_ogb.py` (only the two newly promoted variants needed re-running there — the five old ones
+were already recorded). Serial, because every process upserts `results/scoreboard.csv`. 32 dataset × encoder × task
+cells, all filled.
+
+**Node classification.** 12 keep original / 2 tie / 2 augment. Both augment cells are DeepWalk-only with small gaps
+(`enzymes` +0.0169 and `roman_empire` +0.0163, both `hybrid_degree`); `questions` ties at 0.9555 on a 97% majority
+class. **No GraphSAGE NC cell augments** — the frozen "NC never augments" boundary survives the two new variants.
+
+**Link prediction.** 5 keep / 5 augment on the panel: `questions` deepwalk +0.0227 (`hybrid_centrality`),
+`questions` graphsage +0.1038 (`hybrid_degree`), `roman_empire` graphsage +0.0961 (`centrality`), `tolokers`
+deepwalk +0.1100 (`hybrid_degree`, 0.8959), `tolokers` graphsage +0.0563 (`psi`). `cora` and `enzymes` keep the
+original graph on both encoders. Direction agrees with rule 1 (the augment cells are the low-homophily side).
+
+**OGB official.** `ogbn_arxiv` keeps the original graph on both encoders (deepwalk 0.6718, graphsage 0.3998), but
+the two new hybrids are by far the strongest augmented variants there — deepwalk `hybrid_degree` 0.4815 against
+psi/degree/centrality at 0.0929/0.1231/0.1418, graphsage `hybrid_centrality` 0.3747. `ogbl_ddi` augments on both
+encoders (valid Hits@20): deepwalk original 0.0772 < `hybrid` 0.1038 > `hybrid_degree` 0.0941 >
+`hybrid_centrality` 0.0874; graphsage original 0.0413 < `hybrid_degree` 0.0565 > `hybrid` 0.0554.
+
+**"More edges" is not the explanation on ddi.** Against the density controls, deepwalk `hybrid_degree` 0.0941 and
+`hybrid_centrality` 0.0874 both far exceed `original_k` 0.0303 and `random_k` 0.0006 at matched density, so the
+gain tracks which edges are added, not how many. Controls remain ddi-only.
+
+**Verdict on the promotion.** The new hybrids do not overturn any dataset-level verdict — no cell changes from
+"keep original" to "augment" because of them. What they change is the shape of the augmented side: where the pure
+role graphs collapse (arxiv NC, cora NC/LP), the union retains enough of the original graph to stay competitive,
+and `hybrid_centrality` / `hybrid_degree` are the best augmented variant in 8 and 4 of the 22 decided cells. The
+`ogbl_ddi` validation lock is untouched — `hybrid` + DeepWalk 0.1038 is still the panel maximum, so `select()`
+had nothing to re-pick and the no-test-peeking discipline held without intervention.
+
+## 2026-08-13 — Module 6 / Notebook 7: strategy selection is NOT predictable (negative result)
+
+**Question.** Module 2 asked whether to augment. This asks the next one: given that augmentation helps, WHICH structural
+signal — Ψ, degree, or eigenvector centrality — suits this graph. Code: `experiments/strategy_select.py` (a FITTING
+script, panel-guarded like `characterize.py`), notebook `notebooks/7-phase7_strategy_selection.ipynb`.
+
+**Protocol.** GraphSAGE, K=10, link prediction, seeds 42/43/44. Fit panel = the LP half of the discovery panel
+(`cora, enzymes, ogbl_ddi, roman_empire, tolokers, questions`; `ogbn_arxiv` is NC-only); the nine Module-3 datasets stay
+held out. The winner is a **set** — every variant within one pooled sigma of the leader — because three seeds cannot rank
+closer than that. The seven variants collapse onto four labels, a hybrid voting for the signal it ADDS
+(`hybrid → psi`, `hybrid_degree → degree`, `hybrid_centrality → centrality`), plus `original` for do-not-augment.
+`ogbl_ddi` is read on **validation** Hits@20, not `characterize.PRIMARY`'s test: choosing among seven variants is model
+selection, and the OGB test split is reserved for the one locked configuration.
+
+**Result — no strategy rule.** No primary graph property separates which signal wins. Not on the 6-dataset panel, and not
+on an exploratory refit over all 15 datasets that have an LP score. The only splits that clear the Module-2 gates predict
+`original`, which is Module 2's augment-vs-keep question restated on the same panel — it recovers R1
+(`homophily_adjusted > 0.227`, interval 0.0926–0.3613) and R2 (`largest_component_frac < 0.9588`), a useful check that the
+machinery measures what it should, but not a new finding. Nothing is frozen.
+
+**The ceiling is why.** Across all 15 datasets only THREE name a single winning signal — `actor` = degree,
+`roman_empire` = centrality, `tolokers` = psi — exactly one apiece. Everywhere else the leading variants sit inside seed
+noise (`questions` and `ogbl_ddi` tie all three signals at once) or the original graph wins outright. A property cannot be
+asked to predict a label that the experiment does not resolve, so the binding constraint is measurement resolution, not
+the choice of predictor.
+
+**Two screen defects found and fixed while building it**, both of which had produced spurious "credible" rules.
+(i) `graph_properties` writes `n_classes = 0` for an unlabelled graph, which ranks as the panel's smallest value — a
+"low n_classes" split was really fitting "has no labels", so `ogbl_ddi`'s 0 is now masked to missing. (ii) A dataset whose
+band names three signals is a member of all three one-vs-rest groups, so a split could be fitted on datasets that never
+singled the signal out; a rule now needs at least `MIN_SOLE = 2` datasets where the signal wins alone, reported as the
+`n_sole_wins` column and the `tie_dominated` flag.
+
+**Reportable claim.** *When* to augment is predictable (Module 2, validated in Module 3); *which* augmentation to use is
+not, at this panel size and seed count. Raising the seed count is the obvious way to test whether the ties are real or
+just unresolved.
+
+## 2026-08-13 — Module 6 at SEVEN seeds: the negative result holds, and hardens
+
+**What changed since the 3-seed pass.** Three things, in the direction that would have found a rule if one existed.
+(i) **Seven seeds** (42–48) instead of three, on every panel dataset × all seven variants, GraphSAGE link prediction —
+`experiments/run_core.py --task link_prediction --encoder graphsage_edge --seeds 42 43 44 45 46 47 48`, ~2h serial.
+(ii) A **9-dataset panel**: the five core LP discovery datasets plus four promoted from Module 3. (iii) A **sharper tie
+band** and a **conditional scope**, both below.
+
+**Panel promotion (user decision, chosen on graph properties only).** `squirrel_filtered` (avg_degree 42.3, the only
+mid-density graph — the core five jump 6.3 → 88.3), `amazon_ratings` (homophily 0.140, inside the core five's empty
+0.093–0.361 band), `amazon_photo` (the only fragmented candidate, 136 components, where fragmentation had just two
+points), `lastfm_asia` (homophily 0.856 and 18 classes, extending both ranges). Held out and untouched: `pubmed`,
+`actor`, `minesweeper`. **Disclosure:** the exploratory 3-seed screen over all 15 datasets had already been run, so
+`actor` was known to be the one held-out dataset that decided a single signal; it was deliberately NOT promoted, leaving
+the informative dataset on the test side. `ogbl_ddi` is excluded from both sides (unlabelled, and ~14h to re-sweep at
+seven seeds); `citeseer_linqs`/`proteins` stay out per 2026-07-29.
+
+**The tie band was wrong for this question, and fixing it matters more than the seeds.** The band had been one pooled
+standard deviation, the `characterize.compare()` convention. Standard deviation measures the spread of the score and does
+NOT shrink as seeds are added — more seeds only estimate the same width more precisely. The question "are these two means
+distinguishable" is answered by the standard error of their difference, sqrt(s1²/n1 + s2²/n2), which narrows as
+1/sqrt(seeds). Both are implemented (`strategy_select.BANDS`); `sem` is the default. Switching band alone, at three seeds,
+already broke the `questions` three-way tie.
+
+**Result — still no strategy rule.** 9 datasets, 5 where augmentation beats the original graph, and 3 that name a single
+signal: `lastfm_asia` = centrality, `questions` = degree, `roman_empire` = centrality. No property separates them, in
+either scope. The only rules clearing the gates predict `original`, i.e. Module 2's augment-vs-keep question restated on
+this panel — it recovers the R2 fragmentation family (`components > 39.5`, LOO 8/9; `largest_component_frac < 0.9893`,
+LOO 7/9). Useful as a check that the machinery measures what it should; not a new finding.
+
+**Conditional scope added.** One-vs-rest over all nine datasets conflates "not centrality" with "do not augment at all",
+which is Module 2's question. `patterns(..., scope="augmented")` drops the keep-original datasets and asks the intended
+one: given that augmentation helps, which signal. Both scopes are reported; neither produces a rule.
+
+**A third screen defect found and fixed — this one manufactured a rule.** Under the conditional scope,
+*use centrality when avg_clustering > 0.125* passed every gate: rho 0.707, 0 exceptions, LOO 4/4 against a 0.80 majority
+baseline. It is an artifact. `loo_threshold` skips any fold it cannot fit, and holding out the only non-centrality dataset
+(`questions`) produces exactly such a fold — so `loo_folds` was 4 of 5 and the deciding case was **never tested**, while
+the baseline was computed over all five points. `loo_majority()` now recomputes the baseline over exactly the folds LOO
+scored; the rule then reads 1.000 vs 1.000 and correctly fails. `loo_folds`, `loo_majority` and `folds_skipped` are
+reported so the same trap is visible next time. Note this generalizes beyond this module: any LOO on a class with one
+member is scored only on the easy folds.
+
+**Reportable claim, strengthened.** *When* to augment is predictable (Module 2, validated in Module 3); *which*
+augmentation to use is not. Seed noise is no longer the explanation — at seven seeds the remaining ties are real, and the
+three datasets that do name a signal are not separated by any of the seven primary graph properties.
+
+## 2026-08-13 — Module 6 at TEN seeds on 14 datasets: the first strategy rule
+
+**What changed.** The supervisor's diagnosis was that precision was never the binding constraint — the properties simply
+did not separate the winners — and that development diversity would do more than seeds. Both were raised anyway:
+**10 seeds (42–51)** and **14 datasets**, every labelled graph carrying a link-prediction score. The 2026-07-29 exclusion
+of `citeseer_linqs` / `proteins` was reversed for this module only (user, 2026-08-13): both are heavily fragmented, the
+region where the panel was thinnest, and the original exclusion was about the headline study panel, not this screen.
+`ogbn_arxiv` (node classification only) and `ogbl_ddi` (unlabelled) cannot carry a signal label and stay out.
+
+**Diversity was indeed the constraint.** The share of datasets naming a single winning signal went 3 of 9 → **6 of 14**:
+`actor` = degree, `questions` = degree, `lastfm_asia` = centrality, `pubmed` = centrality, `roman_empire` = centrality,
+`tolokers` = psi. Seven of fourteen beat the original graph. Both reinstated datasets keep the original graph, as does
+`minesweeper`, so they do not enter the conditional scope.
+
+**THE CANDIDATE RULE (frozen, `frozen_rules.FROZEN_STRATEGY`): once augmentation is indicated, use CENTRALITY when
+`nbr_predictability_adjusted` > ~0.009** (interval 0.006–0.0123). Zero exceptions over the seven augmenting datasets,
+rho 0.866, and graded across 0.0123 → 0.8498 rather than resolving into a two-group split. The ordering is
+tolokers −0.3274 (psi), questions −0.0041 (degree), actor 0.0060 (degree) | squirrel_filtered 0.0123, roman_empire
+0.3324, pubmed 0.6946, lastfm_asia 0.8498 (all centrality).
+
+**It is not homophily in disguise** — rho 0.32 between the two, and `roman_empire` is the proof: the lowest adjusted
+homophily in the panel (−0.0468) and yet centrality wins. This is the same `nbr_predictability_adjusted` that Module 2
+screened and dropped, there for the *augment* question, where it scored exactly at the majority baseline. Different
+question, different answer; report it as such rather than as a resurrection.
+
+**Four caveats that must travel with the rule.**
+1. **Fitted, not validated.** Nothing is held out — every labelled dataset is in the panel. Same status as the Module-4
+   gate. The test is genuinely new datasets (`frozen_rules.STRATEGY_HELDOUT`, empty).
+2. **Out-of-sample it is worth one call.** Leave-one-out 5/7 against a 4/7 majority baseline.
+3. **Band-dependent.** It exists under the sem tie band only; under the Module-2 sigma band the ties re-inflate
+   (`questions` and `tolokers` become members of all three signals) and the split takes two exceptions. The band is a
+   methodological choice, so it is part of the rule, not background.
+4. **Co-predictor.** `degree_assortativity` (exploratory tier) produces the identical split at rho 0.866; the two
+   correlate at 0.71, so which is THE predictor is not determined by this data.
+   Robustness worth recording: dropping `squirrel_filtered` — the one tie, a member of both the centrality and degree
+   groups — STRENGTHENS the rule (still 0 exceptions, LOO 5/6) and widens the interval from (0.006, 0.0123) to
+   (0.006, 0.3324). The knife-edge boundary was an artifact of that tie, not of the rule.
+
+**The negative result survives underneath it.** The rule separates centrality from the rest and says nothing about psi
+versus degree below the cut; no property separates those two. So the honest summary is now three-level: *whether* to
+augment is predictable and validated; *centrality versus the rest* is a fitted candidate; *psi versus degree* remains
+unpredicted.
+
+**Method addition.** An exploratory property tier was screened alongside the primary seven (`--tier all`, default):
+degree spread, assortativity, density, label entropy. Only primary properties can set `credible`; an exploratory hit is a
+lead. This is how `degree_assortativity` surfaced as the co-predictor above.
+
+
+---
+
+## 2026-08-14 — Two-stage held-out test on the LINKX Facebook100 networks: the gate 2/2, the strategy rule 1/1 resolved
+
+A single unseen set tested BOTH open rules in the order they are actually used: stage 1 = the frozen two-gate augment
+call (`predict_gated`, Module 5), stage 2 = the frozen strategy rule (`FROZEN_STRATEGY`, Module 7). The order matters and
+was fixed in advance — stage 2 is conditional on augmentation being indicated, so only graphs stage 1 sends to "augment"
+can test it. Nothing was trained until both predictions were frozen on disk.
+
+**The datasets** (LINKX non-homophilous benchmarks, Lim et al. 2021; Facebook100 college friendship networks), chosen by
+the user before any was built or measured: `reed98` (962 nodes / 18,812 edges), `amherst41` (2,235 / 90,954),
+`johnshopkins55` (5,180 / 186,586). Structural-only as always — 745/1,193/2,406-dim features ignored. The label is
+**gender, and it is missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file
+rather than written as a third class, exactly as LINKX evaluates them, and the graph keeps every node. Both the
+homophily code and the NC evaluator already key on node id, so partial labels need no special case.
+
+**Stage 1 (measured, then predicted, with no encoder run):**
+
+| dataset | homophily_adj | largest_comp_frac | original_retention | rule 1 | gate | combined |
+|---|---|---|---|---|---|---|
+| reed98 | 0.0219 | 1.0000 | 0.0237 | augment | keep | **keep original** |
+| amherst41 | 0.0598 | 1.0000 | 0.0092 | augment | augment | **augment** |
+| johnshopkins55 | 0.0972 | 0.9956 | 0.0055 | augment | augment | **augment** |
+| cornell5 | 0.0907 | 0.9979 | 0.0020 | augment | augment | **augment** |
+
+`reed98` was dropped before training on the user's rule ("if stage 1 says KEEP, replace it rather than force a stage-2
+test") and replaced by `cornell5` (18,660 / 790,777), the next Facebook100 graph in the same loader — same family, same
+label semantics, measured and predicted the same way. Note what rule 1 alone would have done: it says "augment" on all
+four, including `reed98`. Every separation here comes from the gate.
+
+**Stage 2, frozen before training** (`results/module7_predictions.csv`): `amherst41` 0.2128, `johnshopkins55` 0.2278,
+`cornell5` 0.2760 — all far above the 0.0092 cut, so all three call **centrality**. Stated before the run and not after:
+no held-out graph falls below the cut, so this set exercises only one side of the rule. That is not an accident of
+sampling — the cut is so low that essentially every normal labelled graph clears it.
+
+**Outcome (GraphSAGE, K=10, 10 seeds 42–51, sem tie band):**
+
+| dataset | original | best variant | best score | winner set (sem) | signals | scored |
+|---|---|---|---|---|---|---|
+| amherst41 | 0.6651 | **centrality 0.6749** | +0.0098 | centrality \| hybrid \| hybrid_centrality \| hybrid_degree | centrality, degree, psi | undecided |
+| johnshopkins55 | 0.6854 | **centrality 0.7160** | +0.0306 | centrality | centrality | **correct** |
+| cornell5 | 0.6910 | **centrality 0.7078** | +0.0168 | centrality \| hybrid | centrality, psi | undecided |
+
+**Stage 1 scored 2/2** where the experiment decided (`amherst41`'s original-vs-best gap is 0.73σ, a tie, so it does not
+score; `reed98` is untrained and stays pending). The gate decided all four calls — rule 1 never vetoed.
+
+**Stage 2 scored 1/1 correct, against a pre-registered bar of 2 of 3, so the criterion was NOT met** — two of the three
+cells could not test the rule at all, because the seed band cannot separate centrality from variants carrying the other
+signals. Reported as undecided, not as passes.
+
+**What is descriptively true and must not be inflated into a pass: centrality is the top-scoring variant on all 3/3, and
+augmentation beats the original graph on all 3/3.** Point-estimate agreement is 3/3; *resolved* agreement is 1/1. The
+difference between those two numbers is the whole methodological point — ten seeds are not enough to separate
+`centrality` from `hybrid_centrality` (which adds the same signal) or from `hybrid` on these graphs.
+
+**Standing limitation, unchanged by this run.** The rule is still tested on one side only. A genuine test needs a graph
+with `nbr_predictability_adjusted` below ~0.0092 where augmentation is indicated — in the fitted panel only `tolokers`
+(−0.3274), `questions` (−0.0041) and `actor` (0.0060) live there, and all three are already panel members.
+
+**Code.** `experiments/predict_gate.py` (stage 1) and `experiments/predict_strategy.py` (stage 2), both read-only
+w.r.t. the frozen rules. Datasets built by `virgo/data/make_pyg.py` via PyG's `LINKXDataset`; registered in
+`cfg.DATASETS`, `characterize.STUDY`, `run_core.RUNNABLE`, `frozen_rules.GATE_HELDOUT` and `STRATEGY_HELDOUT`.
+Tables: `results/module5_predictions.csv`, `module5_scored.csv`, `module7_predictions.csv`, `module7_scored.csv`.

@@ -53,6 +53,12 @@ DATASETS = {
     "lastfm_asia": {"edgelist": INPUT_DIR / "lastfm_asia.edgelist", "labels": LABELS_DIR / "lastfm_asia.labels"},   # 2026-08-04: music-platform friendships, 18 classes (country); friendship = symmetric; 128-dim features ignored
     "amazon_ratings": {"edgelist": INPUT_DIR / "amazon_ratings.edgelist", "labels": LABELS_DIR / "amazon_ratings.labels"},   # 2026-08-05: Platonov co-purchase ("bought together"), 5 rating classes, heterophilous; NOT amazon_photo; 300-dim fastText ignored
     "squirrel_filtered": {"edgelist": INPUT_DIR / "squirrel_filtered.edgelist", "labels": LABELS_DIR / "squirrel_filtered.labels"},   # 2026-08-05: Platonov's DE-DUPLICATED Squirrel (the original WikipediaNetwork copy leaks train->test), 5 classes, very dense; 2089-dim features ignored
+    # LINKX non-homophilous Facebook100 college networks (Lim et al. 2021), 2026-08-14. Structural-only, ViRGo core protocol.
+    # Label = gender, missing for some users -> those nodes are UNLABELLED (not a third class), as LINKX itself evaluates them.
+    "reed98":         {"edgelist": INPUT_DIR / "reed98.edgelist",         "labels": LABELS_DIR / "reed98.labels"},          # ~962 nodes, the smallest of the three
+    "amherst41":      {"edgelist": INPUT_DIR / "amherst41.edgelist",      "labels": LABELS_DIR / "amherst41.labels"},       # ~2.2K nodes
+    "johnshopkins55": {"edgelist": INPUT_DIR / "johnshopkins55.edgelist", "labels": LABELS_DIR / "johnshopkins55.labels"},  # ~5.2K nodes
+    "cornell5":       {"edgelist": INPUT_DIR / "cornell5.edgelist",       "labels": LABELS_DIR / "cornell5.labels"},       # ~18.6K nodes; the stand-in after reed98's stage-1 call came back "keep original"
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
@@ -68,7 +74,13 @@ I2V_PARAMS = {
 }
 
 # Virtual-graph study (Phase 2): variants + K sweep. SAME K across variants + SAME seeds = fair comparison.
-VG_SIMS = ["psi", "degree", "centrality", "original", "hybrid"]   # psi = I2V Ψ; degree/centrality = simpler baselines; original = unchanged-graph control (K unused); hybrid = original ∪ psi top-K
+# The variants the LOCKED analyses were fitted on (Module 2 rules, Module 4 gate). Frozen: promoting a new variant must
+# never silently move a frozen rule, so characterize.py / gate_rules.py read THIS list, not VG_SIMS.
+VG_SIMS_LOCKED = ["psi", "degree", "centrality", "original", "hybrid"]
+# THE official candidate set. psi = I2V Ψ; degree/centrality = simpler baselines; original = unchanged-graph control (K unused);
+# hybrid = original ∪ psi top-K. hybrid_degree / hybrid_centrality promoted 2026-08-12 out of the notebook-2/3 experiment:
+# same union, role side = degree / eigenvector centrality -> the study now varies WHICH structural augmentation is added.
+VG_SIMS = VG_SIMS_LOCKED + ["hybrid_degree", "hybrid_centrality"]
 # Density-matched controls, kept OUT of VG_SIMS so the Phase-2/3 study is unchanged; opt in with VG_SIMS + VG_CONTROLS.
 # The original graph's density floats per dataset (ddi avg degree 500 vs role graphs 13; cora 3.9 vs 12) and even flips
 # direction, so "role vs original" confounds edge meaning with edge count. These two hold the count fixed.

@@ -54,8 +54,10 @@ def parse_args():
                              'trains on the full graph -> for link-prediction embeddings pass a train graph via --input and set --output)')
     parser.add_argument('--arch', default='graphsage', choices=list(ARCHS),
                         help='Encoder architecture (any registered in virgo.encoders). Default graphsage = the locked ViRGo encoder.')
-    parser.add_argument('--sim', default='psi', choices=['psi', 'degree', 'centrality', 'original', 'hybrid'],
-                        help='Virtual-graph variant (original=copy of input graph, hybrid=original + psi top-K union). Default psi.')
+    parser.add_argument('--sim', default='psi',
+                        choices=['psi', 'degree', 'centrality', 'original', 'hybrid', 'hybrid_degree', 'hybrid_centrality'],
+                        help='Virtual-graph variant (original=copy of input graph, hybrid[_degree|_centrality]=original + '
+                             'psi/degree/centrality top-K union). Default psi.')
     parser.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
     parser.add_argument('--epochs', type=int, default=50, help='Training epochs. Default 50.')
     parser.add_argument('--lr', type=float, default=0.01, help='Adam learning rate. Default 0.01.')
