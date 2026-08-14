@@ -67,9 +67,53 @@ GATE_PANEL = ["cora", "enzymes", "ogbl_ddi", "roman_empire", "tolokers", "questi
               "pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia", "amazon_ratings", "squirrel_filtered"]
 
 # Module-5 held-out: the third, genuinely unseen set the GATE is tested on. Append datasets as they are ingested.
-GATE_HELDOUT = []
+# The LINKX Facebook100 trio (2026-08-14) is measured here FIRST, as stage 1: only the graphs this combined call sends to
+# "augment" go on to test the strategy rule, since that rule is conditional on augmentation being indicated.
+GATE_HELDOUT = ["reed98", "amherst41", "johnshopkins55", "cornell5"]
 
 assert not (set(GATE_PANEL) & set(GATE_HELDOUT)), "a dataset is in BOTH the gate panel and the gate held-out set - it must be in exactly one"
+
+
+# --- Module 6: the STRATEGY rule, locked 2026-08-13 -------------------------------------------------------------------
+# Modules 2-4 answer WHETHER to augment. This answers WHICH structural signal, and only partly: it separates centrality
+# from the rest, and says nothing about psi vs degree below the cut. It is CONDITIONAL - it may only be consulted once
+# augmentation is already indicated, because over all 14 panel datasets the same split takes 4 exceptions.
+# Status, which must travel with it: FITTED, not validated. Nothing was held out - every labelled dataset is in the panel.
+#   in-sample  0 exceptions over the 7 augmenting datasets, rho 0.866, graded over 0.0123 -> 0.8498 (not a two-group split)
+#   out-of-sample  leave-one-out 5/7 against a 4/7 majority baseline - ONE call better than guessing
+#   band-dependent  it exists under the sem tie band only; under the Module-2 sigma band the ties re-inflate and it takes
+#                   2 exceptions. The band choice is a methodological decision, so it is part of the rule, not context.
+#   co-predictor  degree_assortativity (exploratory tier) produces the identical split at rho 0.866; the two correlate at
+#                 0.71, so which one is THE predictor is not determined by this data.
+#   NOT homophily  rho 0.32 against homophily_adjusted. roman_empire is the proof: lowest adjusted homophily in the panel
+#                 (-0.0468) yet centrality wins. This is the same property Module 2 screened and DROPPED for the augment
+#                 question - a different question, with a different answer.
+Strategy = namedtuple("Strategy", "name signal predictor op point interval needs_labels applies_when fitted_on")
+FROZEN_STRATEGY = Strategy("strategy1", "centrality", "nbr_predictability_adjusted", ">", 0.0092, (0.006, 0.0123), True,
+                           "augmentation is already indicated", "STRATEGY_PANEL")
+
+# The Module-6 FITTING panel: every labelled dataset with a link-prediction score, at 10 seeds. ogbn_arxiv is
+# node-classification only and ogbl_ddi is unlabelled, so neither can carry a signal label.
+STRATEGY_PANEL = ["cora", "enzymes", "roman_empire", "tolokers", "questions", "squirrel_filtered", "amazon_ratings",
+                  "amazon_photo", "lastfm_asia", "pubmed", "actor", "minesweeper", "citeseer_linqs", "proteins"]
+
+# Module-7 held-out: the genuinely new datasets the strategy rule is tested on. Append as they are ingested.
+# 2026-08-14, the LINKX Facebook100 networks that PASSED stage 1 - the combined augment call above sent them to "augment",
+# which is the rule's own precondition, so they can actually test it. reed98 was measured with them and is deliberately
+# ABSENT: stage 1 called it "keep original", so a strategy test on it would be scored on a graph the earlier rules say
+# should not be augmented at all. Selecting the test set on the STAGE-1 CALL (never on an outcome) is what makes this
+# conditional; the cost is that stage 2 is only ever tested on graphs stage 1 sends here.
+STRATEGY_HELDOUT = ["amherst41", "johnshopkins55", "cornell5"]
+
+assert not (set(STRATEGY_PANEL) & set(STRATEGY_HELDOUT)), "a dataset is in BOTH the strategy panel and its held-out set - it must be in exactly one"
+
+
+def predict_strategy(props):
+    '''Which signal to add, once augmentation is indicated: "centrality", or "psi or degree" which the rule cannot split.'''
+    v = props.get(FROZEN_STRATEGY.predictor)
+    if v is None or v != v:                                # needs labels; an unlabelled graph gets no strategy call
+        return "n/a"
+    return FROZEN_STRATEGY.signal if v > FROZEN_STRATEGY.point else "psi or degree (undetermined)"
 
 
 def predict_gated(props):

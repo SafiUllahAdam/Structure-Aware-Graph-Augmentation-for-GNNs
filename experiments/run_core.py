@@ -33,7 +33,10 @@ CORE = ["cora", "citeseer_linqs", "enzymes", "proteins", "roman_empire", "toloke
 # Module-3 held-out (2026-08-02), runnable but NOT in the default sweep: the pipeline is unchanged, exactly as when
 # roman_empire/tolokers joined - retuning anything on these would void the prediction frozen before they were trained.
 HELDOUT = ["pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia", "amazon_ratings", "squirrel_filtered"]
-RUNNABLE = CORE + HELDOUT
+# Module-7 held-out (2026-08-14): same rule again - the pipeline is unchanged, and the strategy prediction is frozen
+# before any of these trains, so nothing here may be tuned on them.
+STRATEGY_HELDOUT = ["reed98", "amherst41", "johnshopkins55", "cornell5"]
+RUNNABLE = CORE + HELDOUT + STRATEGY_HELDOUT
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
@@ -127,7 +130,8 @@ def parse_args():
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')
     p.add_argument('--encoder', default='all', choices=['all', 'deepwalk'] + list(ENCODERS),
                    help='Which encoder(s). "all" = the locked graphsage_edge + deepwalk pair; name any registered encoder to opt it in. Default all.')
-    p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS, help='Which virtual-graph variant(s). Default all.')
+    p.add_argument('--sim', default='all', choices=['all'] + cfg.VG_SIMS,
+                   help='Which virtual-graph variant(s). Default all = the seven official variants in cfg.VG_SIMS.')
     p.add_argument('--features', default='all', choices=[f for f in cfg.D_FEATURES if f != 'none_mp'],
                    help='Ablation D input features (D6 none_mp is layers=0 and has no training -> not run here). Default all = the locked D0.')
     p.add_argument('--k', type=int, default=10, help='Top-K of the virtual graph. Default 10.')
