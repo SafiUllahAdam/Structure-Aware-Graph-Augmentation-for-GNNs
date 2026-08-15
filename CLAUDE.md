@@ -90,9 +90,9 @@ Standing limitation to state alongside it: the cut is low enough that every ordi
 
 **Seed-count discipline.** `results/scoreboard.csv` is the 10-seed board; the 3-seed board is archived at `results/scoreboard_3seed.csv`. The published Module-3 figures **5/7 and 4/7 are 3-seed**; re-scored at 10 seeds they are **4/6 and 4/6**, because `lastfm_asia` flipped keep → tie. The frozen rules and the gate fit are unaffected (discovery-panel verdicts and all 7 low-homophily-zone verdicts are identical at 10 seeds). Always name the seed count, or re-score first.
 
-**Threshold honesty (non-negotiable phrasing).** Quote intervals, never the 4-decimal cut. `threshold()` returns the midpoint between the two datasets straddling the boundary, so on separable data "0 exceptions" is *guaranteed* — it measures separability, not the rule. Never quote a raw scipy Spearman p at small n; `rho()` floors p at 2/n!. Screen gates live in `characterize.GATES`.
+**Quote a range, not a number.** The cut is only the midpoint between the two datasets either side of it, so "0 mistakes on the panel" happens automatically whenever the data separates — it shows the data separates, not that the rule is good. Same reason p-values are reported and never used as a gate at this panel size.
 
-**Failed pre-specified predictions, reported as failures:** homophily as an NC rule (ρ −0.30 on its intended target) and density as an LP rule (ρ +0.49; sparse `roman_empire` augments). Do not quietly swap in the post-hoc winners — that is HARKing. Note the reportable reversal: adjusted homophily fails on NC and is the strongest LP rule.
+**Report the predictions that failed.** Homophily was proposed for node classification and density for link prediction; both failed (ρ −0.30 and +0.49). Quietly replacing them with the properties that happened to work would be HARKing.
 
 ---
 

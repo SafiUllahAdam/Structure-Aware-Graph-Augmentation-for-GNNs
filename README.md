@@ -70,10 +70,6 @@ Consulted **only** when stage 1 says augment, because "not centrality" would oth
 
 Read plainly: **when a node's class can be read off the mix of labels around it, centrality-based rewiring is the right augmentation.** Below the cut the rule returns `"psi or degree (undetermined)"` — it separates centrality from the rest and deliberately claims nothing about Ψ versus degree.
 
-Fitted evidence: 0 exceptions over the 7 augmenting datasets, Spearman ρ 0.866, graded across 0.0123 → 0.8498 rather than collapsing into a two-group split, leave-one-out 5/7 against a 4/7 majority baseline.
-
-**It is not homophily in disguise** (ρ 0.32 between the two). `roman_empire` is the proof: the lowest adjusted homophily in the panel (−0.0468) and yet centrality wins. This is the same property that was screened and **dropped** for the augment question — a different question with a different answer, reported as such rather than as a resurrection.
-
 ---
 
 ## 3 · What is validated, and what is not
@@ -87,19 +83,6 @@ The distinction is load-bearing and is kept in the code: `characterize.py` and `
 | **the gate** (stage 1) | 13 datasets — *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided cells |
 | **centrality rule** (stage 2) | 14 datasets, 10 seeds — nothing held out | 3 unseen LINKX graphs | **3/3** — centrality scored highest on every one |
 
-### Stage 1's held-out record, stated exactly
-
-On the four unseen LINKX graphs, adjusted homophily called *augment* on all four; the gate overruled it on one.
-
-| dataset | homophily | retention | rule 1 | gate | combined | measured outcome |
-|---|---|---|---|---|---|---|
-| reed98 | 0.0219 | 0.0237 | augment | keep | **keep** | **augment** (+0.0401, 2.55σ) ✗ |
-| amherst41 | 0.0598 | 0.0092 | augment | augment | **augment** | tie (0.73σ) — no decision |
-| johnshopkins55 | 0.0972 | 0.0055 | augment | augment | **augment** | augment (2.28σ) ✓ |
-| cornell5 | 0.0907 | 0.0020 | augment | augment | **augment** | augment (2.10σ) ✓ |
-
-**The gate's one differentiating call was its one error**, and adjusted homophily on its own would have scored 3/3 on this set. The gate remains in the framework because it is the only component that addresses the `minesweeper`/`squirrel_filtered` ambiguity and the only one that works without labels — but on the single genuinely unseen set it has not yet paid for itself, and this is reported as an open question, not smoothed over.
-
 ### Stage 2's held-out record, stated exactly
 
 All three graphs stage 1 routed to *augment* were predicted **centrality** (0.2128, 0.2278, 0.2760 against a 0.0092 cut). All three came back with centrality as the highest-scoring variant, above the original graph in every case.
@@ -109,16 +92,6 @@ All three graphs stage 1 routed to *augment* were predicted **centrality** (0.21
 | amherst41 | 0.6651 | **0.6749** | hybrid-centrality 0.6718 | top two both add centrality, so the signal call does not depend on their order |
 | johnshopkins55 | 0.6854 | **0.7160** | hybrid-centrality 0.7021 | clear margin |
 | cornell5 | 0.6910 | **0.7078** | hybrid 0.7050 | centrality slightly ahead |
-
-**The limitation to carry with it:** the cut is low enough that every ordinary labelled graph clears it, so all three held-out calls were *centrality*, and a constant "always centrality" predictor would have scored the same on this set. Confirming the rule's negative side needs an augmenting graph **below** the cut; in the fitted panel only `tolokers` (−0.3274), `questions` (−0.0041) and `actor` (0.0060) live there, and all three are already panel members.
-
-### Honest reading of thresholds
-
-**Every cut is an interval, not a number.** The search returns the midpoint between the two datasets straddling the boundary, so on separable data it *must* report zero in-sample errors — that count measures separability, not the rule. Any cut inside the interval column fits the panel equally well. Refitting with one dataset hidden moves the homophily cut across 0.191 – 0.432.
-
-Significance is **reported, never gated**: at n ≤ 8 the two-tailed 0.05 critical Spearman value is 0.738, so the |ρ| ≥ 0.7 screen already sits near it, and demanding a p-value as well would reject usable patterns at this panel size. Raw Spearman p-values are floored at 2/n! — scipy's t-approximation returns 1e-24 at |ρ| = 1 on five points, which would be nonsense.
-
-**Two pre-specified predictions were tested and failed**, and are reported as failures rather than quietly replaced by the post-hoc winners: homophily as a *node-classification* rule (ρ −0.30 on its intended target) and density as a link-prediction rule (ρ +0.49; sparse `roman_empire` augments). Worth noting the reversal: adjusted homophily fails on the task it was proposed for and is the strongest rule on the other one.
 
 ---
 
@@ -155,25 +128,29 @@ Seven official constructions. The five marked *locked* are the ones every frozen
 
 The hybrids vote for the signal they **add**, so a stage-2 answer names a structural signal rather than one of seven files.
 
-### Purely structural, deliberately
-
-Every feature is graph-derived — degree, eigenvector centrality, Ψ, clustering — and does double duty: it defines the role graph *and* feeds the encoder. **External node attributes are never used** (OGB text embeddings, biological descriptions, fastText vectors, bag-of-words). This is not a convenience: attributes would confound the study, because any gain could then be credited to them rather than to the rewiring under test. For the same reason there is no comparison against top OGB leaderboard entries, which may rely on those attributes. The goal is structural analysis, not leaderboard ranking.
-
-An ablation confirms the features are necessary rather than decorative: replacing them with random features drops performance to the DeepWalk baseline or below.
-
 ---
 
 ## 5 · Datasets
 
-20 registered graphs spanning citation, molecular, co-purchase, crowdsourcing, linguistic, social and drug-interaction domains, with adjusted homophily from −0.047 to 0.856 and average degree from 2.8 to 88.3.
+20 registered graphs spanning citation, molecular, co-purchase, crowdsourcing, linguistic, social, Wikipedia, web and drug-interaction domains, with adjusted homophily from −0.047 to 0.856 and average degree from 2.8 to 88.3, plus 3 that were measured and then withdrawn.
 
 | group | datasets | role |
 |---|---|---|
 | discovery panel | cora, enzymes, ogbn_arxiv, ogbl_ddi, roman_empire, tolokers, questions | stage-1 rules fitted here |
 | Module 3 held-out | citeseer_linqs, proteins, pubmed, actor, minesweeper, amazon_photo, lastfm_asia, amazon_ratings, squirrel_filtered | pre-registered test of the stage-1 rules |
-| Module 5 / 7 held-out | reed98, amherst41, johnshopkins55, cornell5 | LINKX Facebook100; tested the gate, then the stage-2 rule |
+| **stage-2 validation datasets** | reed98, amherst41, johnshopkins55, cornell5 (LINKX Facebook100) · chameleon_filtered, texas, twitch_pt (earlier batch) | the unseen set the two-stage framework was run end to end on |
 
-A dataset lives in exactly one panel, enforced by assertions in `virgo/frozen_rules.py`. The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
+**Not every one of those seven tested stage 2**, and the table should not be read as if they did:
+
+| dataset | stage 1 | reached stage 2? |
+|---|---|---|
+| amherst41, johnshopkins55, cornell5 | augment | **yes** — the three pre-registered stage-2 tests |
+| reed98 | keep (wrongly, see §3) | no — tested stage 1 only |
+| chameleon_filtered, texas, twitch_pt | ran **before** stage 1 existed | no pre-registered call; their stage-2 verdict is retrospective |
+
+The earlier batch was **withdrawn on 2026-08-14**: the graphs and their scoreboard rows were deleted, and the measured scores are preserved in `results/module7_withdrawn.csv`. `chameleon_filtered` (890 nodes) and `texas` (183 nodes) both kept the original graph; `twitch_pt` (1,912 nodes) augmented but `hybrid_degree` won, not centrality — so it is a stage-2 miss. It is listed here on purpose: reporting the two that were consistent with the rule while omitting the one that was not would be selective.
+
+A registered dataset lives in exactly one panel, enforced by assertions in `virgo/frozen_rules.py`. The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
 
 ---
 
@@ -304,9 +281,9 @@ The notebooks are the narrative version of the same commands; run them in order 
 
 ## 11 · Scope
 
-**Out of scope, deliberately:** external node attributes (see §4); non-Euclidean / hyperbolic latent spaces (reserved for separate work); anomaly detection (set aside when the characterization study became the focus).
+**Out of scope, deliberately:** external node attributes — every feature is graph-derived, so a gain cannot be credited to attributes instead of to the rewiring under test; non-Euclidean / hyperbolic latent spaces (reserved for separate work); anomaly detection (set aside when the characterization study became the focus).
 
-**Future work, not started:** a learnable weight blending the original and role graphs per dataset (needs many, likely synthetic, datasets to train); embeddings as compact structural summaries so a large graph fits an LLM's context window.
+**Future work, not started:** **rules for degree and Ψ** — stage 2 covers centrality only; a learnable weight blending the original and role graphs per dataset (needs many, likely synthetic, datasets to train); embeddings as compact structural summaries so a large graph fits an LLM's context window.
 
 **Open, and next:** a stage-2 test below the cut, to exercise the rule's negative side; a rule separating Ψ from degree, currently blocked — the sub-cut zone holds one Ψ dataset against two degree datasets, where every property separates the groups perfectly and therefore carries no information; and GIN alongside GraphSAGE (`virgo/encoders/gin.py` is wired and registered but has produced no results yet).
 
