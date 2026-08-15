@@ -195,7 +195,9 @@ Run top to bottom; each reuses files already on disk.
 |---|---|
 | discovery panel (stage-1 rules fitted here) | cora, enzymes, ogbn_arxiv, ogbl_ddi, roman_empire, tolokers, questions |
 | Module-3 held-out | citeseer_linqs, proteins, pubmed, actor, minesweeper, amazon_photo, lastfm_asia, amazon_ratings, squirrel_filtered |
-| Module-5 / 7 held-out (LINKX Facebook100) | reed98, amherst41, johnshopkins55, cornell5 |
+| **stage-2 validation datasets** | reed98, amherst41, johnshopkins55, cornell5 (LINKX Facebook100) · chameleon_filtered, texas, twitch_pt (earlier batch, withdrawn 2026-08-14 — scores kept in `results/module7_withdrawn.csv`) |
+
+Only `amherst41`, `johnshopkins55` and `cornell5` actually reached stage 2 with a pre-registered call. `reed98` was stopped at stage 1 (wrongly — see §3). The earlier batch ran before stage 1 existed, so its stage-2 verdict is retrospective; of those three, `chameleon_filtered` and `texas` kept the original graph and `twitch_pt` augmented but `hybrid_degree` won, making it a stage-2 miss. It is listed rather than dropped on purpose.
 
 A dataset lives in **exactly one** panel — asserted in `frozen_rules.py`.
 
