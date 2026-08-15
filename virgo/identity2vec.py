@@ -39,7 +39,7 @@ class Graph():
         return dist_dict
     
     # Computes eigenvector centrality for every node.
-    # In our future ViRGo version, this should be cached because it is recomputed many times although the graph does not change. The checklist also marks this as the first important fix.
+    # In our future version, this should be cached because it is recomputed many times although the graph does not change. The checklist also marks this as the first important fix.
     def eigenvector_centrality(self):
         G = self.G
         ev = nx.eigenvector_centrality(G, max_iter=1000)

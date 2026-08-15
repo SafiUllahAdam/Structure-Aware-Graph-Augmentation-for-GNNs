@@ -31,12 +31,12 @@ DATASETS = {
     "enzymes_nr": {"edgelist": INPUT_DIR / "enzymes_nr.edgelist", "labels": LABELS_DIR / "enzymes_nr.labels"},  # aligned fallback if enzymes ids mismatch
     "proteins": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # author input/proteins.edgelist is comma-delimited -> make_labels.make_proteins rebuilds a whitespace copy + labels from the same source (edge overlap 1.0)
     "proteins_nr": {"edgelist": INPUT_DIR / "proteins_nr.edgelist", "labels": LABELS_DIR / "proteins_nr.labels"},  # explicit alias: same rebuilt pair
-    # OGB-sourced, structural-only, scored under the OFFICIAL OGB protocol (fixed split + OGB Evaluator), NOT the ViRGo random 70/30. Build via make_ogb.py.
+    # OGB-sourced, structural-only, scored under the OFFICIAL OGB protocol (fixed split + OGB Evaluator), NOT the core random 70/30. Build via make_ogb.py.
     "ogbn_arxiv": {"edgelist": INPUT_DIR / "ogbn_arxiv.edgelist", "labels": LABELS_DIR / "ogbn_arxiv.labels",
                    "directed_source": True, "eval": "ogb", "split": SPLITS_DIR / "ogb" / "ogbn_arxiv_idx.npz"},   # full transductive graph, official time split -> Accuracy; data.x (128-dim text) ignored
     "ogbl_ddi":   {"edgelist": INPUT_DIR / "ogbl_ddi_train.edgelist", "labels": None,
                    "eval": "ogb", "pairs": SPLITS_DIR / "ogb" / "ogbl_ddi_pairs.npz"},   # graph = TRAINING edges only (no leakage); official pos/neg -> Hits@20; featureless
-    # Heterophilous benchmarks (Platonov et al. 2023), structural-only, scored under the ViRGo CORE protocol (stratified 70% NC, 70:30 LP)
+    # Heterophilous benchmarks (Platonov et al. 2023), structural-only, scored under the CORE protocol (stratified 70% NC, 70:30 LP)
     # -> no "eval" key, so they route exactly like the core four. Added 2026-07-27: the panel had no low-homophily graph, so the
     # augment side of the rule was never tested. Their official train/val/test masks are ignored. Build via make_hetero.py.
     "roman_empire": {"edgelist": INPUT_DIR / "roman_empire.edgelist", "labels": LABELS_DIR / "roman_empire.labels",
@@ -44,7 +44,7 @@ DATASETS = {
     "tolokers":     {"edgelist": INPUT_DIR / "tolokers.edgelist", "labels": LABELS_DIR / "tolokers.labels"},   # worked-the-same-task = symmetric by construction; 10-dim worker profile ignored
     "questions":    {"edgelist": INPUT_DIR / "questions.edgelist", "labels": LABELS_DIR / "questions.labels",
                      "directed_source": True},   # answered-your-question = a DIRECTED relation, symmetrized upstream by PyG; 301-dim fastText features ignored
-    # Module-3 HELD-OUT (2026-08-02): genuinely unseen datasets to validate the two frozen rules. Structural-only, ViRGo core
+    # Module-3 HELD-OUT (2026-08-02): genuinely unseen datasets to validate the two frozen rules. Structural-only, core
     # protocol (no "eval" key -> route like the core four). Build via make_pyg.py (pubmed, actor) / make_hetero.py (minesweeper).
     "pubmed":      {"edgelist": INPUT_DIR / "pubmed.edgelist",      "labels": LABELS_DIR / "pubmed.labels"},        # Planetoid citation, 3 classes; 500-dim TF-IDF ignored
     "actor":       {"edgelist": INPUT_DIR / "actor.edgelist",       "labels": LABELS_DIR / "actor.labels"},         # Geom-GCN film co-occurrence, low homophily, 5 classes; 932-dim features ignored
@@ -53,7 +53,7 @@ DATASETS = {
     "lastfm_asia": {"edgelist": INPUT_DIR / "lastfm_asia.edgelist", "labels": LABELS_DIR / "lastfm_asia.labels"},   # 2026-08-04: music-platform friendships, 18 classes (country); friendship = symmetric; 128-dim features ignored
     "amazon_ratings": {"edgelist": INPUT_DIR / "amazon_ratings.edgelist", "labels": LABELS_DIR / "amazon_ratings.labels"},   # 2026-08-05: Platonov co-purchase ("bought together"), 5 rating classes, heterophilous; NOT amazon_photo; 300-dim fastText ignored
     "squirrel_filtered": {"edgelist": INPUT_DIR / "squirrel_filtered.edgelist", "labels": LABELS_DIR / "squirrel_filtered.labels"},   # 2026-08-05: Platonov's DE-DUPLICATED Squirrel (the original WikipediaNetwork copy leaks train->test), 5 classes, very dense; 2089-dim features ignored
-    # LINKX non-homophilous Facebook100 college networks (Lim et al. 2021), 2026-08-14. Structural-only, ViRGo core protocol.
+    # LINKX non-homophilous Facebook100 college networks (Lim et al. 2021), 2026-08-14. Structural-only, core protocol.
     # Label = gender, missing for some users -> those nodes are UNLABELLED (not a third class), as LINKX itself evaluates them.
     "reed98":         {"edgelist": INPUT_DIR / "reed98.edgelist",         "labels": LABELS_DIR / "reed98.labels"},          # ~962 nodes, the smallest of the three
     "amherst41":      {"edgelist": INPUT_DIR / "amherst41.edgelist",      "labels": LABELS_DIR / "amherst41.labels"},       # ~2.2K nodes
@@ -88,7 +88,7 @@ VG_CONTROLS = ["original_k", "random_k"]    # original_k = K real neighbors per 
 VG_K = [5, 10, 20]                          # top-K sweep (sparsity vs over-smoothing tradeoff)
 VG_SEEDS = [42, 43, 44]                     # deterministic build; extra seeds cover the downstream walk/GNN encoder
 
-# ViRGo-SAGE encoder (Phase 3): unsupervised GraphSAGE over the virtual graph, Skipgram-analog loss.
+# GraphSAGE encoder (Phase 3): unsupervised GraphSAGE over the virtual graph, Skipgram-analog loss.
 # Walk corpus for the positives reuses I2V_PARAMS (num_walks/walk_length/window) -> only the encoder changes vs the Phase-2 bridge.
 GNN_PARAMS = {
     "hidden": 64, "dimensions": 64, "layers": 2,

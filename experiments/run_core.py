@@ -124,7 +124,7 @@ def main(args):
 # Defines command-line options (mirrors run_ogb.py); every default is the locked setting.
 def parse_args():
     '''Parses arguments.'''
-    p = argparse.ArgumentParser(description="Run the core-4 study under the locked ViRGo config (notebook-3 §8 headless).")
+    p = argparse.ArgumentParser(description="Run the core-4 study under the locked config (notebook-3 §8 headless).")
     p.add_argument('--datasets', nargs='+', default=CORE, choices=RUNNABLE,
                    help='Datasets to run. Default: the seven study datasets; the Module-3 held-out graphs are opt-in by name.')
     p.add_argument('--task', default='all', choices=['all'] + list(TASKS), help='Which task(s) to run. Default all.')

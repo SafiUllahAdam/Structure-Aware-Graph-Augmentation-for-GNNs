@@ -207,6 +207,21 @@ PRETTY = {"original": "Original", "psi": "Ψ", "degree": "Degree", "centrality":
           "hybrid": "Hybrid", "hybrid_degree": "Hybrid-degree", "hybrid_centrality": "Hybrid-centrality"}
 
 
+# A stage-1 KEEP row is NOT self-justifying: if the graph was trained anyway, its scores can contradict the call, and
+# reed98 (2026-08-15) is exactly that case. Read against the same 1-sigma pooled band actual_lp_verdicts() uses, so this
+# table can never disagree with results/module5_scored.csv.
+def keep_verdict(ds):
+    '''Interpretation for a stage-1 KEEP row, checked against the measured scores whenever the graph was trained anyway.'''
+    g = variant_scores([ds])
+    if g.empty:
+        return "Stage 1 said KEEP → not trained, call unscored"
+    o = g[g["graph_variant"] == "original"].iloc[0]
+    a = g[g["graph_variant"] != "original"].sort_values("mean", ascending=False).iloc[0]
+    gap, noise = float(a["mean"] - o["mean"]), float(np.hypot(o["std"], a["std"]) / np.sqrt(2))
+    return (f"Stage 1 said KEEP, but {PRETTY[a['graph_variant']]} beat the original by {gap:+.4f} ({gap / noise:.2f}σ) → call WRONG"
+            if gap > noise else "Stage 1 said KEEP → augmentation unnecessary")
+
+
 def summary(route, out):
     '''The held-out story as one readable table: how each dataset was routed, what was predicted, what won, what it means.'''
     o = out.set_index("dataset")
@@ -234,7 +249,7 @@ def summary(route, out):
             "Best result": f"{PRETTY[w['best_variant']]} {w['best_score']:.4f}" if keep_row is False else "— (not applicable)",
             "2nd-best result": f"{PRETTY[w['runner_up']]} {w['runner_up_score']:.4f}" if keep_row is False else "— (not applicable)",
             "Final interpretation":
-                "Stage 1 said KEEP → augmentation unnecessary" if keep_row else
+                keep_verdict(ds) if keep_row else
                 f"Correct: {w['winning_signal']} best" if w["correct_by_margin"] else
                 f"Augmentation helped, but {fr.FROZEN_STRATEGY.signal} prediction failed",
         })

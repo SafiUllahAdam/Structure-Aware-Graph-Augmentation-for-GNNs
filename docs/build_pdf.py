@@ -1,4 +1,4 @@
-"""Render a Markdown file to PDF (weasyprint, no Chromium). Usage: python docs/build_pdf.py docs/virgo_guide.md docs/virgo_guide.pdf"""
+"""Render a Markdown file to PDF (weasyprint, no Chromium). Usage: python docs/build_pdf.py docs/project_guide.md docs/project_guide.pdf"""
 import sys, re, markdown
 from weasyprint import HTML
 

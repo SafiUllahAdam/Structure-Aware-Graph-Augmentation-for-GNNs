@@ -15,7 +15,7 @@ Each seed folder holds exactly 4 files:
 
 | file | contents |
 |------|----------|
-| `train.edgelist` | 70% positive edges — **retrain I2V/ViRGo on this graph only** (no leakage) |
+| `train.edgelist` | 70% positive edges — **retrain the encoder on this graph only** (no leakage) |
 | `train_neg.txt`  | non-edges, same count as train positives (classifier negatives) |
 | `test_pos.txt`   | 30% held-out positive edges |
 | `test_neg.txt`   | non-edges, same count as test positives |

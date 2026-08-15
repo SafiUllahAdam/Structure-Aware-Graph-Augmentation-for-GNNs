@@ -1,4 +1,4 @@
-'''Convert the heterophilous benchmarks (Platonov et al. 2023) to ViRGo edgelist/label/.nodes files: roman_empire, tolokers, questions - structural-only.'''
+'''Convert the heterophilous benchmarks (Platonov et al. 2023) to project edgelist/label/.nodes files: roman_empire, tolokers, questions - structural-only.'''
 # Added 2026-07-27 to test the AUGMENT side of the rule. The six-dataset panel held no low-homophily graph, so the
 # only "augment" verdict was a single cell (ogbl-ddi LP) and the decision boundary was fitted from one point.
 # These two sit on the two axes the rule predicts from - adjusted homophily (node classification) and average degree
@@ -7,7 +7,7 @@
 # fastText of the product description, squirrel-filtered 2089-dim) are IGNORED by design.
 # squirrel_filtered is the authors' de-duplicated Squirrel: the ORIGINAL WikipediaNetwork("squirrel") has repeated nodes
 # that leak between train and test, so it is deliberately not used - only the filtered .npz from the authors' own repo.
-# Platonov's own 10 train/val/test masks are also ignored: these run the ViRGo CORE protocol (stratified 70% node
+# Platonov's own 10 train/val/test masks are also ignored: these run the CORE protocol (stratified 70% node
 # classification, 70:30 link prediction) so their cells stay comparable with the four core datasets.
 # Adjusted homophily is the metric this panel already reports, and it comes from this same paper.
 
@@ -18,7 +18,7 @@ from virgo.data.make_ogb import _write_edges, _write_nodes   # same writers as t
 
 RAW = "output/hetero_raw"                         # PyG download cache: derived, never hand-edited, kept out of input/
 
-# ViRGo name -> PyG name, or None for the archives PyG's class does not list (fetched from the SAME repo it downloads
+# our name -> PyG name, or None for the archives PyG's class does not list (fetched from the SAME repo it downloads
 # from, so the data path is identical). roman_empire/tolokers/questions = discovery panel; minesweeper 2026-08-02,
 # amazon_ratings 2026-08-05, squirrel_filtered 2026-08-05 = Module-3 held-out.
 HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions",
@@ -56,14 +56,14 @@ def make_hetero(name):
         for i in range(n):
             f.write(f"{i} {int(y[i])}\n")
     print(f"{name}: nodes={n} edges={ne} classes={len(set(y))} avg_degree={2 * ne / n:.2f} | "
-          f"data.x ({g.x.shape[1]}-dim) IGNORED (structural-only) | official masks IGNORED (ViRGo core protocol)")
+          f"data.x ({g.x.shape[1]}-dim) IGNORED (structural-only) | official masks IGNORED (core protocol)")
     print(f"WROTE input/{name}.edgelist + .nodes + labels/{name}.labels")
 
 
 # Defines command-line options: which heterophilous dataset to build (default all).
 def parse_args():
     '''Parses arguments.'''
-    p = argparse.ArgumentParser(description="Convert the heterophilous benchmarks to ViRGo edgelist/label/.nodes files (structural-only).")
+    p = argparse.ArgumentParser(description="Convert the heterophilous benchmarks to project edgelist/label/.nodes files (structural-only).")
     p.add_argument('--dataset', default='all', choices=['all'] + list(HETERO), help='Which dataset to build. Default all.')
     return p.parse_args()
 
