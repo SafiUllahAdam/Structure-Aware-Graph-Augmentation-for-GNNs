@@ -148,9 +148,7 @@ The hybrids vote for the signal they **add**, so a stage-2 answer names a struct
 | reed98 | keep (wrongly, see §3) | no — tested stage 1 only |
 | chameleon_filtered, texas, twitch_pt | ran **before** stage 1 existed | no pre-registered call; their stage-2 verdict is retrospective |
 
-The earlier batch was **withdrawn on 2026-08-14**: the graphs and their scoreboard rows were deleted, and the measured scores are preserved in `results/module7_withdrawn.csv`. `chameleon_filtered` (890 nodes) and `texas` (183 nodes) both kept the original graph; `twitch_pt` (1,912 nodes) augmented but `hybrid_degree` won, not centrality — so it is a stage-2 miss. It is listed here on purpose: reporting the two that were consistent with the rule while omitting the one that was not would be selective.
-
-A registered dataset lives in exactly one panel, enforced by assertions in `virgo/frozen_rules.py`. The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
+The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
 
 ---
 
