@@ -53,7 +53,7 @@ def parse_args():
                         help='Output .emb (default: output/notebook3_gnn_encoder/node_classification/<ds>/k<K>/<sim>/<encoder>_s<seed>.emb; '
                              'trains on the full graph -> for link-prediction embeddings pass a train graph via --input and set --output)')
     parser.add_argument('--arch', default='graphsage', choices=list(ARCHS),
-                        help='Encoder architecture (any registered in virgo.encoders). Default graphsage = the locked ViRGo encoder.')
+                        help='Encoder architecture (any registered in virgo.encoders). Default graphsage = the locked encoder.')
     parser.add_argument('--sim', default='psi',
                         choices=['psi', 'degree', 'centrality', 'original', 'hybrid', 'hybrid_degree', 'hybrid_centrality'],
                         help='Virtual-graph variant (original=copy of input graph, hybrid[_degree|_centrality]=original + '

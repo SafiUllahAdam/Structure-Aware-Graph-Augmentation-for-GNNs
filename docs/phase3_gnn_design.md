@@ -1,10 +1,10 @@
-# Phase 3 — ViRGo-SAGE: Architecture Variants (v2, for discussion)
+# Phase 3 — GraphSAGE encoder: architecture variants (v2, for discussion)
 
 **Locked decisions (2026-07-04).** Encoder = **GraphSAGE trained unsupervised**, with a **Skipgram-analog objective** — the same role Skipgram plays in the I2V paper, so the GNN is a true drop-in for the walk+Skipgram back end. The study runs **on the virtual graphs** (starting with Ikenna's Poisson/KL Ψ graph); the original graph appears only as a small control row, not a focus. Output stays a 64-dim `.emb`, so all existing evaluation scripts run unchanged.
 
 ---
 
-## 1. Core architecture (ViRGo-SAGE)
+## 1. Core architecture (the locked GraphSAGE encoder)
 
 ```
 original graph ──► cached structural signals ──► Ψ top-K virtual graph      (Phase 2, done)

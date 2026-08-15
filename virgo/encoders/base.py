@@ -1,5 +1,5 @@
 '''Unsupervised GNN over a virtual graph: same Skipgram-analog objective as I2V, lookup table replaced by message passing.'''
-# Phase 3 (ViRGo). Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
+# Phase 3. Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
 # Everything here is architecture-independent — a new encoder subclasses GNNEncoder and defines build_convs() only.
 # Positives = direct virtual edges by default (ablation-A winner); "walk" kept as the Phase-2-bridge-comparable option.
 # Ablation D: the `feats` knob selects which structural features enter the GNN ("random" = the no-structure control).

@@ -1,4 +1,4 @@
-"""ViRGo CLI — run an I2V/ViRGo reproduction task and save the result."""
+"""CLI — run an I2V reproduction task and save the result."""
 
 import argparse
 import json
@@ -48,7 +48,7 @@ def main():
     if not task or not dataset:
         sys.exit("Need --task and --dataset (or --config). Use --list to see datasets.")
 
-    print(f"\nViRGo · task={task} · dataset={dataset} · seed={args.seed}")
+    print(f"\ntask={task} · dataset={dataset} · seed={args.seed}")
     kwargs = {"emb": args.emb, "seed": args.seed}
     if task == "linkpred":
         kwargs["retrain"] = args.retrain

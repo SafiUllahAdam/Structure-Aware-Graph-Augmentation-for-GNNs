@@ -1,5 +1,5 @@
 '''Evaluate OGB-sourced datasets under the OFFICIAL OGB protocol: ogbn-arxiv Accuracy (official split), ogbl-ddi Hits@20.'''
-# Separate from eval_nodeclass/eval_linkpred: OGB datasets keep OGB's FIXED split + OGB Evaluator, not the ViRGo random 70/30.
+# Separate from eval_nodeclass/eval_linkpred: OGB datasets keep OGB's FIXED split + OGB Evaluator, not the core random 70/30.
 # No-test-peeking is ENFORCED by the split argument: one call scores ONE split. Use "valid" while choosing
 # variants/encoders; call with "test" exactly once, after all choices are locked. Never both in one call.
 # Same decoder + same linear probe for every variant -> fair internal comparison; only the split/metric are OGB's.
@@ -14,7 +14,7 @@ from sklearn.metrics import f1_score
 from sklearn.multiclass import OneVsRestClassifier
 
 # Link-decoder settings. hidden/lr mirror OGB's own ddi reference model (examples/linkproppred/ddi/gnn.py);
-# epochs + pairs_per_epoch are ViRGo runtime caps (our embeddings are FROZEN, so only the small MLP trains).
+# epochs + pairs_per_epoch are runtime caps (our embeddings are FROZEN, so only the small MLP trains).
 DECODER = {"hidden": 256, "epochs": 50, "lr": 0.005, "pairs_per_epoch": 100_000, "batch": 32_768}
 
 

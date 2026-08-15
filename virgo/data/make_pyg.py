@@ -1,7 +1,7 @@
-'''Convert torch_geometric benchmark graphs to ViRGo edgelist/label/.nodes files: pubmed (Planetoid), actor (film) - structural-only.'''
+'''Convert torch_geometric benchmark graphs to project edgelist/label/.nodes files: pubmed (Planetoid), actor (film) - structural-only.'''
 # Added 2026-08-02 as Module-3 held-out datasets (see frozen_rules.HELDOUT). Same policy as make_hetero/make_ogb:
 # node features (PubMed 500-dim TF-IDF, Actor 932-dim) are IGNORED by design, and any official train/val/test masks are
-# ignored - these run the ViRGo core protocol (stratified 70% node classification, 70:30 link prediction).
+# ignored - these run the core protocol (stratified 70% node classification, 70:30 link prediction).
 # lastfm_asia (2026-08-04) is the one exception to "download via the PyG class": torch_geometric.datasets.LastFMAsia
 # fetches graphmining.ai, which no longer serves the file (TLS handshake failure / 404), so the raw graph is read from
 # SNAP's primary archive of the same dataset (Rozemberczki & Sarkar 2020) instead. Node ids, labels and edges are the
@@ -69,14 +69,14 @@ def make_pyg(name):
                 f.write(f"{i} {int(y[i])}\n")
     feats = f"data.x ({g.x.shape[1]}-dim) IGNORED" if g.x is not None else "node features NOT LOADED"
     print(f"{name}: nodes={n} edges={ne} classes={len(set(y[y >= 0]))} labelled={int((y >= 0).sum())}/{n} avg_degree={2 * ne / n:.2f} | "
-          f"{feats} (structural-only) | official masks IGNORED (ViRGo core protocol)")
+          f"{feats} (structural-only) | official masks IGNORED (core protocol)")
     print(f"WROTE input/{name}.edgelist + .nodes + labels/{name}.labels")
 
 
 # Defines command-line options: which PyG dataset to build (default all).
 def parse_args():
     '''Parses arguments.'''
-    p = argparse.ArgumentParser(description="Convert torch_geometric benchmark graphs to ViRGo edgelist/label/.nodes files (structural-only).")
+    p = argparse.ArgumentParser(description="Convert torch_geometric benchmark graphs to project edgelist/label/.nodes files (structural-only).")
     p.add_argument('--dataset', default='all', choices=['all'] + PYG, help='Which dataset to build. Default all.')
     return p.parse_args()
 

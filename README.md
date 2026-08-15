@@ -1,170 +1,251 @@
-# ViRGo - <ins>Vi</ins>rtual <ins>R</ins>ole-<ins>G</ins>raph Embedding f<ins>o</ins>r Structural Identity
+# Structure Aware Graph Augmentation for Graph Neural Networks
 
-ViRGo extends **Identity2Vec** (I2V; Oluigbo et al.) to study **when structural graph augmentation helps a GNN, and when the original graph is already sufficient**. We build *virtual graphs* that connect nodes by structural role rather than by their original edges, train a GNN over them, and evaluate on node classification and link prediction across citation, molecular and heterophilous interaction datasets. The aim is a characterization: which graph properties predict whether role-based rewiring improves on the original graph. Current answer - **two candidate rules, both link prediction**: augment when adjusted homophily is low, or when the graph is a single connected component.
+*A characterization-guided, two-stage decision framework for structural role-graph augmentation.*
 
-The method is **purely structural**: its features are graph-derived - degree, eigenvector centrality, the I2V score Ψ, and clustering - and it never uses external node attributes such as OGB text embeddings or biological descriptions. Excluding attributes is deliberate. They would confound the study, because any gain could then come from the attributes rather than from the structural rewiring under test. For the same reason we do not compare against top OGB leaderboard entries, which may rely on those attributes; the goal is structural analysis, not leaderboard ranking. Target venue: the **Learning on Graphs (LoG)** conference; the thesis draws on the same work.
+Structural-role augmentation adds edges between nodes that occupy **similar topological positions** — two hubs, two bridges, two peripheral nodes — even when no path connects them. A standard GNN can only pass messages along real edges, so role-twins never interact; a **role graph** gives them a channel.
 
----
+The problem is that this does not always help. Measured across 19 graphs, role augmentation improves link prediction on some and actively damages others, and it never once improves node classification. So the useful question is not *"does rewiring work?"* but **"for this graph, should I rewire at all — and if so, with which structural signal?"**
 
-## Approach
+This project answers both, **before any encoder is trained**, with a two-stage decision framework read off the graph's own properties.
 
-A node's *structural identity* is the role it plays - hub, bridge, periphery - independent of where it sits in the graph. A standard GNN passes messages only along real edges, so two nodes that share a role but have no path between them never interact. A **virtual graph** reconnects each node to its top-K most role-similar nodes, giving the encoder a channel between role-twins.
-
-The variable under study is the graph, not the encoder. We compare five constructions under one fixed GNN:
-
-| variant | node similarity |
-|---|---|
-| `psi` | I2V Poisson/KL structural score Ψ |
-| `degree` | degree only |
-| `centrality` | eigenvector centrality only |
-| `original` | input graph, unchanged - control |
-| `hybrid` | original edges combined with `psi` role edges |
-
-A secondary question: on a given graph, does GraphSAGE (message passing) outperform the older walk + Skipgram approach (DeepWalk)?
+Target venue: the **Learning on Graphs (LoG)** conference. The thesis draws on the same work.
 
 ---
 
-## Pipeline
+## 1 · The headline result
 
-```
-input graph → structural signals → virtual graph → encoder → embeddings → evaluation
-              (degree, centrality,  (top-K most     (GraphSAGE  (64-dim      (node classification F1,
-               cached once)          similar nodes)   or DeepWalk) per node)   link prediction AUC)
-```
+GraphSAGE, K = 10, 10 seeds (42–51), five locked graph variants, one frozen pipeline.
 
-1. **Structural signals** - degree and eigenvector centrality are computed once and cached. I2V recomputes them inside its walk loop; caching returns identical output roughly 200× faster.
-2. **Virtual graph** - `virtual_graph.py` links each node to its K nearest nodes under the chosen variant.
-3. **Encoder** - `encoder.py` trains a 2-layer GraphSAGE on the virtual graph with an unsupervised Skipgram-style loss (linked nodes attract, random nodes repel). DeepWalk on the same graph is the baseline.
-4. **Evaluation** - node classification uses logistic regression on the embeddings (weighted F1). Link prediction scores held-out edges by AUC, with the virtual graph rebuilt from the 70% training edges so no test edge leaks.
-
-Runs are seeded (42/43/44) and cached by filename, so reruns reuse existing files.
-
----
-
-## Status
-
-- **Phase 1 - reproduce I2V.** Done. The cached implementation returns byte-identical embeddings ~200× faster, and Cora lands within ±0.05 of the published paper. DeepWalk, node2vec and struc2vec are included as published baselines (not tuned).
-- **Phase 2 - virtual graphs.** Done. All five variants, deterministic, each logged to `results/graph_health.csv` (size, components, isolates, max degree).
-- **Phase 3 - GraphSAGE encoder.** Done. The design is fixed by ablations on enzymes: training pairs come from the virtual edges (A), aggregation is mean (B), depth is two layers (C - three over-smooth), and the structural features are required (D - replacing them with random features drops performance to the DeepWalk baseline or below). Those four features do double duty: they define the virtual graph and serve as the encoder's input. K = 10.
-- **Phase 4 - characterization and scale.** Current. (1) Small-to-medium OGB datasets - **done**: ogbn-arxiv and ogbl-ddi run under the official protocol, structural features only, so only the edges differ and graph structure stays the single variable. (2) Relate graph properties to the original-vs-augmented gap and screen candidate rules - **done**, see Characterization below; two LP rules carried forward. (3) Module 3, pre-registered validation of those two rules on unseen datasets - next. (4) Swap GraphSAGE for GIN.
-- **Configuration locked 2026-07-24 (final).** Six datasets, ten dataset x task cells, 5 graph variants x 2 encoders x 3 seeds at K = 10, every row produced by one pipeline (`run_core.py` + `run_ogb.py`). No further method change for the paper; the characterization only reads `results/scoreboard.csv`. Settings and the evidence behind the lock are in `docs/paper_log.md`.
-- **Future work.** A learnable weight that blends the original and virtual graphs per dataset (needs synthetic data), and embeddings as compact graph summaries for LLMs.
-
----
-
-## Results (K = 10, 3 seeds)
-
-The primary question is which virtual graph performs best per dataset and task, with the encoder held fixed at GraphSAGE. `original` is the control and is excluded from Table 1.
-
-**Table 1 - best virtual graph per dataset × task** (GraphSAGE, K = 10):
-
-| dataset | node classification (F1) | link prediction (AUC) |
-|---|---|---|
-| cora | centrality 0.29 | centrality 0.57 |
-| citeseer | centrality 0.28 | centrality 0.54 |
-| enzymes | hybrid 0.55 | centrality 0.66 |
-| proteins | hybrid 0.56 | centrality 0.58 |
-
-Centrality is the strongest single signal - best for link prediction on all four datasets and for node classification on the two citation graphs. Hybrid, which keeps the real edges alongside the role edges, leads node classification on the molecular graphs.
-
-**Table 2 - virtual graph vs. original** (same encoder on both sides):
-
-| dataset | NC · original | NC · best virtual | LP · original | LP · best virtual |
+| task | augment | tie | keep original | cells |
 |---|---|---|---|---|
-| cora | 0.43 | 0.29 | 0.61 | 0.57 |
-| citeseer | 0.33 | 0.28 | 0.62 | 0.54 |
-| enzymes | 0.56 | 0.55 | 0.70 | 0.66 |
-| proteins | 0.58 | 0.56 | 0.67 | 0.58 |
+| **link prediction** | **9** | 4 | 6 | 19 datasets |
+| **node classification** | **0** | 2 | 13 | 15 cells |
 
-The original graph leads every cell, and the margin varies with the dataset. On the molecular graphs the best virtual graph reaches within 0.01–0.02 of the original for node classification, so structural role alone nearly suffices for molecular labels. On the citation graphs the gap is wider: the labels track citation communities, which role-based rewiring discards. For link prediction, no virtual graph matches the original on any dataset - role similarity does not imply adjacency.
+Two things follow, and they are the reason the framework exists:
 
-**Encoder comparison (secondary).** On role graphs, GraphSAGE outperforms DeepWalk in nearly every cell. On the original graph the order reverses for link prediction, where DeepWalk reaches 0.90–0.94, the highest link-prediction scores in the study. Message passing helps when the graph encodes role; walks are stronger when the graph encodes adjacency.
-
-Full results live in `results/scoreboard.csv` (one row per dataset × encoder × graph × K × task). Notebook 3 §10 builds both tables. The research log is `docs/paper_log.md`.
+1. **Node classification has a boundary, not a rule.** No dataset, in any panel, at any seed count, has ever shown a significant node-classification gain from role augmentation. The reportable finding is *"never augment for NC"*.
+2. **Link prediction genuinely splits.** Roughly half the graphs benefit and half are hurt, so the decision is worth making — and worth predicting.
 
 ---
 
-## Characterization - when does augmentation help?
+## 2 · The two-stage framework
 
-The study's main question: given a graph and a task, can its properties tell you in advance whether role-based rewiring is worth it? Each dataset × task cell is judged **on its own metric** - the gap is `best augmented − original` computed inside the cell, so the scorer cancels and only the *ranking* of gaps is compared across datasets. A gap counts only if it clears the pooled 3-seed noise (1σ).
-
-Panel: **seven datasets, twelve cells, eleven usable** - `questions` node classification is excluded because a 97% majority class pins weighted F1 and no variant separates from any other. Verdicts: **7 keep the original, 4 augment, 1 tie**. Every augment cell is link prediction; **no node classification cell augments at all**, so NC has a reportable boundary ("never augment"), not a predictor.
-
-Seven primary properties were screened separately for each task as *executable* rules - one threshold, one side that says augment. Gates: |ρ| ≥ 0.7, direction stable under leave-one-dataset-out, ≤ 1 misclassified cell, and the split must beat the majority baseline when **refitted with one dataset hidden**. Significance is **reported, not gated**: at n ≤ 8 the two-tailed 0.05 critical Spearman value is 0.738, so the |ρ| gate already sits near it. Four predictors passed, but `components` and `largest_component_frac` rank the panel at **ρ = −1.000** - one variable, not two - so they merge into a single fragmentation finding, leaving **three**. After robustness checks **two are carried forward**:
-
-| # | finding (link prediction only) | ρ gap_rel / gap_fixed | any cut in | leave-one-out | evidence |
-|---|---|---|---|---|---|
-| 1 | augment when **adjusted homophily < ~0.23** | −0.90 / **−1.00** | (0.093, 0.361) | **4/5** vs 0.60 baseline | graded - 5 distinct values, 3 on the augment side |
-| 2 | augment when **largest-component fraction > ~0.96** | +0.78 / +0.78 | (0.918, 1.0) | **5/6** vs 0.67 baseline | two-group split - all four augment cells sit at exactly 1.0 |
-| — | ~~neighbour predictability < 0.408~~ **dropped** | −0.70 / −0.60 | (0.332, 0.484) | 3/5 = the 0.60 baseline | no better than guessing out of sample |
-
-**The thresholds are intervals, not numbers.** The search keeps the midpoint between the two datasets straddling the boundary, so on separable data it *must* report zero in-sample errors - that count is a property of separability, not evidence. Every cut inside the interval column fits the panel equally well, and refitting with each dataset hidden moves rule 1's cut across 0.191 – 0.432. Honestly scored, each rule makes exactly one out-of-sample error: rule 1 misses `enzymes`, rule 2 misses `cora`. A **nested** leave-one-out that re-picks the property inside each fold too scores 4/6 - it re-selects adjusted homophily in 5 of 6 folds, so the choice of property is stable, but `ogbl_ddi` has no labels and therefore no homophily, which is a real coverage limit of rule 1 and exactly when rule 2 is needed.
-
-`gap_fixed` repeats every comparison against one variant fixed per task (LP `centrality`, NC `hybrid`) so no rule can ride the max-over-four selection bias; the two gap definitions agree on all twelve cells. Homophily is reported **adjusted** for class count and balance - raw homophily's chance floor is ~0.48 on a 3-class graph and ~0.08 on a 40-class one, so raw values are not comparable across datasets. These are **candidates, not proven rules**: each was read off the same datasets it scores on, and the leading rule already changed once when the panel changed. Leave-one-out measures how tightly the panel pins a cut, not whether the rule transfers. Module 3 - freeze the rules, predict unseen datasets *before* training, then run - is the test.
-
-Feature usefulness is decided the same way - by ablation, not by inspection. Across 32 feature × cell combinations a feature's raw spread does **not** predict its usefulness (|ρ| ≤ 0.06): the best features on the molecular graphs are the ones a "too few distinct values" heuristic would discard.
-
-`python experiments/characterize.py` writes the tables; `notebooks/5-phase5_characterization.ipynb` renders the five figures into `results/figures/`.
-
----
-
-## Repository map
-
-Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** Everything else is data, docs or results.
+Everything below is computable **before training an encoder**. Stage 1 needs the role graph *built* (a deterministic top-K construction, no learning); stage 2 needs only the original graph and its labels.
 
 ```
-identity2vec/
-├── input/                    # original graphs (.edgelist) - never edit
+                     ┌─────────────────────────────────────────┐
+   graph  ─────────► │ STAGE 1 — augment, or keep the original? │
+                     └─────────────────────────────────────────┘
+                                │                    │
+                      keep original                augment
+                                │                    ▼
+                                │      ┌──────────────────────────────┐
+                                │      │ STAGE 2 — which signal?      │
+                                │      └──────────────────────────────┘
+                                │                    │
+                                ▼                    ▼
+                     train on the original    build the centrality
+                     graph, unchanged         role graph, then train
+```
+
+### Stage 1 — whether to augment
+
+Three components, applied in order (`virgo.frozen_rules.predict_gated`):
+
+| step | rule | cut | any cut in | needs labels |
+|---|---|---|---|---|
+| 1 | **adjusted homophily** — high ⇒ keep the original | `< 0.227` ⇒ augment | (0.0926, 0.3613) | yes |
+| 2 | **the gate**, inside the low-homophily zone only — `original_retention`, the fraction of real edges the role graph preserves | `< 0.0119` ⇒ augment | (0.0062, 0.0176) | no |
+| 3 | **largest-component fraction** — fallback for unlabelled graphs | `> 0.9588` ⇒ augment | (0.9177, 1.0) | no |
+
+Adjusted homophily is **a veto, not a predictor**. High adjusted homophily reliably means *keep the original*; low adjusted homophily is **necessary but not sufficient** for augmentation to help. The decisive evidence is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments) — 0.0008 apart with opposite outcomes, so **no single-variable split can separate them**. The gate was introduced to break exactly that ambiguity; see §3 for how well it does.
+
+### Stage 2 — which structural signal
+
+Consulted **only** when stage 1 says augment, because "not centrality" would otherwise silently include "do not augment at all", which is stage 1's question.
+
+| rule | cut | any cut in | fitted on |
+|---|---|---|---|
+| **adjusted neighbour-label predictability** high ⇒ use **eigenvector centrality** | `> 0.0092` | (0.006, 0.0123) | 14 datasets, 7 of them augmenting |
+
+Read plainly: **when a node's class can be read off the mix of labels around it, centrality-based rewiring is the right augmentation.** Below the cut the rule returns `"psi or degree (undetermined)"` — it separates centrality from the rest and deliberately claims nothing about Ψ versus degree.
+
+Fitted evidence: 0 exceptions over the 7 augmenting datasets, Spearman ρ 0.866, graded across 0.0123 → 0.8498 rather than collapsing into a two-group split, leave-one-out 5/7 against a 4/7 majority baseline.
+
+**It is not homophily in disguise** (ρ 0.32 between the two). `roman_empire` is the proof: the lowest adjusted homophily in the panel (−0.0468) and yet centrality wins. This is the same property that was screened and **dropped** for the augment question — a different question with a different answer, reported as such rather than as a resurrection.
+
+---
+
+## 3 · What is validated, and what is not
+
+The distinction is load-bearing and is kept in the code: `characterize.py` and `gate_rules.py` **fit** and are panel-guarded; `predict_module3.py`, `predict_gate.py` and `predict_strategy.py` only ever **read** `virgo/frozen_rules.py`. A prediction script that imported a fitting function would make the validation circular.
+
+| component | fitted on | held-out test | result |
+|---|---|---|---|
+| **adjusted homophily** (stage 1) | 7 datasets, 12 cells | 9 unseen datasets, pre-registered | **4/6** decided cells |
+| **largest-component fraction** (stage 1 fallback) | same 7 | same 9 | **4/6** decided cells |
+| **the gate** (stage 1) | 13 datasets — *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided cells |
+| **centrality rule** (stage 2) | 14 datasets, 10 seeds — nothing held out | 3 unseen LINKX graphs | **3/3** — centrality scored highest on every one |
+
+### Stage 1's held-out record, stated exactly
+
+On the four unseen LINKX graphs, adjusted homophily called *augment* on all four; the gate overruled it on one.
+
+| dataset | homophily | retention | rule 1 | gate | combined | measured outcome |
+|---|---|---|---|---|---|---|
+| reed98 | 0.0219 | 0.0237 | augment | keep | **keep** | **augment** (+0.0401, 2.55σ) ✗ |
+| amherst41 | 0.0598 | 0.0092 | augment | augment | **augment** | tie (0.73σ) — no decision |
+| johnshopkins55 | 0.0972 | 0.0055 | augment | augment | **augment** | augment (2.28σ) ✓ |
+| cornell5 | 0.0907 | 0.0020 | augment | augment | **augment** | augment (2.10σ) ✓ |
+
+**The gate's one differentiating call was its one error**, and adjusted homophily on its own would have scored 3/3 on this set. The gate remains in the framework because it is the only component that addresses the `minesweeper`/`squirrel_filtered` ambiguity and the only one that works without labels — but on the single genuinely unseen set it has not yet paid for itself, and this is reported as an open question, not smoothed over.
+
+### Stage 2's held-out record, stated exactly
+
+All three graphs stage 1 routed to *augment* were predicted **centrality** (0.2128, 0.2278, 0.2760 against a 0.0092 cut). All three came back with centrality as the highest-scoring variant, above the original graph in every case.
+
+| dataset | original | centrality | runner-up | note |
+|---|---|---|---|---|
+| amherst41 | 0.6651 | **0.6749** | hybrid-centrality 0.6718 | top two both add centrality, so the signal call does not depend on their order |
+| johnshopkins55 | 0.6854 | **0.7160** | hybrid-centrality 0.7021 | clear margin |
+| cornell5 | 0.6910 | **0.7078** | hybrid 0.7050 | centrality slightly ahead |
+
+**The limitation to carry with it:** the cut is low enough that every ordinary labelled graph clears it, so all three held-out calls were *centrality*, and a constant "always centrality" predictor would have scored the same on this set. Confirming the rule's negative side needs an augmenting graph **below** the cut; in the fitted panel only `tolokers` (−0.3274), `questions` (−0.0041) and `actor` (0.0060) live there, and all three are already panel members.
+
+### Honest reading of thresholds
+
+**Every cut is an interval, not a number.** The search returns the midpoint between the two datasets straddling the boundary, so on separable data it *must* report zero in-sample errors — that count measures separability, not the rule. Any cut inside the interval column fits the panel equally well. Refitting with one dataset hidden moves the homophily cut across 0.191 – 0.432.
+
+Significance is **reported, never gated**: at n ≤ 8 the two-tailed 0.05 critical Spearman value is 0.738, so the |ρ| ≥ 0.7 screen already sits near it, and demanding a p-value as well would reject usable patterns at this panel size. Raw Spearman p-values are floored at 2/n! — scipy's t-approximation returns 1e-24 at |ρ| = 1 on five points, which would be nonsense.
+
+**Two pre-specified predictions were tested and failed**, and are reported as failures rather than quietly replaced by the post-hoc winners: homophily as a *node-classification* rule (ρ −0.30 on its intended target) and density as a link-prediction rule (ρ +0.49; sparse `roman_empire` augments). Worth noting the reversal: adjusted homophily fails on the task it was proposed for and is the strongest rule on the other one.
+
+---
+
+## 4 · Method
+
+The variable under study is **the graph**, not the encoder. One fixed GNN sees every variant.
+
+```
+input graph → structural signals → role graph → encoder → embeddings → evaluation
+              (degree, eigenvector  (top-K most   (GraphSAGE  (64-dim    (node classification F1,
+               centrality, Ψ,        role-similar  or DeepWalk) per node)  link prediction AUC)
+               clustering; cached)   nodes)
+```
+
+1. **Structural signals** — degree and eigenvector centrality computed once per graph and cached. Identity2Vec recomputes them inside its walk loop; caching returns identical output roughly 200× faster.
+2. **Similarity** — KL divergence λ → Poisson Ψ, exactly as Identity2Vec defines it.
+3. **Role graph** — `virgo/virtual_graph.py` links each node to its top-K most structurally similar nodes. K = 10 throughout (a locked hyperparameter: sparsity against over-smoothing).
+4. **Encoder** — a 2-layer GraphSAGE with an unsupervised Skipgram-style loss (linked nodes attract, random nodes repel). DeepWalk on the same graph is the walk-based comparison.
+5. **Evaluation** — node classification by logistic regression on the embeddings (weighted F1); link prediction by AUC over a 70/30 edge split, with the role graph **rebuilt from the 70% training edges** so no test edge leaks.
+
+### The graph variants
+
+Seven official constructions. The five marked *locked* are the ones every frozen rule was fitted against; the analysis scripts read that fixed list, so promoting a new variant can never silently refit a locked rule.
+
+| variant | role signal | construction | locked |
+|---|---|---|---|
+| `original` | — | the input graph, unchanged (the control) | ✓ |
+| `psi` | Identity2Vec Poisson/KL score Ψ | replaces the edges | ✓ |
+| `degree` | degree | replaces the edges | ✓ |
+| `centrality` | eigenvector centrality | replaces the edges | ✓ |
+| `hybrid` | Ψ | original ∪ role edges | ✓ |
+| `hybrid_degree` | degree | original ∪ role edges | |
+| `hybrid_centrality` | eigenvector centrality | original ∪ role edges | |
+
+The hybrids vote for the signal they **add**, so a stage-2 answer names a structural signal rather than one of seven files.
+
+### Purely structural, deliberately
+
+Every feature is graph-derived — degree, eigenvector centrality, Ψ, clustering — and does double duty: it defines the role graph *and* feeds the encoder. **External node attributes are never used** (OGB text embeddings, biological descriptions, fastText vectors, bag-of-words). This is not a convenience: attributes would confound the study, because any gain could then be credited to them rather than to the rewiring under test. For the same reason there is no comparison against top OGB leaderboard entries, which may rely on those attributes. The goal is structural analysis, not leaderboard ranking.
+
+An ablation confirms the features are necessary rather than decorative: replacing them with random features drops performance to the DeepWalk baseline or below.
+
+---
+
+## 5 · Datasets
+
+20 registered graphs spanning citation, molecular, co-purchase, crowdsourcing, linguistic, social and drug-interaction domains, with adjusted homophily from −0.047 to 0.856 and average degree from 2.8 to 88.3.
+
+| group | datasets | role |
+|---|---|---|
+| discovery panel | cora, enzymes, ogbn_arxiv, ogbl_ddi, roman_empire, tolokers, questions | stage-1 rules fitted here |
+| Module 3 held-out | citeseer_linqs, proteins, pubmed, actor, minesweeper, amazon_photo, lastfm_asia, amazon_ratings, squirrel_filtered | pre-registered test of the stage-1 rules |
+| Module 5 / 7 held-out | reed98, amherst41, johnshopkins55, cornell5 | LINKX Facebook100; tested the gate, then the stage-2 rule |
+
+A dataset lives in exactly one panel, enforced by assertions in `virgo/frozen_rules.py`. The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
+
+---
+
+## 6 · Evidence trail
+
+| module | question | code | tables |
+|---|---|---|---|
+| 1 | reproduce Identity2Vec | `virgo/identity2vec_cached.py` | `results/notebook1_reproduce_i2v/` |
+| 2 | which properties predict the augment/keep gap | `experiments/characterize.py` | `characterization_*.csv`, `candidate_rules.csv` |
+| 3 | do the stage-1 rules transfer to unseen graphs | `predict_module3.py` → `score_module3.py` | `module3_*.csv` |
+| 4 | screen a second variable for the ambiguous zone | `experiments/gate_rules.py` | `gate_candidates.csv`, `vg_characterization.csv` |
+| 5 | does the gate transfer | `experiments/predict_gate.py` | `module5_*.csv` |
+| 6 | which structural signal to use | `experiments/strategy_select.py` | `strategy_winners.csv`, `strategy_patterns.csv` |
+| 7 | does the signal rule transfer | `experiments/predict_strategy.py` | `module7_*.csv` |
+
+`docs/paper_log.md` is the full research log, including the negative results and the method fixes that invalidated earlier numbers.
+
+---
+
+## 7 · Repository map
+
+Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** Everything else is data, docs or results. (`virgo/` remains the Python package name — an internal identifier the project title no longer matches.)
+
+```
+├── input/                    # original graphs (.edgelist) — never edit
 ├── labels/                   # node labels for classification
 ├── splits/                   # saved 70/30 link-prediction splits (per dataset, per seed)
-├── output/                   # everything generated: notebook1_*/  notebook2_*/  notebook3_*/
-├── results/                  # scoreboard.csv (master) · graph_health.csv · snapshots/
-├── docs/                     # paper_log.md (research log) · notes.md (lab notebook) · designs
+├── output/                   # everything generated: notebook1_* / notebook2_* / notebook3_*
+├── results/                  # scoreboard.csv (master) · graph_health.csv · module*.csv · snapshots/
+├── docs/                     # paper_log.md (research log) · notes.md (lab notebook) · project_guide.md
 ├── third_party/struc2vec/    # vendored baseline, used as published (never edited)
 │
 ├── virgo/                    # ── the library: import only, never run directly ──
-│   ├── config.py             # THE settings: paths, dataset registry, I2V + GNN params, seed=42
+│   ├── config.py             # THE settings: paths, dataset registry, variants, GNN params, seed=42
+│   ├── frozen_rules.py       # THE frozen artifacts: panels, both stage-1 rules, the gate, the stage-2 rule
 │   ├── graph_io.py           # THE graph policy + the single loader every stage reads through
 │   ├── identity2vec.py       # original I2V walk algorithm (frozen baseline)
 │   ├── identity2vec_cached.py# same algorithm with caching (identical output, ~200× faster)
-│   ├── virtual_graph.py      # Phase 2: build a virtual graph (psi/degree/centrality/original/hybrid)
-│   ├── utils.py              # seed, embedding loader, run ids
-│   ├── encoders/             # ── the extension point: one file per encoder ──
-│   │   ├── base.py           #   GNNEncoder: features, corpus, loss, train(), save() - architecture-free
-│   │   ├── sage.py           #   GraphSAGE (locked ViRGo encoder)
-│   │   ├── gin.py            #   GIN (expressive alternative)
-│   │   ├── walk.py           #   wrappers: I2V / DeepWalk / node2vec / struc2vec → same .emb format
-│   │   └── __init__.py       #   ENCODERS registry - add an encoder here and every driver picks it up
-│   ├── data/                 # make_labels · make_ogb · make_hetero · prepare_linkpred
+│   ├── virtual_graph.py      # the top-K role-graph builder (all seven variants)
+│   ├── encoders/             # base.GNNEncoder + sage · gin · walk, behind an ENCODERS registry
+│   ├── data/                 # make_labels · make_ogb · make_hetero · make_pyg · prepare_linkpred
 │   └── eval/                 # nodeclass (F1) · linkpred (AUC) · ogb (official) · runner · results_io
 │
 ├── experiments/              # ── the entry points: each one an argparse CLI ──
-│   ├── run_core.py           # the full sweep, headless, for the non-OGB datasets
-│   ├── run_ogb.py            # the same sweep under the official OGB protocol (notebook 4 imports it)
-│   ├── characterize.py       # measures graph properties + encoder inputs, relates them to the gap
-│   ├── train.py              # graph → I2V walks → Word2Vec → .emb
-│   ├── train_encoder.py      # one GNN encoder over one virtual graph → .emb (--arch picks it)
-│   ├── benchmark_baselines.py# I2V vs DeepWalk / node2vec / struc2vec
-│   ├── run_task.py           # small reproduction CLI (--task nodeclass|linkpred --dataset ...)
-│   └── plot_emb.py           # draws an embedding as a 2-D picture
+│   ├── run_core.py           # the frozen sweep for the non-OGB datasets
+│   ├── run_ogb.py            # the same sweep under the official OGB protocol
+│   ├── characterize.py       # FITS: graph properties → the gap → candidate stage-1 rules
+│   ├── gate_rules.py         # FITS: role-graph properties → the gate
+│   ├── strategy_select.py    # FITS: which signal wins, and can properties predict it
+│   ├── predict_module3.py    # READS frozen_rules: pre-registers stage-1 calls before training
+│   ├── score_module3.py      # scores them afterwards
+│   ├── predict_gate.py       # build role graph → pre-register the gate call → score
+│   ├── predict_strategy.py   # pre-registers and scores the stage-2 call
+│   ├── train.py · train_encoder.py · benchmark_baselines.py · run_task.py · plot_emb.py
 │
 └── notebooks/
-    ├── 1-reproduce_i2v.ipynb          # Phase 1 - reproduce the I2V paper
-    ├── 2-phase_2_virtual_graph.ipynb  # Phase 2 - build + inspect the virtual graphs
-    ├── 3-phase3_gnn_encoder.ipynb     # Phase 3 - train GraphSAGE, all result tables
-    ├── 4-phase4_ogb.ipynb             # Phase 4 - OGB datasets under the official protocol
-    └── 5-phase5_characterization.ipynb # Phase 5 - when does augmentation help? properties vs the gap, 5 figures
+    ├── 1-reproduce_i2v.ipynb            # reproduce the Identity2Vec paper
+    ├── 2-phase_2_virtual_graph.ipynb    # build and inspect the role graphs
+    ├── 3-phase3_gnn_encoder.ipynb       # train GraphSAGE, all result tables
+    ├── 4-phase4_ogb.ipynb               # OGB datasets under the official protocol
+    ├── 5-phase5_characterization.ipynb  # properties vs the gap; the stage-1 rules
+    ├── 6-phase6_module3_validation.ipynb# the pre-registered stage-1 test
+    └── 7-phase7_strategy_selection.ipynb# the stage-2 rule and the two-stage held-out test
 ```
 
-Library modules that also carry a CLI are run as modules from the repo root, e.g. `python -m virgo.virtual_graph --sim psi --k 10`.
-
-**Adding an encoder** (GIN, GAT, …): write `virgo/encoders/<name>.py` with a subclass of `GNNEncoder` defining `build_convs()`, then add one line to `ENCODERS` in `virgo/encoders/__init__.py`. `run_core.py`, `run_ogb.py` and `train_encoder.py` need no edit.
+**Adding an encoder** (GIN, GAT, …): write `virgo/encoders/<name>.py` with a `GNNEncoder` subclass defining `build_convs()`, then add one line to `ENCODERS` in `virgo/encoders/__init__.py`. Every driver, CLI and scoreboard row picks it up with no further edit.
 
 ---
 
-## Setup
+## 8 · Setup
 
-The project uses the conda environment **`i2v`** (Python 3.12):
+Conda environment **`i2v`** (Python 3.12):
 
 ```bash
 conda activate i2v
@@ -174,62 +255,68 @@ From scratch:
 
 ```bash
 pip install numpy==1.26.4 networkx gensim==4.3.3 scipy==1.12.0 scikit-learn matplotlib jupyter ipykernel
-pip install torch torch-geometric node2vec        # Phase 3 encoder + DeepWalk baseline
+pip install torch torch-geometric node2vec
 ```
 
 ---
 
-## Usage
-
-The three notebooks are the main workflow. Run them in order, top to bottom, on the "Python (i2v)" kernel; each reuses files already on disk.
-
-1. `notebooks/1-reproduce_i2v.ipynb` - reproduces the I2V paper numbers.
-2. `notebooks/2-phase_2_virtual_graph.ipynb` - builds and saves the virtual graphs and the DeepWalk baseline embeddings. Pick the dataset with the `DATASET` knob at the top.
-3. `notebooks/3-phase3_gnn_encoder.ipynb` - trains GraphSAGE and renders the result tables: §7 encoder comparison, §8 variant sweep, §8b feature ablation, §10 research-question tables.
-4. `notebooks/4-phase4_ogb.ipynb` - runs an OGB dataset end to end under the official protocol (pick it with the `DATASET` knob): download, virtual graphs, embeddings, validation selection, then a single guarded test read.
-5. `notebooks/5-phase5_characterization.ipynb` - relates the graph properties to the original-vs-augmented gap and renders the five figures. Reads existing results only; trains nothing.
-
-Command-line equivalents:
+## 9 · Usage
 
 ```bash
-# build one virtual graph
-python -m virgo.virtual_graph --input input/cora.edgelist --sim psi --k 10
+# --- apply the framework to a new graph -------------------------------------
+# stage 1 needs the role graph BUILT (deterministic; not training)
+python -m virgo.virtual_graph --input input/<ds>.edgelist --sim psi --k 10
+python experiments/predict_gate.py --datasets <ds> --step predict      # writes the call BEFORE training
+python experiments/predict_strategy.py --datasets <ds> --step predict  # only if stage 1 said augment
 
-# train GraphSAGE on it
+# --- then train and score ----------------------------------------------------
+python experiments/run_core.py --datasets <ds> --task link_prediction
+python experiments/predict_gate.py --datasets <ds> --step score
+python experiments/predict_strategy.py --datasets <ds> --step score
+
+# --- refit the analyses (panel-guarded) --------------------------------------
+python experiments/characterize.py --step all      # stage-1 rule screen
+python experiments/gate_rules.py                   # the gate screen
+python experiments/strategy_select.py              # the stage-2 screen
+
+# --- individual pieces --------------------------------------------------------
 python experiments/train_encoder.py --input input/cora.edgelist --sim psi --k 10 --seed 42
-
-# I2V embedding (fast cached path)
-python experiments/train.py --input input/cora.edgelist --output output/cora_mine.emb --cached --seed 42
-
-# Phase-1 tasks
-python experiments/run_task.py --list
-python experiments/run_task.py --task nodeclass --dataset cora
 python experiments/run_task.py --task linkpred --dataset cora --retrain
-
-# the whole study, headless: core four (all variants, both tasks, both encoders), then the OGB pair
-python experiments/run_core.py
 python experiments/run_ogb.py --dataset ogbn_arxiv
-
-# characterization: measure each graph + the raw structural inputs, then relate them to the gap
-python experiments/characterize.py                 # both portions (default)
-python experiments/characterize.py --step measure  # portion 1 only: the measurement tables
 ```
+
+The notebooks are the narrative version of the same commands; run them in order on the "Python (i2v)" kernel. Each reuses files already on disk.
 
 ---
 
-## Reproducibility and conventions
+## 10 · Reproducibility and conventions
 
-- Seeds are fixed at 42/43/44 across splits, initialization and sampling; every result is a 3-seed mean ± std.
-- Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `virgo/config.py`). Repeating a run reproduces its metric exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), which is invisible at four decimals.
+- Seed fixed at 42 everywhere (split, initialization, sampling). Frozen-rule fitting used seeds 42/43/44; the strategy work and every held-out test use 42–51.
+- **Which seed count a number came from matters.** `results/scoreboard.csv` now holds the 10-seed sweep; the 3-seed board it replaced is archived at `results/scoreboard_3seed.csv`. Re-scoring an older module against the current board can move a verdict — always name the seed count.
+- Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `virgo/config.py`). Metrics reproduce exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), invisible at four decimals.
 - `input/` is read-only. Derived files go to `output/`, scores to `results/`.
 - Link prediction retrains on the 70% training graph alone, so no test edge leaks.
-- A paper number is treated as reproduced only within ±0.05 of the original.
-- Walk length is pinned to 40 (the repo default; the paper's 80 is a recorded deviation - see `docs/notes.md`).
+- A paper number counts as reproduced only within ±0.05 of the original.
+- Predictions are written to disk **before** the encoder runs. A prediction script never imports a fitting function.
 - Research decisions and results go to `docs/paper_log.md`; day-to-day changes go to `docs/notes.md`.
+
+---
+
+## 11 · Scope
+
+**Out of scope, deliberately:** external node attributes (see §4); non-Euclidean / hyperbolic latent spaces (reserved for separate work); anomaly detection (set aside when the characterization study became the focus).
+
+**Future work, not started:** a learnable weight blending the original and role graphs per dataset (needs many, likely synthetic, datasets to train); embeddings as compact structural summaries so a large graph fits an LLM's context window.
+
+**Open, and next:** a stage-2 test below the cut, to exercise the rule's negative side; a rule separating Ψ from degree, currently blocked — the sub-cut zone holds one Ψ dataset against two degree datasets, where every property separates the groups perfectly and therefore carries no information; and GIN alongside GraphSAGE (`virgo/encoders/gin.py` is wired and registered but has produced no results yet).
 
 ---
 
 ## Credits
 
-- **Identity2Vec** - *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. (`identity2vec.py`).
-- **ViRGo** builds on that work with a cached walker, the virtual-graph study, and a GNN encoder.
+- **Identity2Vec** — *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. Provides the Ψ score and the walk baseline (`virgo/identity2vec.py`, frozen).
+- **Heterophilous benchmarks** — Platonov et al. 2023 (`roman_empire`, `tolokers`, `questions`, `minesweeper`, `amazon_ratings`, `squirrel_filtered`).
+- **LINKX / Facebook100** — Lim et al. 2021 (`reed98`, `amherst41`, `johnshopkins55`, `cornell5`).
+- **struc2vec** — vendored in `third_party/`, used as published.
+
+This project contributes the cached Identity2Vec walker, the seven-variant role-graph builder, the GraphSAGE encoder over role graphs, and the two-stage decision framework above.

@@ -1,5 +1,5 @@
-'''Convert OGB datasets to ViRGo edgelist/label/.nodes/split files: ogbn-arxiv (node class) + ogbl-ddi (link pred), structural-only.'''
-# Purely structural: OGB node features (data.x, 128-dim text) are IGNORED by design -> ViRGo studies STRUCTURE, not attributes.
+'''Convert OGB datasets to project edgelist/label/.nodes/split files: ogbn-arxiv (node class) + ogbl-ddi (link pred), structural-only.'''
+# Purely structural: OGB node features (data.x, 128-dim text) are IGNORED by design -> this project studies STRUCTURE, not attributes.
 # Official OGB splits are saved verbatim (arxiv time split, ddi protein-target split) -> the datasets keep their INTENDED task.
 # .nodes sidecar carries the FULL node set so isolated nodes (no training edge) survive load_graph() and still get an embedding.
 
@@ -103,7 +103,7 @@ def ensure_ogb(name):
 # Defines command-line options: which OGB dataset to build (default both).
 def parse_args():
     '''Parses arguments.'''
-    p = argparse.ArgumentParser(description="Convert OGB datasets to ViRGo edgelist/label/.nodes/split files (structural-only).")
+    p = argparse.ArgumentParser(description="Convert OGB datasets to project edgelist/label/.nodes/split files (structural-only).")
     p.add_argument('--dataset', default='both', choices=['both', 'ogbn_arxiv', 'ogbl_ddi'], help='Which OGB dataset to build. Default both.')
     return p.parse_args()
 

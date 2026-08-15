@@ -1057,3 +1057,43 @@ official masks IGNORED (ViRGo core protocol)`.
   needed 2 chunks rather than amazon_ratings' 10.
 - Registry edits only, pipeline untouched: `virgo/config.py`, `experiments/characterize.py` `STUDY`,
   `virgo/frozen_rules.py` `HELDOUT`, `experiments/run_core.py` `HELDOUT` (opt-in by name).
+
+## 2026-08-15 — Project renamed + all docs rewritten against a full accuracy audit
+
+**Rename.** *ViRGo — Virtual Role-Graph Embedding for Structural Identity* → **Structure Aware Graph Augmentation for
+Graph Neural Networks**. Docs only. The Python package stays `virgo/`: renaming the directory would break every
+import, every notebook, every cached `.pyc` and every stored output path, for zero research gain. If it is ever
+wanted, it is a separate mechanical change (`virgo/` → new name, ~15 source files + 7 notebooks) and must be done in
+one commit with a full re-run of the smoke path.
+
+**Files rewritten** (content, not just the name):
+- `README.md` — reframed around the two-stage framework; stale tables removed (it still described 5 variants, 3 seeds,
+  6 datasets, "Module 3 next", and "no virtual graph matches the original on any dataset", all superseded).
+- `CLAUDE.md` — same reframe; §3 is now an explicit validation-status table, so a future session cannot restate the
+  gate as validated.
+- `docs/virgo_guide.md` → **`docs/project_guide.md`** (`git mv`, PDF moved with it). Rewritten; §3 is the
+  "what is proven and what is not" section.
+- `experiments/README.md` — the fit/predict split made explicit, the four prediction scripts added to the table.
+- `notebooks/7-phase7_strategy_selection.ipynb` §4 — two false claims corrected (markdown only, no re-execution).
+
+**Two corrections found by the audit**, both written up in full in `docs/paper_log.md` (2026-08-15):
+1. `reed98` *was* trained (18:32–18:37 on 08-14, after `module5_scored.csv` was written at 17:42) and it **augments at
+   2.55σ**. The gate had called `keep original`. Stage 1 is therefore **2/3**, not 2/2, and rule 1 alone would have
+   been 3/3.
+   **Decision (user, 2026-08-15): the scorer is NOT re-run.** `results/module5_scored.csv` keeps `pending` on that
+   row as the artifact of the original scoring pass. **Notebook 7 §4 is the source of truth for reed98**, and the
+   prose in `README.md`, `CLAUDE.md` and `docs/project_guide.md` was written to match it. Do not "fix" the CSV — the
+   discrepancy is deliberate and documented. If a fresh table is ever needed, it is one command
+   (`python experiments/predict_gate.py --step score`), but that is a decision to take, not a tidy-up.
+2. Module 3's published **5/7 and 4/7 are 3-seed** numbers. The scoreboard is now the 10-seed board (3-seed archived
+   at `results/scoreboard_3seed.csv`); re-scored there, they are **4/6 and 4/6**, because `lastfm_asia` moved from
+   `keep original` to `tie`. No frozen cut is affected — the discovery-panel and low-homophily-zone verdicts are
+   identical at both seed counts.
+
+Everything else in the audit checked out: the frozen cuts and intervals match `results/candidate_rules.csv`,
+`gate_candidates.csv` and `strategy_patterns.csv` exactly; the panel-membership assertions hold; and no prediction
+script imports a fitting function.
+
+**Known stale artifacts, deliberately left alone** (they are records of what was true when written, and rewriting
+them would falsify the pre-registration trail): `results/module3_scored.csv`, `results/module5_scored.csv`. Re-score
+them with the scripts above when a fresh number is needed; do not hand-edit.

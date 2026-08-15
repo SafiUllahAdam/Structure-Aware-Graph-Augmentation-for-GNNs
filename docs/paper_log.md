@@ -2310,3 +2310,87 @@ with `nbr_predictability_adjusted` below ~0.0092 where augmentation is indicated
 w.r.t. the frozen rules. Datasets built by `virgo/data/make_pyg.py` via PyG's `LINKXDataset`; registered in
 `cfg.DATASETS`, `characterize.STUDY`, `run_core.RUNNABLE`, `frozen_rules.GATE_HELDOUT` and `STRATEGY_HELDOUT`.
 Tables: `results/module5_predictions.csv`, `module5_scored.csv`, `module7_predictions.csv`, `module7_scored.csv`.
+
+---
+
+## 2026-08-15 — CORRECTION: reed98 falsifies the gate's only held-out separation; Module 3 re-scored at ten seeds
+
+An accuracy audit of the whole record, prompted by a reframing of the project. Two claims in the log did not survive
+it. Both are corrections to *reporting*, not to method: no rule was refitted and no frozen number was touched.
+
+### 1. `reed98` was trained, and it augments — the gate's one differentiating call was wrong
+
+The 2026-08-14 entry above records `reed98` as dropped before training on the user's rule ("if stage 1 says KEEP,
+replace it rather than force a stage-2 test") and therefore unscored. It was in fact trained later the same evening —
+`output/notebook3_gnn_encoder/link_prediction/reed98/k10/` is written 18:32–18:37, whereas `module5_scored.csv` was
+written at 17:42, which is why the table still reads `pending`. All five locked variants completed at ten seeds.
+
+Scored through the frozen path (`score_module3.actual_lp_verdicts`, no refit):
+
+| dataset | original | best augmented | variant | gap | noise | gap σ | verdict |
+|---|---|---|---|---|---|---|---|
+| reed98 | 0.6161 | **0.6562** | centrality | +0.0401 | 0.0158 | **2.55** | **augment** |
+
+`original` is *last* of the five — `psi` 0.6455, `degree` 0.6455, `hybrid` 0.6485, `centrality` 0.6562 — and the
+relative gap (0.0651) is the largest of the four LINKX graphs. The frozen gate had called `keep original`
+(`original_retention` 0.0237 > the 0.0119 cut). Consequences, all of which supersede the 2026-08-14 wording:
+
+- **Stage 1 scored 2/3 where the experiment decided, not 2/2.** `johnshopkins55` ✓, `cornell5` ✓, **`reed98` ✗**,
+  `amherst41` a tie at 0.73σ.
+- **Rule 1 alone would have scored 3/3.** It said `augment` on all four. Adding the gate made the combined call
+  *worse* on the only genuinely unseen set the gate has ever seen.
+- **The gate's direction does not reproduce here.** ρ(`original_retention`, `gap_rel`) over the four LINKX graphs is
+  **+0.4**, against the fitted −0.86. n is 4, so this is weak evidence — but it is the only out-of-sample evidence
+  the gate has, and it points the other way.
+- The sentence "Every separation here comes from the gate" is still literally true and is now the problem: the gate
+  made exactly one call that differed from rule 1, and that call was its error.
+
+**What does not change.** The gate is *kept* in the framework: it is the only component that speaks to the decisive
+pair (`minesweeper` / `squirrel_filtered`) and the only one that needs no labels, which is the coverage hole rule 1
+cannot fill. But its status moves from "first held-out evidence in favour" to **screened and fitted, not yet
+transferring**, and that must be stated wherever the gate is described. Any prose reading "the gate 2/2" or "stage 1
+stopped reed98" is false and should be corrected — this includes notebook 7 §4 and the `reed98` row of
+`predict_strategy.summary()`, both fixed on 2026-08-15.
+
+Not a protocol violation: the prediction was frozen to `module5_predictions.csv` at 16:08, hours before any encoder
+touched `reed98`. The pre-registration held. Only the scoring pass was run too early.
+
+### 2. Module 3's 5/7 and 4/7 are three-seed figures; at ten seeds they are 4/6 and 4/6
+
+`results/scoreboard.csv` was overwritten with the ten-seed (42–51) sweep for Module 6; the board Module 3 was scored
+against is archived at `results/scoreboard_3seed.csv`. Re-running `score_module3.score()` unchanged against each:
+
+| board | rule 1 | rule 2 |
+|---|---|---|
+| 3 seeds (as published) | 5/7 | 4/7 |
+| 10 seeds (current) | **4/6** | **4/6** |
+
+One cell moved and it explains both changes: **`lastfm_asia` went from `keep original` to `tie`** (−0.81σ at ten
+seeds; `hybrid` 0.7049 against `original` 0.7159). It had been rule 1's fifth correct call, and rule 2's only error
+on a cell where rule 1 was right — so the 2026-08-07 redundancy diagnostic ("disagreements R1 1–0 R2") is now
+**0–0 with two ties**, and the asymmetry finding reads "keep-original side 2/2, augment side 2/4" rather than 3/3.
+The asymmetry itself is unchanged in direction, and "low homophily is necessary, not sufficient" still stands.
+
+**Nothing that was fitted moved.** All six discovery-panel LP verdicts are identical at ten seeds (cora keep,
+enzymes keep, roman_empire / tolokers / questions / ogbl_ddi augment), and so are all seven low-homophily-zone
+verdicts the gate was fitted on. The frozen cuts are therefore unaffected; only the held-out *scores* are.
+
+**Rule adopted:** every reported held-out number must name its seed count, or be re-scored first.
+
+### 3. Current totals, ten seeds, five locked variants, all registered datasets
+
+| task | augment | tie | keep original | scope |
+|---|---|---|---|---|
+| link prediction | **9** | 4 | 6 | 19 datasets |
+| node classification | **0** | 2 | 13 | 15 cells (2 unusable) |
+
+The NC boundary is now measured over 15 cells rather than 8 and has never once been crossed. Say "no dataset has
+shown a significant node-classification gain", not "role graphs cannot help NC" — the claim is empirical.
+
+### 4. Project renamed
+
+*ViRGo — Virtual Role-Graph Embedding for Structural Identity* → **Structure Aware Graph Augmentation for Graph
+Neural Networks**, with the framing moved from "virtual role graphs" to "when, and how, to augment a graph with
+structural information". `README.md`, `CLAUDE.md` and `docs/project_guide.md` (renamed from `virgo_guide.md`) were
+rewritten against the numbers above. The Python package stays `virgo/` — an internal identifier; renaming it would
+break every import, notebook and cached path for no research gain.
