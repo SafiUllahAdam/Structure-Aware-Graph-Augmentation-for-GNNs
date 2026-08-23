@@ -131,7 +131,7 @@ def table(ds, split, better=False):
     if better and t.shape[1] > 1:
         win = t.idxmax(axis=1).str.split().str[0]              # each column header starts with its encoder label
         win[(t.nunique(axis=1) == 1) & t.notna().all(axis=1)] = "tie"   # identical scores -> no winner to name
-        win[t.stack().idxmax()[0]] += " — best overall"        # the single best cell in the table
+        win[t.stack().idxmax()[0]] += " - best overall"        # the single best cell in the table
         t["Better encoder"] = win
     t.index.name = "Graph version" if split == "valid" else "Graph"
     return t

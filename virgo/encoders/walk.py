@@ -20,7 +20,7 @@ class EmbeddingModel:
 
 
 class Identity2VecModel(EmbeddingModel):
-    """Identity2Vec via the existing train.py (cached fast path + fixed seed) — the frozen baseline, unchanged."""
+    """Identity2Vec via the existing train.py (cached fast path + fixed seed) - the frozen baseline, unchanged."""
     name = "identity2vec"
 
     def train(self, edgelist, out_emb, seed, params):

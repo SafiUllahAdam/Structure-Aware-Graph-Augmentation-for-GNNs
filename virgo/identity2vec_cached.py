@@ -1,4 +1,4 @@
-"""Identity2Vec walker with cached structural signals — much faster than the baseline.
+"""Identity2Vec walker with cached structural signals - much faster than the baseline.
 
 Degree, eigenvector centrality, neighbor lists and shortest-path lengths are invariant for a static
 graph, but the baseline recomputes them inside the walk loop. Caching them changes no computed value and removes the dominant cost. This is the I2V 'cache fix'."""
@@ -47,7 +47,7 @@ class Graph(identity2vec.Graph):
     # per_component: Ω is a GLOBAL eigenvector, so on a disjoint union it is supported only on the component with the
     # largest spectral radius and every other component underflows toward 0 (enzymes: 81.6% of nodes below 1e-12, min 1e-115).
     # Computing it inside each component keeps Ω defined everywhere. Each component is then rescaled to max=1, so Ω reads
-    # "how central am I relative to my component's most central node" — comparable ACROSS components, which is what a role
+    # "how central am I relative to my component's most central node" - comparable ACROSS components, which is what a role
     # graph compares. NetworkX's own L2=1 normalization would instead make Ω depend on component SIZE (corr -0.92 on cora:
     # a leaf in a 2-node fragment would outrank a real hub).
     def eigenvector_centrality(self):

@@ -1,4 +1,4 @@
-"""CLI — run an I2V reproduction task and save the result."""
+"""CLI - run an I2V reproduction task and save the result."""
 
 import argparse
 import json

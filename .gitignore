@@ -8,3 +8,9 @@ results/
 *.zip
 splits/*.txt
 splits/*.edgelist
+
+# Local tooling + working docs: kept on disk, out of the published repo
+.claude/
+CLAUDE.md
+docs/*
+!docs/identity2vec.pdf

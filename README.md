@@ -2,9 +2,9 @@
 
 *A characterization-guided, two-stage decision framework for structural role-graph augmentation.*
 
-Structural-role augmentation adds edges between nodes that occupy **similar topological positions** — two hubs, two bridges, two peripheral nodes — even when no path connects them. A standard GNN can only pass messages along real edges, so role-twins never interact; a **role graph** gives them a channel.
+Structural-role augmentation adds edges between nodes that occupy **similar topological positions** - two hubs, two bridges, two peripheral nodes - even when no path connects them. A standard GNN can only pass messages along real edges, so role-twins never interact; a **role graph** gives them a channel.
 
-The problem is that this does not always help. Measured across 19 graphs, role augmentation improves link prediction on some and actively damages others, and it never once improves node classification. So the useful question is not *"does rewiring work?"* but **"for this graph, should I rewire at all — and if so, with which structural signal?"**
+The problem is that this does not always help. Measured across 19 graphs, role augmentation improves link prediction on some and actively damages others, and it never once improves node classification. So the useful question is not *"does rewiring work?"* but **"for this graph, should I rewire at all - and if so, with which structural signal?"**
 
 This project answers both, **before any encoder is trained**, with a two-stage decision framework read off the graph's own properties.
 
@@ -24,13 +24,13 @@ GraphSAGE, K = 10, 10 seeds (42–51), five locked graph variants, one frozen pi
 Two things follow, and they are the reason the framework exists:
 
 1. **Node classification has a boundary, not a rule.** No dataset, in any panel, at any seed count, has ever shown a significant node-classification gain from role augmentation. The reportable finding is *"never augment for NC"*.
-2. **Link prediction genuinely splits.** Roughly half the graphs benefit and half are hurt, so the decision is worth making — and worth predicting.
+2. **Link prediction genuinely splits.** Roughly half the graphs benefit and half are hurt, so the decision is worth making - and worth predicting.
 
 ---
 
 ## 2 · Datasets and sources
 
-Every graph is used **structurally only** — edges, plus node labels where they exist. Published node features are ignored by design, so a gain cannot be credited to the attributes instead of to the rewiring under test. The 22 graphs registered in `virgo/config.py`, by source:
+Every graph is used **structurally only** - edges, plus node labels where they exist. Published node features are ignored by design, so a gain cannot be credited to the attributes instead of to the rewiring under test. The 22 graphs registered in `virgo/config.py`, by source:
 
 | dataset(s) | domain | reference |
 |---|---|---|
@@ -49,8 +49,6 @@ Every graph is used **structurally only** — edges, plus node labels where they
 
 Two of the 22 carry no scoreboard row: `citeseer` (the author's own graph, no aligned labels) and `politics` (ships no labels) are registered for link prediction only.
 
-**Measured, then withdrawn** — reported in §6 but not registered, because they ran before stage 1 existed: `chameleon_filtered` (Platonov et al. 2023, filtering Rozemberczki et al. 2021), `texas` (WebKB, used via Pei et al. 2020), `twitch_pt` (Rozemberczki, Allen & Sarkar 2021).
-
 ---
 
 ## 3 · The two-stage framework
@@ -59,13 +57,13 @@ Everything below is computable **before training an encoder**. Stage 1 needs the
 
 ```
                      ┌─────────────────────────────────────────┐
-   graph  ─────────► │ STAGE 1 — augment, or keep the original? │
+   graph  ─────────► │ STAGE 1 - augment, or keep the original? │
                      └─────────────────────────────────────────┘
                                 │                    │
                       keep original                augment
                                 │                    ▼
                                 │      ┌──────────────────────────────┐
-                                │      │ STAGE 2 — which signal?      │
+                                │      │ STAGE 2 - which signal?      │
                                 │      └──────────────────────────────┘
                                 │                    │
                                 ▼                    ▼
@@ -73,19 +71,19 @@ Everything below is computable **before training an encoder**. Stage 1 needs the
                      graph, unchanged         role graph, then train
 ```
 
-### Stage 1 — whether to augment
+### Stage 1 - whether to augment
 
 Three components, applied in order (`virgo.frozen_rules.predict_gated`):
 
 | step | rule | cut | any cut in | needs labels |
 |---|---|---|---|---|
-| 1 | **adjusted homophily** — high ⇒ keep the original | `< 0.227` ⇒ augment | (0.0926, 0.3613) | yes |
-| 2 | **the gate**, inside the low-homophily zone only — `original_retention`, the fraction of real edges the role graph preserves | `< 0.0119` ⇒ augment | (0.0062, 0.0176) | no |
-| 3 | **largest-component fraction** — fallback for unlabelled graphs | `> 0.9588` ⇒ augment | (0.9177, 1.0) | no |
+| 1 | **adjusted homophily** - high ⇒ keep the original | `< 0.227` ⇒ augment | (0.0926, 0.3613) | yes |
+| 2 | **the gate**, inside the low-homophily zone only - `original_retention`, the fraction of real edges the role graph preserves | `< 0.0119` ⇒ augment | (0.0062, 0.0176) | no |
+| 3 | **largest-component fraction** - fallback for unlabelled graphs | `> 0.9588` ⇒ augment | (0.9177, 1.0) | no |
 
-Adjusted homophily is **a veto, not a predictor**. High adjusted homophily reliably means *keep the original*; low adjusted homophily is **necessary but not sufficient** for augmentation to help. The decisive evidence is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments) — 0.0008 apart with opposite outcomes, so **no single-variable split can separate them**. The gate was introduced to break exactly that ambiguity; see §4 for how well it does.
+Adjusted homophily is **a veto, not a predictor**. High adjusted homophily reliably means *keep the original*; low adjusted homophily is **necessary but not sufficient** for augmentation to help. The decisive evidence is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments) - 0.0008 apart with opposite outcomes, so **no single-variable split can separate them**. The gate was introduced to break exactly that ambiguity; see §4 for how well it does.
 
-### Stage 2 — which structural signal
+### Stage 2 - which structural signal
 
 Consulted **only** when stage 1 says augment, because "not centrality" would otherwise silently include "do not augment at all", which is stage 1's question.
 
@@ -93,7 +91,7 @@ Consulted **only** when stage 1 says augment, because "not centrality" would oth
 |---|---|---|---|
 | **adjusted neighbour-label predictability** high ⇒ use **eigenvector centrality** | `> 0.0092` | (0.006, 0.0123) | 14 datasets, 7 of them augmenting |
 
-Read plainly: **when a node's class can be read off the mix of labels around it, centrality-based rewiring is the right augmentation.** Below the cut the rule returns `"psi or degree (undetermined)"` — it separates centrality from the rest and deliberately claims nothing about Ψ versus degree.
+Read plainly: **when a node's class can be read off the mix of labels around it, centrality-based rewiring is the right augmentation.** Below the cut the rule returns `"psi or degree (undetermined)"` - it separates centrality from the rest and deliberately claims nothing about Ψ versus degree.
 
 ---
 
@@ -105,8 +103,8 @@ The distinction is load-bearing and is kept in the code: `characterize.py` and `
 |---|---|---|---|
 | **adjusted homophily** (stage 1) | 7 datasets, 12 cells | 9 unseen datasets, pre-registered | **4/6** decided cells |
 | **largest-component fraction** (stage 1 fallback) | same 7 | same 9 | **4/6** decided cells |
-| **the gate** (stage 1) | 13 datasets — *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided cells |
-| **centrality rule** (stage 2) | 14 datasets, 10 seeds — nothing held out | 3 unseen LINKX graphs | **3/3** — centrality scored highest on every one |
+| **the gate** (stage 1) | 13 datasets - *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided cells |
+| **centrality rule** (stage 2) | 14 datasets, 10 seeds - nothing held out | 3 unseen LINKX graphs | **3/3** - centrality scored highest on every one |
 
 ### Stage 2's held-out record, stated exactly
 
@@ -131,11 +129,11 @@ input graph → structural signals → role graph → encoder → embeddings →
                clustering; cached)   nodes)
 ```
 
-1. **Structural signals** — degree and eigenvector centrality computed once per graph and cached. Identity2Vec recomputes them inside its walk loop; caching returns identical output roughly 200× faster.
-2. **Similarity** — KL divergence λ → Poisson Ψ, exactly as Identity2Vec defines it.
-3. **Role graph** — `virgo/virtual_graph.py` links each node to its top-K most structurally similar nodes. K = 10 throughout (a locked hyperparameter: sparsity against over-smoothing).
-4. **Encoder** — a 2-layer GraphSAGE with an unsupervised Skipgram-style loss (linked nodes attract, random nodes repel). DeepWalk on the same graph is the walk-based comparison.
-5. **Evaluation** — node classification by logistic regression on the embeddings (weighted F1); link prediction by AUC over a 70/30 edge split, with the role graph **rebuilt from the 70% training edges** so no test edge leaks.
+1. **Structural signals** - degree and eigenvector centrality computed once per graph and cached. Identity2Vec recomputes them inside its walk loop; caching returns identical output roughly 200× faster.
+2. **Similarity** - KL divergence λ → Poisson Ψ, exactly as Identity2Vec defines it.
+3. **Role graph** - `virgo/virtual_graph.py` links each node to its top-K most structurally similar nodes. K = 10 throughout (a locked hyperparameter: sparsity against over-smoothing).
+4. **Encoder** - a 2-layer GraphSAGE with an unsupervised Skipgram-style loss (linked nodes attract, random nodes repel). DeepWalk on the same graph is the walk-based comparison.
+5. **Evaluation** - node classification by logistic regression on the embeddings (weighted F1); link prediction by AUC over a 70/30 edge split, with the role graph **rebuilt from the 70% training edges** so no test edge leaks.
 
 ### The graph variants
 
@@ -143,7 +141,7 @@ Seven official constructions. The five marked *locked* are the ones every frozen
 
 | variant | role signal | construction | locked |
 |---|---|---|---|
-| `original` | — | the input graph, unchanged (the control) | ✓ |
+| `original` | - | the input graph, unchanged (the control) | ✓ |
 | `psi` | Identity2Vec Poisson/KL score Ψ | replaces the edges | ✓ |
 | `degree` | degree | replaces the edges | ✓ |
 | `centrality` | eigenvector centrality | replaces the edges | ✓ |
@@ -169,8 +167,8 @@ Sources and citations for all 22 registered graphs are in §2; this section is a
 
 | dataset | stage 1 | reached stage 2? |
 |---|---|---|
-| amherst41, johnshopkins55, cornell5 | augment | **yes** — the three pre-registered stage-2 tests |
-| reed98 | keep (wrongly, see §4) | no — tested stage 1 only |
+| amherst41, johnshopkins55, cornell5 | augment | **yes** - the three pre-registered stage-2 tests |
+| reed98 | keep (wrongly, see §4) | no - tested stage 1 only |
 | chameleon_filtered, texas, twitch_pt | ran **before** stage 1 existed | no pre-registered call; their stage-2 verdict is retrospective |
 
 The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it −1); those nodes are left out of the `.labels` file rather than written as a third class, and the graph keeps every node.
@@ -195,10 +193,10 @@ The Facebook100 label is **gender, missing for ~10% of users** (LINKX codes it �
 
 ## 8 · Repository map
 
-Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** Everything else is data, docs or results. (`virgo/` remains the Python package name — an internal identifier the project title no longer matches.)
+Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** Everything else is data, docs or results. (`virgo/` remains the Python package name - an internal identifier the project title no longer matches.)
 
 ```
-├── input/                    # original graphs (.edgelist) — never edit
+├── input/                    # original graphs (.edgelist) - never edit
 ├── labels/                   # node labels for classification
 ├── splits/                   # saved 70/30 link-prediction splits (per dataset, per seed)
 ├── output/                   # everything generated: notebook1_* / notebook2_* / notebook3_*
@@ -292,7 +290,7 @@ The notebooks are the narrative version of the same commands; run them in order 
 ## 11 · Reproducibility and conventions
 
 - Seed fixed at 42 everywhere (split, initialization, sampling). Frozen-rule fitting used seeds 42/43/44; the strategy work and every held-out test use 42–51.
-- **Which seed count a number came from matters.** `results/scoreboard.csv` now holds the 10-seed sweep; the 3-seed board it replaced is archived at `results/scoreboard_3seed.csv`. Re-scoring an older module against the current board can move a verdict — always name the seed count.
+- **Which seed count a number came from matters.** `results/scoreboard.csv` now holds the 10-seed sweep; the 3-seed board it replaced is archived at `results/scoreboard_3seed.csv`. Re-scoring an older module against the current board can move a verdict - always name the seed count.
 - Every scoreboard row comes from one frozen pipeline (`run_core.py` + `run_ogb.py`, settings in `virgo/config.py`). Metrics reproduce exactly; the embeddings themselves agree to ~2e-6 (float32 aggregation order), invisible at four decimals.
 - `input/` is read-only. Derived files go to `output/`, scores to `results/`.
 - Link prediction retrains on the 70% training graph alone, so no test edge leaks.
@@ -304,19 +302,19 @@ The notebooks are the narrative version of the same commands; run them in order 
 
 ## 12 · Scope
 
-**Out of scope, deliberately:** external node attributes — every feature is graph-derived, so a gain cannot be credited to attributes instead of to the rewiring under test; non-Euclidean / hyperbolic latent spaces (reserved for separate work); anomaly detection (set aside when the characterization study became the focus).
+**Out of scope, deliberately:** external node attributes - every feature is graph-derived, so a gain cannot be credited to attributes instead of to the rewiring under test; non-Euclidean / hyperbolic latent spaces (reserved for separate work); anomaly detection (set aside when the characterization study became the focus).
 
-**Future work, not started:** **rules for degree and Ψ** — stage 2 covers centrality only; a learnable weight blending the original and role graphs per dataset (needs many, likely synthetic, datasets to train); embeddings as compact structural summaries so a large graph fits an LLM's context window.
+**Future work, not started:** **rules for degree and Ψ** - stage 2 covers centrality only; a learnable weight blending the original and role graphs per dataset (needs many, likely synthetic, datasets to train); embeddings as compact structural summaries so a large graph fits an LLM's context window.
 
-**Open, and next:** a stage-2 test below the cut, to exercise the rule's negative side; a rule separating Ψ from degree, currently blocked — the sub-cut zone holds one Ψ dataset against two degree datasets, where every property separates the groups perfectly and therefore carries no information; and GIN alongside GraphSAGE (`virgo/encoders/gin.py` is wired and registered but has produced no results yet).
+**Open, and next:** a stage-2 test below the cut, to exercise the rule's negative side; a rule separating Ψ from degree, currently blocked - the sub-cut zone holds one Ψ dataset against two degree datasets, where every property separates the groups perfectly and therefore carries no information; and GIN alongside GraphSAGE (`virgo/encoders/gin.py` is wired and registered but has produced no results yet).
 
 ---
 
 ## Credits
 
-- **Identity2Vec** — *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. Provides the Ψ score and the walk baseline (`virgo/identity2vec.py`, frozen).
-- **Heterophilous benchmarks** — Platonov et al. 2023 (`roman_empire`, `tolokers`, `questions`, `minesweeper`, `amazon_ratings`, `squirrel_filtered`).
-- **LINKX / Facebook100** — Lim et al. 2021 (`reed98`, `amherst41`, `johnshopkins55`, `cornell5`).
-- **struc2vec** — vendored in `third_party/`, used as published.
+- **Identity2Vec** - *Learning mesoscopic structural identity representations via a Poisson probability metric*, Oluigbo et al. Provides the Ψ score and the walk baseline (`virgo/identity2vec.py`, frozen).
+- **Heterophilous benchmarks** - Platonov et al. 2023 (`roman_empire`, `tolokers`, `questions`, `minesweeper`, `amazon_ratings`, `squirrel_filtered`).
+- **LINKX / Facebook100** - Lim et al. 2021 (`reed98`, `amherst41`, `johnshopkins55`, `cornell5`).
+- **struc2vec** - vendored in `third_party/`, used as published.
 
 This project contributes the cached Identity2Vec walker, the seven-variant role-graph builder, the GraphSAGE encoder over role graphs, and the two-stage decision framework above.

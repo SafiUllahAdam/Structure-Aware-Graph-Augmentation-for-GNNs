@@ -1,6 +1,6 @@
 '''Unsupervised GNN over a virtual graph: same Skipgram-analog objective as I2V, lookup table replaced by message passing.'''
 # Phase 3. Features come from the ORIGINAL graph's cached structural signals; messages pass over the VIRTUAL graph.
-# Everything here is architecture-independent — a new encoder subclasses GNNEncoder and defines build_convs() only.
+# Everything here is architecture-independent - a new encoder subclasses GNNEncoder and defines build_convs() only.
 # Positives = direct virtual edges by default (ablation-A winner); "walk" kept as the Phase-2-bridge-comparable option.
 # Ablation D: the `feats` knob selects which structural features enter the GNN ("random" = the no-structure control).
 # Ablation D6: layers=0 -> no convolutions, embeddings ARE the z-normed features (features without message passing; nothing to train).
@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 from virgo.virtual_graph import VirtualGraph
 
-# Walk-corpus settings mirror I2V_PARAMS (virgo/config.py) — the Phase-2 bridge corpus.
+# Walk-corpus settings mirror I2V_PARAMS (virgo/config.py) - the Phase-2 bridge corpus.
 WALKS = {"num_walks": 10, "walk_length": 40, "window": 10}
 
 
@@ -73,7 +73,7 @@ class GNNEncoder():
         return torch.tensor((X - X.mean(0)) / (X.std(0) + 1e-9), dtype=torch.float)
 
     def corpus(self, max_pairs=2_000_000, positives="walk"):
-        '''Skipgram positives — ablation A: "walk" = A1 window co-occurrence on virtual-graph walks (= Phase-2 bridge corpus); "edge" = A2 direct virtual edges, no walks.'''
+        '''Skipgram positives - ablation A: "walk" = A1 window co-occurrence on virtual-graph walks (= Phase-2 bridge corpus); "edge" = A2 direct virtual edges, no walks.'''
         if positives == "edge":
             pairs = [(self.index[u], self.index[v]) for u, v in self.V.edges]
             pairs += [(b, a) for a, b in pairs]            # both directions: each endpoint also learns as the center node
@@ -87,7 +87,7 @@ class GNNEncoder():
                      for i, a in enumerate(walk) for b in walk[i + 1:i + 1 + w] if a != b]
         else:
             raise ValueError(f"Unknown positives '{positives}'. Use: walk (A1), edge (A2).")
-        assert len(pairs) > 0, "no positive pairs — is the virtual graph edgeless?"
+        assert len(pairs) > 0, "no positive pairs - is the virtual graph edgeless?"
         pairs = torch.tensor(pairs, dtype=torch.long)
         if len(pairs) > max_pairs:                             # deterministic cap: runtime/memory guard on large graphs
             keep = torch.randperm(len(pairs), generator=torch.Generator().manual_seed(self.seed))[:max_pairs]
@@ -105,7 +105,7 @@ class GNNEncoder():
 
     def train(self, epochs, lr=0.01, negatives=5, pairs_per_epoch=100_000, max_pairs=2_000_000, positives="walk"):
         '''Skipgram-analog objective: pull positive pairs together, push deg^0.75 negatives (true non-neighbors) apart.'''
-        assert len(self.convs) > 0, "layers=0 (D6) has no parameters to train — save() the features directly instead"
+        assert len(self.convs) > 0, "layers=0 (D6) has no parameters to train - save() the features directly instead"
         pairs = self.corpus(max_pairs, positives)
         deg = torch.tensor([d for _, d in self.V.degree(self.nodes)], dtype=torch.float) ** 0.75
         neg_dist = deg / deg.sum() if deg.sum() > 0 else torch.full((len(self.nodes),), 1.0 / len(self.nodes))
