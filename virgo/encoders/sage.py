@@ -1,4 +1,4 @@
-'''GraphSAGE over the role graph — the locked encoder (Phase 3).'''
+'''GraphSAGE over the role graph - the locked encoder (Phase 3).'''
 # Ablation B decided the aggregation: "mean" won; "weighted" swaps SAGEConv for GraphConv (same root+neighbour form, edge-weight-aware).
 
 import torch

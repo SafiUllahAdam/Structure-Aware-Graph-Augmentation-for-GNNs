@@ -1,6 +1,6 @@
 '''Train one GNN encoder over a saved virtual graph -> .emb (single-run CLI; the sweeps live in run_core.py / run_ogb.py).'''
 # Architecture-agnostic: --arch picks any encoder registered in virgo.encoders, so a new encoder is runnable
-# from the terminal the moment it is added to ENCODERS — this file never changes.
+# from the terminal the moment it is added to ENCODERS - this file never changes.
 
 import argparse
 import sys

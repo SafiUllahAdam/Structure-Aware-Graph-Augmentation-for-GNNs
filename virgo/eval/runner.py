@@ -1,4 +1,4 @@
-"""Orchestrate reproduction tasks by calling the Phase-1 entry points — nothing is moved."""
+"""Orchestrate reproduction tasks by calling the Phase-1 entry points - nothing is moved."""
 
 import subprocess
 import sys
@@ -9,7 +9,7 @@ from virgo.config import (NB1_DIR, LP_SPLITS_ORIG, PROJECT_ROOT, REPRO, I2V_PARA
 from virgo.utils import set_seed
 
 
-# Runs Identity2Vec (train.py) as a subprocess to learn an embedding — this is the slow step.
+# Runs Identity2Vec (train.py) as a subprocess to learn an embedding - this is the slow step.
 def embed(input_path, output_path, params=None, cached=True, seed=None):
     """Train an I2V embedding on a given edgelist (cached fast path + fixed seed by default)."""
     params = params or I2V_PARAMS
@@ -45,7 +45,7 @@ def run_linkpred(name, emb=None, retrain=False, params=None, seed=None):
         embed(split_dir / "train.edgelist", emb, params)
     elif emb is None:
         emb = NB1_DIR / name / "node_classification" / f"i2v_s{seed}.emb"
-        print(f"  ! no --retrain: using full-graph {Path(emb).name} (LEAKAGE — plumbing check, not a paper number)")
+        print(f"  ! no --retrain: using full-graph {Path(emb).name} (LEAKAGE - plumbing check, not a paper number)")
 
     auc = linkpred_eval(emb, split_dir, REPRO["linkpred_op"], seed, REPRO["linkpred_score"])
     metrics = {"auc": auc}
@@ -64,7 +64,7 @@ def run_nodeclass(name, emb=None, seed=None):
     labels = dataset(name)["labels"]
     if labels is None or not Path(labels).exists():
         raise FileNotFoundError(
-            f"No labels for '{name}' (expected {labels}). See labels/README.md — node classification is blocked.")
+            f"No labels for '{name}' (expected {labels}). See labels/README.md - node classification is blocked.")
     emb = emb or NB1_DIR / name / "node_classification" / f"i2v_s{seed}.emb"
     f1s, n_nodes, n_classes = nodeclass_eval(emb, labels, REPRO["nodeclass_train_frac"], seed)
     metrics = {"micro_f1": f1s["micro"], "macro_f1": f1s["macro"], "weighted_f1": f1s["weighted"],

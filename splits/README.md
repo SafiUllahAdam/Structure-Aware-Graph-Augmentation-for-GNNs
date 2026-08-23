@@ -1,9 +1,9 @@
 # splits/
 
 Exact, repeatable link-prediction splits produced by `prepare_linkpred.py`.
-Generated files — do not edit by hand. (Node classification needs no split files — its 70/30 split happens in memory from the labels.)
+Generated files - do not edit by hand. (Node classification needs no split files - its 70/30 split happens in memory from the labels.)
 
-Layout — one folder per dataset per seed:
+Layout - one folder per dataset per seed:
 
 ```
 splits/link_prediction/
@@ -15,7 +15,7 @@ Each seed folder holds exactly 4 files:
 
 | file | contents |
 |------|----------|
-| `train.edgelist` | 70% positive edges — **retrain the encoder on this graph only** (no leakage) |
+| `train.edgelist` | 70% positive edges - **retrain the encoder on this graph only** (no leakage) |
 | `train_neg.txt`  | non-edges, same count as train positives (classifier negatives) |
 | `test_pos.txt`   | 30% held-out positive edges |
 | `test_neg.txt`   | non-edges, same count as test positives |

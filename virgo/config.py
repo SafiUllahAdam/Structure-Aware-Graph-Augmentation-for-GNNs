@@ -100,7 +100,7 @@ GNN_PARAMS = {
 }
 
 # Ablation D (input features): does the GNN win come from the structural features or from message passing?
-# "random" (D4) is THE control — message passing with zero structural signal; compare it against the deepwalk bridge.
+# "random" (D4) is THE control - message passing with zero structural signal; compare it against the deepwalk bridge.
 D_FEATURES = {
     "all":      ("D0 all",       "degree + centrality + psi + clustering"),
     "degree":   ("D1 degree",    "degree only"),
@@ -117,7 +117,7 @@ D_FEATURES = {
 # How every stage treats ANY dataset: self-loops, directed sources, centrality mode, signature ties, LP negatives.
 from virgo.graph_io import GRAPH_POLICY, I2V_BASELINE_POLICY
 
-# Reproduction defaults — fixed for every run so results are repeatable.
+# Reproduction defaults - fixed for every run so results are repeatable.
 REPRO = {
     "seed": 42,
     "linkpred_test_frac": 0.30,    # 70:30 edge split

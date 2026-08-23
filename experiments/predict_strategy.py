@@ -246,8 +246,8 @@ def summary(route, out):
             # Every KEEP row reads the same, whether or not it was trained: stage 2 never ran, so its scores are not the
             # question. "not applicable" rather than "not trained" - two of these graphs WERE trained (the withdrawn
             # batch, scores in module7_withdrawn.csv), and saying otherwise would put a false claim in the record.
-            "Best result": f"{PRETTY[w['best_variant']]} {w['best_score']:.4f}" if keep_row is False else "— (not applicable)",
-            "2nd-best result": f"{PRETTY[w['runner_up']]} {w['runner_up_score']:.4f}" if keep_row is False else "— (not applicable)",
+            "Best result": f"{PRETTY[w['best_variant']]} {w['best_score']:.4f}" if keep_row is False else "- (not applicable)",
+            "2nd-best result": f"{PRETTY[w['runner_up']]} {w['runner_up_score']:.4f}" if keep_row is False else "- (not applicable)",
             "Final interpretation":
                 keep_verdict(ds) if keep_row else
                 f"Correct: {w['winning_signal']} best" if w["correct_by_margin"] else
