@@ -8,8 +8,6 @@ The problem is that this does not always help. Measured across 19 graphs, role a
 
 This project answers both, **before any encoder is trained**, with a two-stage decision framework read off the graph's own properties.
 
-Target venue: the **Learning on Graphs (LoG)** conference. The thesis draws on the same work.
-
 ---
 
 ## 1 · The headline result
