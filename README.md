@@ -14,10 +14,10 @@ This project answers both, **before any encoder is trained**, with a two-stage d
 
 GraphSAGE, K = 10, 10 seeds (42–51), five locked graph variants, one frozen pipeline.
 
-| task | augment | tie | keep original | cells |
+| task | augment | tie | keep original | datasets |
 |---|---|---|---|---|
-| **link prediction** | **9** | 4 | 6 | 19 datasets |
-| **node classification** | **0** | 2 | 13 | 15 cells |
+| **link prediction** | **9** | 4 | 6 | 19 |
+| **node classification** | **0** | 2 | 13 | 15 |
 
 Two things follow, and they are the reason the framework exists:
 
@@ -99,9 +99,9 @@ The distinction is load-bearing and is kept in the code: `characterize.py` and `
 
 | component | fitted on | held-out test | result |
 |---|---|---|---|
-| **adjusted homophily** (stage 1) | 7 datasets, 12 cells | 9 unseen datasets, pre-registered | **4/6** decided cells |
-| **largest-component fraction** (stage 1 fallback) | same 7 | same 9 | **4/6** decided cells |
-| **the gate** (stage 1) | 13 datasets - *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided cells |
+| **adjusted homophily** (stage 1) | 7 datasets, both tasks | 9 unseen datasets, pre-registered | **4/6** decided datasets |
+| **largest-component fraction** (stage 1 fallback) | same 7 | same 9 | **4/6** decided datasets |
+| **the gate** (stage 1) | 13 datasets - *includes the 9 above, so it is fitted, not validated* | 4 unseen LINKX graphs | **2/3** decided datasets |
 | **centrality rule** (stage 2) | 14 datasets, 10 seeds - nothing held out | 3 unseen LINKX graphs | **3/3** - centrality scored highest on every one |
 
 ### Stage 2's held-out record, stated exactly
