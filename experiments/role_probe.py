@@ -40,6 +40,7 @@ SIMS = ["degree", "psi", "centrality", "original"]      # the signals plus the d
 INNER_SEED = 1234                                       # the inner split's seed; deliberately NOT a study seed, so it can never coincide with a training seed
 LAYERS = 2                                              # GNN_PARAMS["layers"]: the probe mirrors the encoder's depth
 MAX_PAIRS = 40_000                                      # cap per class; the AUC is already stable well below this
+MIN_INNER_TEST = 200                                    # fewer inner held-out edges than this and the probe reports nothing rather than a noisy AUC
 # Two independent inner splits move the contrast by ~0.0032 (sd over three seeds, 14 datasets), so anything inside twice
 # that is a draw the instrument cannot call. Measured from re-splitting, never from a label - it is a noise floor, not a fit.
 BAND = 0.0064
@@ -73,6 +74,11 @@ def probe(ds, k=10, inner_seed=INNER_SEED, layers=LAYERS):
     '''One row: untrained inner-split AUC per signal, plus the contrasts the stage-2 call reads.'''
     G = graph_io.load_graph(cfg.LP_SPLITS_VG / ds / "seed_42" / "train.edgelist")
     tr, te = split_edges(G, cfg.REPRO["linkpred_test_frac"], inner_seed)
+    # A near-forest keeps almost every edge in the spanning forest, so the inner split can hold out too few pairs to
+    # score. Report the graph as unprobeable rather than returning an AUC computed on a handful of edges.
+    if len(te) < MIN_INNER_TEST:
+        return {"dataset": ds, "k": k, "inner_seed": inner_seed, "nodes": G.number_of_nodes(), "inner_edges": len(tr),
+                "blocked_by": f"only {len(te)} inner held-out edges (< {MIN_INNER_TEST}) - the graph is near-acyclic"}
     neg = sample_non_edges(G, len(te), inner_seed, {frozenset(e) for e in tr + te})
     H = nx.Graph()
     H.add_nodes_from(G.nodes)
@@ -103,8 +109,8 @@ def role_probe(datasets, k=10, inner_seeds=(INNER_SEED,)):
         rows = []
         for d, s in miss:
             rows.append(probe(d, k, s))
-            print(f"probed {d} (inner seed {s}): degree-psi {rows[-1]['probe_degree_psi']:+.4f}  "
-                  f"augment {rows[-1]['probe_augment']:+.4f}", flush=True)
+            print(f"probed {d} (inner seed {s}): " + (rows[-1]["blocked_by"] if "blocked_by" in rows[-1] else
+                  f"degree-psi {rows[-1]['probe_degree_psi']:+.4f}  augment {rows[-1]['probe_augment']:+.4f}"), flush=True)
         have = pd.concat([have, pd.DataFrame(rows)], ignore_index=True)
         have.to_csv(PROBE_CSV, index=False)
     return have[have["dataset"].isin(datasets) & have["inner_seed"].isin(inner_seeds)].sort_values(["dataset", "inner_seed"]).reset_index(drop=True)
@@ -113,6 +119,7 @@ def role_probe(datasets, k=10, inner_seeds=(INNER_SEED,)):
 # The call itself. No threshold is fitted: the sign decides, and the band is the instrument's own noise floor.
 def calls(df, band=BAND):
     '''Per dataset: the mean contrast over inner seeds, its spread, and the signal / augment call the probe makes.'''
+    df = df[df["probe_degree_psi"].notna()]                        # a blocked graph carries no contrast to average
     g = df.groupby("dataset").agg(inner_seeds=("inner_seed", "nunique"),
                                   degree_psi=("probe_degree_psi", "mean"), degree_psi_sd=("probe_degree_psi", "std"),
                                   degree_rival=("probe_degree_rival", "mean"),
