@@ -59,11 +59,97 @@ DATASETS = {
     "amherst41":      {"edgelist": INPUT_DIR / "amherst41.edgelist",      "labels": LABELS_DIR / "amherst41.labels"},       # ~2.2K nodes
     "johnshopkins55": {"edgelist": INPUT_DIR / "johnshopkins55.edgelist", "labels": LABELS_DIR / "johnshopkins55.labels"},  # ~5.2K nodes
     "cornell5":       {"edgelist": INPUT_DIR / "cornell5.edgelist",       "labels": LABELS_DIR / "cornell5.labels"},       # ~18.6K nodes; the stand-in after reed98's stage-1 call came back "keep original"
+    # Rebuilt 2026-08-31 to TEST the stage-1 second condition (Module 8): withdrawn from the strategy batch on 2026-08-14,
+    # so their 10-seed link-prediction scores survive in results/module7_withdrawn.csv and no retraining is needed - only
+    # the graphs, for the properties the candidate rule reads. Structural-only, core protocol.
+    "chameleon_filtered": {"edgelist": INPUT_DIR / "chameleon_filtered.edgelist", "labels": LABELS_DIR / "chameleon_filtered.labels"},   # Platonov's de-duplicated Chameleon, 5 classes; 2325-dim features ignored
+    "texas":              {"edgelist": INPUT_DIR / "texas.edgelist",              "labels": LABELS_DIR / "texas.labels",
+                           "directed_source": True},   # WebKB university web pages, 5 classes; hyperlink = DIRECTED, loaded undirected (recorded deviation); 1703-dim features ignored
+    # 2026-09-01, the DEGREE-evidence batch: added to break the stage-2 deadlock (only 2 graphs in the corpus name degree
+    # as their sole winning signal). Screened and reported whichever way each one lands - see docs/paper_log.md.
+    "wisconsin":          {"edgelist": INPUT_DIR / "wisconsin.edgelist",          "labels": LABELS_DIR / "wisconsin.labels",
+                           "directed_source": True},   # WebKB, 251 nodes / 5 classes; hyperlink = DIRECTED, loaded undirected; 1703-dim features ignored
+    "cornell_webkb":      {"edgelist": INPUT_DIR / "cornell_webkb.edgelist",      "labels": LABELS_DIR / "cornell_webkb.labels",
+                           "directed_source": True},   # WebKB Cornell, 183 nodes / 5 classes - NOT cornell5, which is the 18.6K-node Facebook100 network
+    "chameleon":          {"edgelist": INPUT_DIR / "chameleon.edgelist",          "labels": LABELS_DIR / "chameleon.labels",
+                           "directed_source": True},   # ORIGINAL geom-gcn WikipediaNetwork copy, 2277 nodes / 5 classes; has the duplicate-node issue chameleon_filtered removes - report that caveat
+    "twitch_de":          {"edgelist": INPUT_DIR / "twitch_de.edgelist",          "labels": LABELS_DIR / "twitch_de.labels"},   # Twitch DE streamers, 9498 nodes, binary mature-content label; SNAP archive (graphmining.ai dead)
+    "deezer_europe":      {"edgelist": INPUT_DIR / "deezer_europe.edgelist",      "labels": LABELS_DIR / "deezer_europe.labels"},  # Deezer Europe users, 28281 nodes, binary gender label; SNAP archive
+    # 2026-09-02, DEGREE_RULE_CORPUS: a SEPARATE stage-2 pool for the degree rule, never part of the study panel.
+    # Chosen for structural spread, not for expected outcome; protocol pre-registered in docs/paper_log.md 12.
+    "airports_usa":      {"edgelist": INPUT_DIR / "airports_usa.edgelist", "labels": LABELS_DIR / "airports_usa.labels"},  # USA air-traffic network, 1190 airports, 4 activity quartiles - a classic structural-identity benchmark (labels correlate with degree; see the DISCLOSURE in make_pyg)
+    "airports_europe":   {"edgelist": INPUT_DIR / "airports_europe.edgelist", "labels": LABELS_DIR / "airports_europe.labels"},  # European air-traffic network, 399 airports, 4 activity quartiles
+    "airports_brazil":   {"edgelist": INPUT_DIR / "airports_brazil.edgelist", "labels": LABELS_DIR / "airports_brazil.labels"},  # Brazilian air-traffic network, 131 airports, 4 activity quartiles
+    "email_eu_core":     {"edgelist": INPUT_DIR / "email_eu_core.edgelist", "labels": LABELS_DIR / "email_eu_core.labels", "directed_source": True},  # EU research-institution email, 1005 members / 42 departments; sending an email = DIRECTED, loaded undirected
+    "wikics":            {"edgelist": INPUT_DIR / "wikics.edgelist", "labels": LABELS_DIR / "wikics.labels", "directed_source": True},  # Wikipedia computer-science articles, 10 classes; hyperlink = DIRECTED, loaded undirected; 300-dim GloVe features ignored
+    "twitch_engb":       {"edgelist": INPUT_DIR / "twitch_engb.edgelist", "labels": LABELS_DIR / "twitch_engb.labels"},  # Twitch ENGB streamers, binary mature-content label; SNAP archive
+    "github":            {"edgelist": INPUT_DIR / "github.edgelist", "labels": LABELS_DIR / "github.labels"},  # GitHub developers, 37.7K nodes, binary web-vs-ML label; SNAP archive
+    "amazon_computers":  {"edgelist": INPUT_DIR / "amazon_computers.edgelist", "labels": LABELS_DIR / "amazon_computers.labels"},  # Amazon Computers co-purchase, 10 classes; 767-dim bag-of-words ignored
+    "polblogs":          {"edgelist": INPUT_DIR / "polblogs.edgelist", "labels": LABELS_DIR / "polblogs.labels", "directed_source": True},  # US political blogs, 2 classes; hyperlink = DIRECTED, loaded undirected; no node features
+    "blogcatalog":       {"edgelist": INPUT_DIR / "blogcatalog.edgelist", "labels": LABELS_DIR / "blogcatalog.labels"},  # BlogCatalog bloggers, 6 classes; 8189-dim attributes ignored
+    "coauthor_cs":       {"edgelist": INPUT_DIR / "coauthor_cs.edgelist", "labels": LABELS_DIR / "coauthor_cs.labels"},  # Microsoft Academic co-authorship (CS), 15 fields; 6805-dim keyword features ignored
+    "twitch_es":         {"edgelist": INPUT_DIR / "twitch_es.edgelist", "labels": LABELS_DIR / "twitch_es.labels"},  # Twitch ES streamers, binary mature-content label; SNAP archive
+    "twitch_fr":         {"edgelist": INPUT_DIR / "twitch_fr.edgelist", "labels": LABELS_DIR / "twitch_fr.labels"},  # Twitch FR streamers, binary mature-content label; SNAP archive
+    "dblp":              {"edgelist": INPUT_DIR / "dblp.edgelist", "labels": LABELS_DIR / "dblp.labels", "directed_source": True},  # DBLP citation network, 4 venues; citation = DIRECTED, loaded undirected; 1639-dim features ignored
+    "coauthor_physics":  {"edgelist": INPUT_DIR / "coauthor_physics.edgelist", "labels": LABELS_DIR / "coauthor_physics.labels"},  # Microsoft Academic co-authorship (Physics), 5 fields; 8415-dim keyword features ignored
+    "twitch_ru":         {"edgelist": INPUT_DIR / "twitch_ru.edgelist", "labels": LABELS_DIR / "twitch_ru.labels"},  # Twitch RU streamers, binary mature-content label; SNAP archive
+    "twitch_ptbr":       {"edgelist": INPUT_DIR / "twitch_ptbr.edgelist", "labels": LABELS_DIR / "twitch_ptbr.labels"},  # Twitch PTBR streamers, binary mature-content label; SNAP archive
+    "cora_ml":           {"edgelist": INPUT_DIR / "cora_ml.edgelist", "labels": LABELS_DIR / "cora_ml.labels", "directed_source": True},  # Cora-ML citation network, 7 classes; citation = DIRECTED, loaded undirected
+    "squirrel":          {"edgelist": INPUT_DIR / "squirrel.edgelist", "labels": LABELS_DIR / "squirrel.labels", "directed_source": True},  # ORIGINAL geom-gcn Squirrel, 5 classes - squirrel_filtered is the de-duplicated version; the duplicate-node caveat applies here
+    "flickr_attr":       {"edgelist": INPUT_DIR / "flickr_attr.edgelist", "labels": LABELS_DIR / "flickr_attr.labels"},  # Flickr user network (attributed release), 9 groups; 12047-dim attributes ignored
+    # 2026-09-03, DEGREE_RULE_VALIDATION: held out to TEST the degree-vs-psi candidate, never fitted on (see make_pyg).
+    "wiki_attr":         {"edgelist": INPUT_DIR / "wiki_attr.edgelist", "labels": LABELS_DIR / "wiki_attr.labels", "directed_source": True},  # Wikipedia article hyperlink graph, 17 classes; hyperlink = DIRECTED, loaded undirected; 4973-dim features ignored
+    "crocodile":         {"edgelist": INPUT_DIR / "crocodile.edgelist", "labels": LABELS_DIR / "crocodile.labels"},  # musae Wikipedia crocodile pages, labels = 5 quantile bins of monthly traffic (DISCLOSURE: traffic correlates with degree, as for airports_*)
+    "cora_full":         {"edgelist": INPUT_DIR / "cora_full.edgelist", "labels": LABELS_DIR / "cora_full.labels", "directed_source": True},  # full Cora citation network, 70 classes (DISCLOSURE: cora_ml is a SUBGRAPH of this graph); citation = DIRECTED, loaded undirected
+    "penn94":            {"edgelist": INPUT_DIR / "penn94.edgelist", "labels": LABELS_DIR / "penn94.labels"},  # LINKX Facebook100 Penn, binary gender; missing gender is UNLABELLED, not a third class, as for the other FB100 graphs
+    "genius":            {"edgelist": INPUT_DIR / "genius.edgelist", "labels": LABELS_DIR / "genius.labels"},  # LINKX genius.com users, binary marked-account label, ~80:20 imbalance; 12-dim features ignored
+    "twitch_gamers":     {"edgelist": INPUT_DIR / "twitch_gamers.edgelist", "labels": LABELS_DIR / "twitch_gamers.labels"},  # Twitch Gamers mutual-follower network, binary mature-content label; SNAP archive (PyG's LINKX loader asserts)
+    # 2026-09-04, candidates for the FROZEN_DEGREE test (see make_pyg). Registered so they can be MEASURED; which of
+    # them become the test set is decided on distinct_degrees and the stage-1 call, never on an outcome.
+    "artnet_exp":        {"edgelist": INPUT_DIR / "artnet_exp.edgelist", "labels": LABELS_DIR / "artnet_exp.labels"},  # GraphLand artnet, binary; distinct_degrees 196 = just ABOVE the 158.5 cut
+    "city_reviews":      {"edgelist": INPUT_DIR / "city_reviews.edgelist", "labels": LABELS_DIR / "city_reviews.labels"},  # GraphLand city-reviews, target binned into 5 quantiles (DISCLOSURE: traffic-derived)
+    "hm_categories":     {"edgelist": INPUT_DIR / "hm_categories.edgelist", "labels": LABELS_DIR / "hm_categories.labels"},  # GraphLand H&M co-purchase, 21 categories; very dense (10.7M edges)
+    "city_roads_m":      {"edgelist": INPUT_DIR / "city_roads_m.edgelist", "labels": LABELS_DIR / "city_roads_m.labels"},  # GraphLand road network, target binned into 5 quantiles; distinct_degrees 8
+    "city_paris":        {"edgelist": INPUT_DIR / "city_paris.edgelist", "labels": LABELS_DIR / "city_paris.labels"},  # CityNetwork Paris junctions, 10 eccentricity quantiles; distinct_degrees 8
+    "city_shanghai":     {"edgelist": INPUT_DIR / "city_shanghai.edgelist", "labels": LABELS_DIR / "city_shanghai.labels"},  # CityNetwork Shanghai junctions, 10 eccentricity quantiles
+    "city_la":           {"edgelist": INPUT_DIR / "city_la.edgelist", "labels": LABELS_DIR / "city_la.labels"},  # CityNetwork Los Angeles junctions, 10 eccentricity quantiles
+    # 2026-09-05, DEGREE_TEST: Netzschleuder graphs ingested to TEST frozen_rules.FROZEN_DEGREE (see make_netzschleuder).
+    "celegans_neural":     {"edgelist": INPUT_DIR / "celegans_neural.edgelist", "labels": LABELS_DIR / "celegans_neural.labels", "directed_source": True},  # C. elegans chemical synapses, 7 neuron types; synapse = DIRECTED, loaded undirected
+    "messal_shale":        {"edgelist": INPUT_DIR / "messal_shale.edgelist", "labels": LABELS_DIR / "messal_shale.labels", "directed_source": True},  # Eocene Messel Shale food web, 152 taxon groups; predation = DIRECTED, loaded undirected
+    "plant_pol_robertson": {"edgelist": INPUT_DIR / "plant_pol_robertson.edgelist", "labels": LABELS_DIR / "plant_pol_robertson.labels"},  # bipartite plant-pollinator network; 130 distinct degrees = the closest below-cut cell to the fitted interval
+    "escorts":             {"edgelist": INPUT_DIR / "escorts.edgelist", "labels": LABELS_DIR / "escorts.labels"},  # bipartite escort-client network, binary side label
+    "nematode_mammal":     {"edgelist": INPUT_DIR / "nematode_mammal.edgelist", "labels": LABELS_DIR / "nematode_mammal.labels"},  # bipartite nematode-host network, binary side label
+    "bag_of_words_kos":    {"edgelist": INPUT_DIR / "bag_of_words_kos.edgelist", "labels": LABELS_DIR / "bag_of_words_kos.labels"},  # bipartite KOS document-word network; 437 distinct degrees = ABOVE the cut
+    # 2026-09-05 DEGREE_BATCH2: more of the family that produced 3 degree winners from 7 (see make_netzschleuder).
+    "plant_pol_kato":      {"edgelist": INPUT_DIR / "plant_pol_kato.edgelist", "labels": LABELS_DIR / "plant_pol_kato.labels"},  # bipartite plant-pollinator (Kato)
+    "board_directors":     {"edgelist": INPUT_DIR / "board_directors.edgelist", "labels": LABELS_DIR / "board_directors.labels"},  # bipartite director-board, one 2011 snapshot
+    "foursquare_checkin":  {"edgelist": INPUT_DIR / "foursquare_checkin.edgelist", "labels": LABELS_DIR / "foursquare_checkin.labels"},  # bipartite user-restaurant check-ins
+    "foursquare_tips":     {"edgelist": INPUT_DIR / "foursquare_tips.edgelist", "labels": LABELS_DIR / "foursquare_tips.labels"},  # bipartite user-restaurant tips; SAME population as foursquare_checkin
+    "ppi_rat":             {"edgelist": INPUT_DIR / "ppi_rat.edgelist", "labels": LABELS_DIR / "ppi_rat.labels"},  # rat protein interactions
+    "ppi_mouse":           {"edgelist": INPUT_DIR / "ppi_mouse.edgelist", "labels": LABELS_DIR / "ppi_mouse.labels"},  # mouse protein interactions; HOMOLOGOUS to ppi_rat
+    "bag_of_words_nips":   {"edgelist": INPUT_DIR / "bag_of_words_nips.edgelist", "labels": LABELS_DIR / "bag_of_words_nips.labels"},  # bipartite NIPS document-word
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
 # Cross-model benchmark scope: which datasets and methods the comparison loop sweeps (experiments/benchmark_baselines.py).
 # (politics dropped: no verifiable labels; webkb_wisc dropped 2026-07-02 with its deleted input files.)
+DEGREE_RULE_CORPUS = ["airports_usa", "airports_europe", "airports_brazil", "email_eu_core", "wikics", "twitch_engb", "github", "amazon_computers", "polblogs", "blogcatalog", "coauthor_cs", "twitch_es", "twitch_fr", "dblp", "coauthor_physics", "twitch_ru", "twitch_ptbr", "cora_ml", "squirrel", "flickr_attr"]  # the stage-2 degree pool, in wave order
+# The VALIDATION half of the same pool (2026-09-03, user): the corpus above FITS, these six only ever TEST. Kept as a
+# separate list, not appended to the corpus, because degree_rule.py refuses to fit on anything named here - a rule that
+# has seen its own test set cannot be validated by it. Ordered cheapest-first so a partial run is still a usable test.
+DEGREE_RULE_VALIDATION = ["wiki_attr", "crocodile", "cora_full", "penn94", "genius", "twitch_gamers"]
+# The test set for frozen_rules.FROZEN_DEGREE (2026-09-05), cheapest-first. Chosen to span the distinct_degrees cut with
+# graphs stage 1 routes to AUGMENT - selection on the PREDICTOR and on the stage-1 call, never on an outcome. Nothing
+# here is in DEGREE_PANEL, so none of it could have moved the cut.
+DEGREE_TEST = ["celegans_neural", "messal_shale", "plant_pol_robertson", "escorts", "nematode_mammal",
+               "bag_of_words_kos", "artnet_exp"]
+# 2026-09-05: more of the bipartite / heterophilous / bounded-degree family, ingested to GROW the degree class from 8
+# (paper_log 21). FROZEN_DEGREE is already falsified, so these are collection, not its test - though being frozen, it is
+# scored on them anyway. Two pairs are NOT independent: foursquare_* share a population, ppi_* are homologous.
+DEGREE_BATCH2 = ["plant_pol_kato", "board_directors", "foursquare_checkin", "foursquare_tips", "ppi_rat",
+                 "ppi_mouse", "bag_of_words_nips"]
+assert not (set(DEGREE_RULE_CORPUS) & set(DEGREE_RULE_VALIDATION)), "a dataset is in BOTH the degree corpus and its validation set - it must be in exactly one"
+
 BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 

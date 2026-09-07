@@ -36,7 +36,13 @@ HELDOUT = ["pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia", "ama
 # Module-7 held-out (2026-08-14): same rule again - the pipeline is unchanged, and the strategy prediction is frozen
 # before any of these trains, so nothing here may be tuned on them.
 STRATEGY_HELDOUT = ["reed98", "amherst41", "johnshopkins55", "cornell5"]
-RUNNABLE = CORE + HELDOUT + STRATEGY_HELDOUT
+# The 2026-09-01 degree-evidence batch, same discipline again: the pipeline is unchanged, and the fit/validation split
+# among them was pre-registered on graph properties BEFORE any of them was trained (docs/paper_log.md).
+DEGREE_BATCH = ["twitch_de", "deezer_europe", "wisconsin", "cornell_webkb", "chameleon", "chameleon_filtered", "texas"]
+# The 2026-09-03 degree VALIDATION set: same discipline once more - the pipeline is unchanged, and the candidate rule's
+# prediction for each graph is written to results/degree_validation_prereg.csv before any of them is trained.
+RUNNABLE = (CORE + HELDOUT + STRATEGY_HELDOUT + DEGREE_BATCH + cfg.DEGREE_RULE_CORPUS
+            + cfg.DEGREE_RULE_VALIDATION + cfg.DEGREE_TEST + cfg.DEGREE_BATCH2)
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
