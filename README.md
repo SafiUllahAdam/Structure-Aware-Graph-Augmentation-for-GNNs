@@ -50,9 +50,7 @@ graph ──► STAGE 1: augment, or keep the original?
 | 2 | **average clustering** - *the exception*, inside the low-homophily zone only: high clustering ⇒ keep the original after all | `< 0.5573` | (0.5329, 0.5769) | no |
 | 3 | **largest-component fraction** - fallback for unlabelled graphs | `> 0.9588` | (0.9177, 1.0) | no |
 
-Read it as **one characteristic with one safety check**, not two equal conditions. Adjusted homophily makes the call and is a **veto on its high side**: high reliably means *keep the original*. Low homophily is **necessary but not sufficient**, and clustering is what catches the shortfall - a graph can be label-scrambled and still have dense, tightly knit neighbourhoods, in which case role edges add nothing it did not already have.
-
-The evidence for the shortfall is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments) - 0.0008 apart with opposite outcomes, so **no single-variable split can separate them**. The clustering exception is measured on the **original graph**: no role graph has to be built, and no labels are needed, so it can be evaluated on any graph before anything is trained. It replaced a Module-4 gate on role-graph edge retention, which needed the rewiring built first and did not transfer (§3).
+**One characteristic with one safety check**, not two equal conditions. Adjusted homophily makes the call and is a **veto on its high side**; low homophily is necessary but not sufficient, and clustering catches the shortfall - a label-scrambled graph with dense neighbourhoods gains nothing from role edges. The decisive pair is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments): 0.0008 apart, opposite outcomes, so **no single-variable split can separate them**. Both properties are read off the **original graph**, so a verdict needs nothing built and nothing trained.
 
 **Stage 2 - which structural signal**, consulted only when stage 1 says augment:
 
@@ -60,9 +58,9 @@ The evidence for the shortfall is `minesweeper` (0.0094, keeps) against `squirre
 |---|---|---|---|
 | **adjusted neighbour-label predictability** high ⇒ use **eigenvector centrality** | `> 0.0092` | (0.006, 0.0123) | 14 datasets, 7 of them augmenting |
 
-Read plainly: **when a node's class can be read off the mix of labels around it, centrality-based rewiring is the right augmentation.** Below the cut the rule returns `"psi or degree (undetermined)"` - it separates centrality from the rest and deliberately claims nothing about Ψ versus degree.
+Plainly: **when a node's class can be read off the labels around it, centrality-based rewiring is right.** Below the cut the rule returns `"psi or degree (undetermined)"` - it claims nothing about Ψ versus degree.
 
-**Status and known limits.** Stage 1 was locked in this form on 2026-09-01, after the clustering exception outscored the retention gate it replaced on six unseen graphs (§3). Both stage-1 properties are now read off the **original graph**, so nothing has to be built or trained to get a verdict. What is still open: the 0.5573 cut is a **candidate, not a proven universal threshold**, its negative side rests on two graphs, and one low-homophily *keep* (`minesweeper`, clustering 0.4355) remains unexplained by either condition - see §7.
+**Status.** Locked 2026-09-01, replacing a Module-4 gate that needed the role graph built first and did not transfer. Still open: the 0.5573 cut is a **candidate, not a proven threshold**, its negative side rests on two graphs, and `minesweeper` remains an unexplained low-homophily keep (§7).
 
 ---
 
@@ -158,12 +156,10 @@ Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`v
 
 ## 7 · Roadmap
 
-Ordered, and current:
-
-1. **Finish stage 1.** The second condition now reads off the original graph (§2), so what remains is a **pre-registered** test of `avg_clustering < 0.5573` on graphs that have not yet been trained - the six-graph result is retrospective - plus more low-homophily *keep* cases, since the exception's negative side stands on two. Untried candidates if it does not hold: over-squashing diagnostics (balanced-Forman / Ollivier-Ricci curvature, spectral gap, effective resistance) and degree heterogeneity.
-2. **More stage-2 rules.** Centrality is the only frozen signal rule, and it now has one counterexample (§3). A separate 20-graph pool, `DEGREE_RULE_CORPUS`, was ingested in three waves for the degree question (`experiments/degree_rule.py`, `tie_break.py`). Two results came out of it. **Degree versus everything: no rule** - 21 augmenting cells, 5 naming degree alone, best property ρ −0.33 with 4 exceptions; the degree winners span film co-occurrence, Q&A, streaming, air transport and co-purchase and share no structural property. That is now a measured negative, not a shortage of data. **Degree versus Ψ: a live candidate** - `nbr_label_entropy < 0.6724 ⇒ degree` separates all 9 relevant cells with LOO 8/9 (chance of a free split 0.016) and survived one pre-registered held-out call. It stays unpromoted: the property is exploratory tier, and one cell is not a validation. The obstacle underneath both is that **degree and Ψ role graphs usually score the same** - 9 of 20 corpus graphs cannot name a signal even under a paired comparison - which is expected, since Ψ is a Poisson/KL score over degree-based signatures. Measuring the edge overlap between the two constructions is the next experiment.
-3. **Anomaly detection as a third downstream task.** Node classification and link prediction answer the augment question differently; anomaly detection is the case where role information should matter most, since structural outliers are the target. Structural-only, so structural anomaly injection rather than attribute-driven fraud benchmarks, then both stages re-screened on it.
-4. **Other architectures: GIN and GAT.** `virgo/encoders/gin.py` is wired and registered but has produced no results; GAT is not written yet. Both are one file plus one registry line, and the point is whether the stage-1 and stage-2 calls survive a change of aggregator.
+1. **Finish stage 1.** Both conditions read off the original graph and the framework is locked. What remains is a **pre-registered** test of the clustering cut on untrained graphs - the six-graph result was retrospective - plus more low-homophily *keep* cases, since its negative side stands on two graphs.
+2. **Stage 2 beyond centrality.** Centrality is the only frozen signal rule (held-out **8/17**, with its negative side firing correctly for the first time on `genius`). The degree branch is a **measured negative**: two property screens over 48 graphs, two frozen candidates tested and falsified, and no rule shape - single, paired, or class-level - beat a shuffled-label null. What the search did find is a **family**, not a threshold: degree wins on bipartite, heterophilous, bounded-degree graphs, now 9 winners across 48. Growing that class is the only route left, and it is slow.
+3. **Anomaly detection as a third task.** Structural outliers are the target, so this is where role information should matter most - and NC's "never augment" boundary says nothing about it. Structural injection only, then both stages re-screened.
+4. **GIN and GAT.** `gin.py` is wired but unrun; GAT is unwritten. Each is one file plus one registry line. The question is whether the stage-1 and stage-2 calls survive a change of aggregator.
 
 **Out of scope, deliberately:** external node attributes; non-Euclidean / hyperbolic latent spaces (separate work); learnable per-dataset blending of original and role edges (needs many, likely synthetic, datasets).
 
