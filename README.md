@@ -1,6 +1,6 @@
 # Structure Aware Graph Augmentation for Graph Neural Networks
 
-*A characterization-guided, two-stage decision framework for structural role-graph augmentation.*
+*A characterization-guided, two-stage pre-training decision framework for structural role-graph augmentation.*
 
 Structural-role augmentation adds edges between nodes that occupy **similar topological positions** - two hubs, two bridges, two peripheral nodes - even when no path connects them. A standard GNN can only pass messages along real edges, so role-twins never interact; a **role graph** gives them a channel.
 
@@ -156,10 +156,10 @@ Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`v
 
 ## 7 · Roadmap
 
-1. **Finish stage 1.** Both conditions read off the original graph and the framework is locked. What remains is a **pre-registered** test of the clustering cut on untrained graphs - the six-graph result was retrospective - plus more low-homophily *keep* cases, since its negative side stands on two graphs.
-2. **Stage 2 beyond centrality.** Centrality is the only frozen signal rule (held-out **8/17**, with its negative side firing correctly for the first time on `genius`). The degree branch is a **measured negative**: two property screens over 48 graphs, two frozen candidates tested and falsified, and no rule shape - single, paired, or class-level - beat a shuffled-label null. What the search did find is a **family**, not a threshold: degree wins on bipartite, heterophilous, bounded-degree graphs, now 9 winners across 48. Growing that class is the only route left, and it is slow.
-3. **Anomaly detection as a third task.** Structural outliers are the target, so this is where role information should matter most - and NC's "never augment" boundary says nothing about it. Structural injection only, then both stages re-screened.
-4. **GIN and GAT.** `gin.py` is wired but unrun; GAT is unwritten. Each is one file plus one registry line. The question is whether the stage-1 and stage-2 calls survive a change of aggregator.
+1. **Finish stage 1.** Stage 1 works and is locked. Both things it looks at are read straight off the input graph, so no training is needed to get an answer. Two jobs left: test it on graphs we have not trained yet (so far we only checked it on graphs we had already run), and find more examples of the case it is weakest on - low-homophily graphs that should *not* be augmented. We only have two of those.
+2. **Stage 2 beyond centrality.** We can predict when to use **centrality** (right 8 times out of 17 on new graphs). We still cannot predict when to use **degree**, and not for lack of trying: we searched every graph property we have, twice, over 48 graphs, and froze two candidate rules that both failed when tested. Every rule we found was no better than guessing. What we did learn is that degree does not win at some threshold - it wins on a *type* of graph: bipartite, heterophilous, low-degree ones. There are 9 such wins out of 48 graphs. The only way forward is to collect more graphs of that type, which is slow.
+3. **Anomaly detection as a third task.** So far we only test on node classification and link prediction. Anomaly detection looks for nodes that sit in an odd position in the graph - which is exactly what role information describes - so this is where augmentation should help most. We will create the odd nodes ourselves by changing the structure, not by using ready-made fraud datasets, because those depend on node attributes and this project uses structure only. Then both stages get checked again on the new results.
+4. **GIN and GAT.** Every result so far uses one encoder, GraphSAGE. GIN is already coded but never run; GAT is not written. Each needs one new file and one line in a registry. The point is to check that the stage-1 and stage-2 answers do not change just because the encoder changed.
 
 **Out of scope, deliberately:** external node attributes; non-Euclidean / hyperbolic latent spaces (separate work); learnable per-dataset blending of original and role edges (needs many, likely synthetic, datasets).
 
