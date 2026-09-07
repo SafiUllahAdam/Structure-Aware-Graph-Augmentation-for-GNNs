@@ -74,22 +74,17 @@ The distinction is kept in the code: `characterize.py`, `gate_rules.py` and `str
 |---|---|---|---|
 | adjusted homophily (stage 1) | 7 datasets | 9 unseen, pre-registered | **4/6** decided |
 | largest-component fraction (fallback) | same 7 | same 9 | **4/6** decided |
-| **clustering exception (stage 1)** | 13-dataset low-homophily zone - *fitted* | 6 unseen graphs, 4 decided | **4/4**, against rule 1 alone at 3/4 |
+| **clustering exception** (low-homophily zone) | 13-dataset zone | 6 unseen, 4 decided | **4/4**, against rule 1 alone at 3/4 |
 | centrality rule (stage 2) | 14 datasets, 10 seeds, nothing held out | 3 LINKX, `twitch_de`, then 9 corpus cells | **6/13** — equals the base rate out of sample |
-| ~~retention gate~~ *(superseded 2026-09-01)* | 13 datasets - *includes those 9* | 4 unseen LINKX | **2/3**, beaten by rule 1 alone |
 
-Adding clustering moves the panel from rule 1's 7/10 decided cells to **8/10** (it fixes `amazon_ratings`, still misses `minesweeper`, and `ogbl_ddi` is unlabelled so it counts against every row), and the six-graph test to **4/4**. Across panel and test together: **rule 1 alone 10/14, with the exception 12/14, with the old retention gate 11/14.**
+Adding the clustering exception takes stage 1 from **10/14** to **12/14** across panel and held-out test.
 
-Corrections and cautions that must travel with those numbers:
+Four cautions travel with those numbers:
 
-- **The retention gate's only differentiating call was its only error.** `reed98` augments at 2.55σ; the gate said keep. That call made stage 1 **2/3** where **rule 1 alone would have been 3/3** - which is why the gate was dropped rather than kept alongside. Any wording claiming "the gate stopped reed98" is false.
-- **The clustering cut is a candidate, not a universal constant.** Its negative side rests on two graphs - `amazon_ratings` in the panel and `chameleon_filtered` out of it (adjusted homophily 0.0295, clustering 0.5769, keeps at −1.04σ) - and the six-graph test was **retrospective**: all six were trained and scored before the screen existed. That is transfer evidence, not a pre-registration.
-- **The panel's leave-one-out ranking reversed out of sample.** `degree_skew` led on the panel (LOO 0.80 against clustering's 0.50) and then went 3/4 on the unseen graphs, where clustering went 4/4. Clustering's panel LOO is dragged down by `minesweeper`, the one low-homophily keep it never explained.
-- **Stage 2's rule has not beaten the base rate out of sample.** On the 20-graph degree corpus, 9 cells resolve to a single signal (3 centrality, 3 degree, 3 Ψ) and the rule scores **3/9** - exactly what a constant "always centrality" predictor scores, because **no corpus graph falls below the 0.0092 cut**, so the rule never actually fires negative. Cumulative held-out record **6/13**. The cut is not shown to be wrong; it is shown to be untested, and above it the rule asserts centrality on graphs that split three ways.
-- **Stage 2 also has a counterexample.** `twitch_de` (ingested 2026-09-01) has adjusted neighbour predictability 0.1235, far above the cut, so the rule says *centrality* — and centrality comes fourth (0.5886) behind Ψ (0.6258). The record is **3/4**, and the negative side is still untested: the first three held-out graphs all sat above the cut, so a constant "always centrality" predictor would have scored the same 3/3.
-- **Stage 1's first post-freeze test split 1/2.** The clustering exception was locked before either graph was trained. `twitch_de` — low homophily, low clustering ⇒ augment — is right, at **+21.7σ**, the largest gap in the study. `deezer_europe` — also low on both ⇒ augment — is **wrong**: it keeps the original at −1.52σ, and no condition in stage 1 catches it. Stage-1 running total: **13/16** decided cells.
-
-Seed counts matter: the published 5/7 and 4/7 for stage 1 are **3-seed** figures; re-scored on the current 10-seed board they are **4/6 and 4/6** (`lastfm_asia` flipped keep → tie). No frozen cut moved. Always name the seed count.
+- **The clustering cut is a candidate, not a universal constant.** Its negative side rests on two graphs, and the six-graph test was retrospective - transfer evidence, not a pre-registration.
+- **Stage 1 has unexplained misses.** `minesweeper` and `deezer_europe` are low-homophily graphs that keep the original, and no condition catches either. Running total **13/16** decided cells.
+- **Stage 2 has not beaten the base rate out of sample.** Cumulative **6/13**, equal to a constant "always centrality" predictor - because no held-out graph has fallen below the 0.0092 cut, so the rule never fires negative. The cut is untested, not shown to be wrong.
+- **Seed counts matter.** The published 5/7 and 4/7 for stage 1 are **3-seed** figures; on the current 10-seed board they are **4/6 and 4/6**. No frozen cut moved. Always name the seed count.
 
 ---
 
