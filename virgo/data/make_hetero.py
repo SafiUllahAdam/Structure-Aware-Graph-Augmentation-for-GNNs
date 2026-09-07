@@ -22,7 +22,10 @@ RAW = "output/hetero_raw"                         # PyG download cache: derived,
 # from, so the data path is identical). roman_empire/tolokers/questions = discovery panel; minesweeper 2026-08-02,
 # amazon_ratings 2026-08-05, squirrel_filtered 2026-08-05 = Module-3 held-out.
 HETERO = {"roman_empire": "Roman-empire", "tolokers": "Tolokers", "questions": "Questions",
-          "minesweeper": "Minesweeper", "amazon_ratings": "Amazon-ratings", "squirrel_filtered": None}
+          "minesweeper": "Minesweeper", "amazon_ratings": "Amazon-ratings", "squirrel_filtered": None,
+          # chameleon_filtered 2026-08-31: rebuilt to TEST the stage-1 second condition. Same de-duplication story as
+          # squirrel_filtered - the original WikipediaNetwork copy leaks train->test - so only the authors' filtered .npz.
+          "chameleon_filtered": None}
 
 REPO = "https://github.com/yandex-research/heterophilous-graphs/raw/main/data"   # the URL HeterophilousGraphDataset itself downloads from
 

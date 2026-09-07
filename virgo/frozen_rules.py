@@ -1,5 +1,6 @@
-'''THE frozen rule artifacts: the Module-2 fitting panel and its two rules (locked 2026-07-29), and the Module-4 SECOND
-GATE fitted on top of them (locked 2026-08-05).
+'''THE frozen rule artifacts: the Module-2 fitting panel and its two rules (locked 2026-07-29), and the second stage-1
+condition fitted on top of them - the Module-4 retention gate (locked 2026-08-05, SUPERSEDED) and the Module-8 clustering
+exception that replaced it (locked 2026-09-01).
 
 Nothing here is recomputed. The point and interval of each rule are the exact numbers candidate_rules() produced on the
 panel (results/candidate_rules.csv, link-prediction credible rows) and must NEVER be re-derived from data that includes an
@@ -49,7 +50,11 @@ def predict(props):
     return calls, combined
 
 
-# --- Module 4: the SECOND GATE, locked 2026-08-05 --------------------------------------------------------------------
+# --- Module 4: the retention GATE, locked 2026-08-05, SUPERSEDED 2026-09-01 by FROZEN_EXCEPTION below ------------------
+# Kept because Modules 4 and 5 are published against it and gate_rules.py asserts the screen still reproduces its cut. It
+# is NO LONGER part of the stage-1 call: predict_gated() consults the clustering exception instead. Why it was dropped -
+# it needs the role graph BUILT before the decision can be made, and on the LINKX test its only differentiating call was
+# its only error (reed98 augments at 2.55 sigma; the gate said keep).
 # Module 3 showed rule 1 fails ASYMMETRICALLY: above the boundary it called "keep original" and was right 3/3; below it
 # called "augment" and was right only 2/4. So rule 1 is a VETO, and a second variable is needed on one side only - inside
 # the low-homophily zone. This gate is that variable: a property of the VIRTUAL graph, so it needs no labels, and the
@@ -116,14 +121,75 @@ def predict_strategy(props):
     return FROZEN_STRATEGY.signal if v > FROZEN_STRATEGY.point else "psi or degree (undetermined)"
 
 
+# --- Module 8: the CLUSTERING EXCEPTION, locked 2026-09-01 ------------------------------------------------------------
+# THE second stage-1 condition, replacing the retention gate in the same slot: inside the low-homophily zone only. The
+# difference that motivated it is that this one is measured on the ORIGINAL graph - no role graph is built, no labels are
+# needed, nothing about the rewiring is assumed.
+# Framing, which is not cosmetic: adjusted homophily still MAKES the decision. High homophily keeps the original, low
+# homophily normally augments, and this is the EXCEPTION that catches the low-homophily graphs augmentation does not
+# help - the ones whose neighbourhoods are already dense, so role edges add nothing they did not already have.
+#   fitted     the GATE_PANEL zone (results/stage1_pair_rules.csv): rho -0.82 on gap_rel, one in-sample exception
+#              (minesweeper), 8/10 decided panel cells against rule 1 alone at 7/10.
+#   tested     6 unseen graphs (GATE_HELDOUT + chameleon_filtered + texas), 4 of them decided: 4/4, against rule 1 alone
+#              3/4 and the retention gate 3/4. chameleon_filtered IS the negative side - adjusted homophily 0.0295 (low),
+#              clustering 0.5769, and it keeps the original at -1.04 sigma.
+#   caution    the cut is a CANDIDATE, not a universal constant. The negative side rests on two graphs (amazon_ratings
+#              in-sample, chameleon_filtered out of sample), and the test was retrospective - all six were trained and
+#              scored before this screen existed - so it is transfer evidence, not a pre-registration.
+#   interval   panel-fitted (0.5329, 0.5816); chameleon_filtered at 0.5769 narrows the upper end, so the honest interval
+#              after the test is (0.5329, 0.5769). The POINT did not move.
+FROZEN_EXCEPTION = Gate("exception", "avg_clustering", "<", 0.5573, (0.5329, 0.5769), False,
+                        "rule1 == augment", "GATE_PANEL, tested on 6 unseen graphs")
+
+
 def predict_gated(props):
-    '''The two-gate call: rule 1 vetoes on its reliable side, the gate decides inside the low-homophily zone, rule 2 covers unlabelled graphs.'''
+    '''Stage 1: rule 1 decides, the clustering exception overrides it inside the low-homophily zone, rule 2 covers unlabelled graphs.'''
     calls, _ = predict(props)
-    gate = predict_one(FROZEN_GATE, props.get(FROZEN_GATE.predictor))
+    exc = predict_one(FROZEN_EXCEPTION, props.get(FROZEN_EXCEPTION.predictor))
     if calls["rule1"] == "keep original":                  # the veto side: 3/3 in Module 3, no second variable needed
-        return calls, gate, "keep original", "rule 1 veto"
-    if calls["rule1"] == "augment":                        # the ambiguous side: this is the only place the gate speaks
-        return calls, gate, (gate if gate != "n/a" else "augment"), ("gate" if gate != "n/a" else "rule 1 (gate not measurable)")
-    # No labels -> rule 1 cannot fire at all. The gate's cut was fitted INSIDE the zone, so it does not transfer here; fall
-    # back to rule 2, exactly as Module 3 did for ogbl_ddi, and carry the gate value as information only.
-    return calls, gate, calls["rule2"], "rule 2 (no labels)"
+        return calls, exc, "keep original", "rule 1 veto"
+    if calls["rule1"] == "augment":                        # the ambiguous side: the only place the exception speaks
+        return calls, exc, (exc if exc != "n/a" else "augment"), ("clustering exception" if exc != "n/a" else "rule 1 (clustering not measurable)")
+    # No labels -> rule 1 cannot fire at all. The exception's cut was fitted INSIDE the zone, so it does not transfer
+    # here; fall back to rule 2, exactly as Module 3 did for ogbl_ddi, and carry the clustering call as information only.
+    return calls, exc, calls["rule2"], "rule 2 (no labels)"
+
+
+# --- Module 12: the DEGREE candidate, frozen 2026-09-04 ---------------------------------------------------------------
+# THE first degree-branch cut ever written down. Frozen on the user's instruction so it can be TESTED; freezing here
+# means "this exact claim is now pre-registered", NOT "this rule is validated". Read the status block before quoting it.
+# It comes from the degree-SPECIFIC tier (experiments/degree_features.py), not from the 15 general properties that
+# returned nothing three times (paper_log 13, 18, and the degree-vs-everything half of 20).
+#   fitted     13 degree-or-psi cells over 34 paired-verdict graphs, 5 degree / 8 psi (results/degree_features.csv)
+#              2 exceptions, LOO 0.846 against a 0.615 majority baseline, interval (130, 187)
+#   NOT density  rho -0.380 against density, the confound that disqualified four of the nine features in its own tier
+#              (degree_vg_stability sits at rho 1.0000 against density). It IS 0.828 rank-correlated with `nodes`, but
+#              raw `nodes` alone splits worse - 4 exceptions, LOO 0.538 - so it is not merely size.
+#   THE PRICE, and it is the reason this is a candidate and not a rule: over all C(13,5) = 1287 label arrangements the
+#              best threshold's error count gives P(<=2 exceptions) = 0.1212, so across the 9 properties tried chance
+#              alone is expected to deliver 1.09 at this quality. Exactly one was found. This cut sits AT the rate noise
+#              supplies. It is frozen to be falsified, not because the evidence is good.
+#   one-sided  the cut has NO false positives - all three graphs below it (actor 89, airports_europe 102, twitch_engb
+#              130) name degree alone. It fails by MISSING degree winners: questions (320) and amazon_computers (347)
+#              are degree winners above the cut. So "below the cut => degree" is the defensible half; "above the cut =>
+#              psi" is the half with both exceptions, and a test should score the two sides separately.
+#   needs the role graph  distinct_degrees is read off the ORIGINAL graph, so unlike the retired Module-4 gate this one
+#              does NOT need the role graph built. That is deliberate: the Module-4 gate was retired partly for that.
+Degree = namedtuple("Degree", "name signal predictor op point interval needs_labels applies_when fitted_on")
+FROZEN_DEGREE = Degree("degree1", "degree", "distinct_degrees", "<", 158.5, (130, 187), False,
+                       "augmentation is indicated AND the winner is degree or psi", "DEGREE_TIER over 34 paired-verdict graphs")
+
+# The 34 graphs the cut was fitted on. Anything here can never test it.
+DEGREE_PANEL = ["actor", "airports_brazil", "airports_europe", "airports_usa", "amazon_computers", "blogcatalog",
+                "coauthor_cs", "coauthor_physics", "cora_full", "cora_ml", "crocodile", "dblp", "email_eu_core",
+                "flickr_attr", "genius", "github", "lastfm_asia", "penn94", "polblogs", "pubmed", "questions",
+                "roman_empire", "squirrel", "squirrel_filtered", "tolokers", "twitch_de", "twitch_engb", "twitch_es",
+                "twitch_fr", "twitch_gamers", "twitch_ptbr", "twitch_ru", "wiki_attr", "wikics"]
+
+
+def predict_degree(props):
+    '''Which of degree or psi, given that augmentation is indicated: "degree", "psi", or "n/a" when the input is missing.'''
+    v = props.get(FROZEN_DEGREE.predictor)
+    if v is None or v != v:
+        return "n/a"
+    return FROZEN_DEGREE.signal if v < FROZEN_DEGREE.point else "psi"

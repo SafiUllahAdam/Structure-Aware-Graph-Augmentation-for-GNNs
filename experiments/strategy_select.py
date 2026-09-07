@@ -93,9 +93,9 @@ def _assert_panel(datasets, allow_refit):
 BANDS = ["sem", "sigma"]
 
 
-def winners(datasets, band="sem"):
+def winners(datasets, band="sem", board=None):
     '''Per dataset: best LP variant, every variant the seeds cannot separate from it, and the role signals that band names.'''
-    board = pd.read_csv(cfg.SCOREBOARD_CSV)
+    board = pd.read_csv(cfg.SCOREBOARD_CSV) if board is None else board   # a caller may pass a board that also carries withdrawn rows
     b = board[(board["encoder"] == "graphsage_edge") & (board["top_K_neighbors"] == 10)
               & board["graph_variant"].isin(cfg.VG_SIMS) & board["dataset"].isin(datasets)
               & board["task"].isin(LP_TASKS)]
