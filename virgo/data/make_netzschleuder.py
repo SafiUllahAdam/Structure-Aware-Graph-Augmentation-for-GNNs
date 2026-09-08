@@ -42,7 +42,37 @@ NETS = {
     "ppi_rat":             ("mist", "ppi_rat", "gene"),                                       # rat protein interactions, near-zero clustering
     "ppi_mouse":           ("mist", "ppi_mouse", "gene"),                                     # mouse protein interactions, 199 distinct degrees = ABOVE the cut
     "bag_of_words_nips":   ("bag_of_words", "nips", "is_word"),                               # bipartite NIPS document-word, 800 distinct degrees = ABOVE the cut
+    # 2026-09-07, Module 14 (cfg.DEGREE_FAMILY_TEST): graphs inside frozen_rules.FAMILY, the envelope of the nine cells
+    # `nbr_label_entropy < 0.6724 => degree` was discovered on. The catalogue was filtered on the envelope's own axes -
+    # num_vertices, average_degree, degree_assortativity, largest_component_fraction, is_bipartite - which the API
+    # publishes, so selection happened on ORIGINAL-graph properties before anything was downloaded. 139 subnetworks
+    # clear those axes and only `mist` carries a usable label. The four rejections, recorded rather than silently
+    # skipped: spanish_highschools (~47% of nodes have no Sexo/Curso value - the defect that got NELL rejected),
+    # ego_social (`circles` is MULTI-label), genetic_multiplex / jdk / jung / google (`nodeLabel` and `meta` are unique
+    # per node - gene names and Java class names, not classes), arxiv_citation / scotus_majority / us_agencies / 
+    # route_views (only dates, covariates or ids; binning a date reproduces the crocodile confound).
+    # The three mist INTEROLOG subnetworks that also pass are excluded on purpose: an interolog network is INFERRED by
+    # homology from another species' network, so it is not an independent graph.
+    "ppi_human":            ("mist", "ppi_human", "gene"),                                    # human PPI, 27,594 nodes
+    "ppi_fly":              ("mist", "ppi_fly", "gene"),                                      # fly PPI, 11,352 nodes
+    "ppi_yeast":            ("mist", "ppi_yeast", "gene"),                                    # budding-yeast PPI, 7,272 nodes
+    "genetic_fission_yeast": ("mist", "genetic_fission_yeast", "gene"),                       # fission-yeast GENETIC interactions - different edge semantics to the PPI three
+    # 2026-09-08, the NON-PPI half of the family test (cfg.DEGREE_FAMILY_TEST2). The four mist graphs all came from one
+    # database with one label scheme, so a result on them cannot separate "the rule works in this family" from "the rule
+    # works on protein networks". These two are in the same STRUCTURAL family and in different domains, and they are
+    # independent of each other and of mist. They are the ONLY two the catalogue offers: rescanning every subnetwork
+    # under 20k nodes that clears the envelope, everything else carries just `name`/`_pos`/coordinates, or is bipartite,
+    # or was rejected before. `jung` and `google` were rejected here for new reasons - `jung` is a near-DUPLICATE of jdk
+    # (identical java.* subtree: java.util 639, java.awt 549, java.lang 220, java.security 212 in both), and `google`'s
+    # `meta` is a URL whose only categorical reading is the scheme, 15690 http vs 73 https.
+    "jdk":                  ("jdk", "jdk", "meta"),                                           # Java class-dependency network; label = top-level PACKAGE (javax/java/org)
+    "spanish_highschool_6": ("spanish_highschools", "6", "Sexo"),                             # school friendship network; label = binary gender, 534/534 labelled
 }
+
+# A few sources ship the categorical as part of a longer string. The transform is applied to that ONE column and is a
+# prefix, never a new measurement or a binning of a number - `jdk`'s `meta` is a fully-qualified class name whose
+# top-level package IS the categorical (javax 3304 / java 2379 / org 751, 6434 of 6434 nodes labelled).
+LABEL_FN = {"jdk": lambda v: str(v).split(".")[0]}
 
 
 # Netzschleuder ships one zip per network holding edges.csv / nodes.csv, with the header line prefixed by "# ".
@@ -73,7 +103,7 @@ def make_netzschleuder(name):
                       if a in index and b in index], dtype=np.int64)
     ne = _write_edges(f"input/{name}.edgelist", pairs.T)             # dedup+sort symmetrizes; self-loops dropped
     _write_nodes(f"input/{name}.edgelist", n)
-    vals = nd[col]
+    vals = nd[col].map(LABEL_FN[name]) if name in LABEL_FN else nd[col]
     codes = {k: i for i, k in enumerate(sorted({v for v in vals if v == v}, key=str))}
     Path("labels").mkdir(exist_ok=True)
     with open(f"labels/{name}.labels", "w") as f:

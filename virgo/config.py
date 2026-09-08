@@ -128,6 +128,16 @@ DATASETS = {
     "ppi_rat":             {"edgelist": INPUT_DIR / "ppi_rat.edgelist", "labels": LABELS_DIR / "ppi_rat.labels"},  # rat protein interactions
     "ppi_mouse":           {"edgelist": INPUT_DIR / "ppi_mouse.edgelist", "labels": LABELS_DIR / "ppi_mouse.labels"},  # mouse protein interactions; HOMOLOGOUS to ppi_rat
     "bag_of_words_nips":   {"edgelist": INPUT_DIR / "bag_of_words_nips.edgelist", "labels": LABELS_DIR / "bag_of_words_nips.labels"},  # bipartite NIPS document-word
+    # 2026-09-07, DEGREE_FAMILY_TEST: the only labelled source in the whole Netzschleuder catalogue that lands inside
+    # frozen_rules.FAMILY - see make_netzschleuder for the search that establishes it. Label = the `gene` species code,
+    # the SAME column ppi_rat/ppi_mouse already use, so the labelling scheme is not a new degree of freedom.
+    "ppi_human":            {"edgelist": INPUT_DIR / "ppi_human.edgelist", "labels": LABELS_DIR / "ppi_human.labels"},  # human protein interactions
+    "ppi_fly":              {"edgelist": INPUT_DIR / "ppi_fly.edgelist", "labels": LABELS_DIR / "ppi_fly.labels"},  # D. melanogaster protein interactions
+    "ppi_yeast":            {"edgelist": INPUT_DIR / "ppi_yeast.edgelist", "labels": LABELS_DIR / "ppi_yeast.labels"},  # S. cerevisiae protein interactions
+    "genetic_fission_yeast": {"edgelist": INPUT_DIR / "genetic_fission_yeast.edgelist", "labels": LABELS_DIR / "genetic_fission_yeast.labels"},  # S. pombe GENETIC interactions - different edge semantics to the PPI three
+    # 2026-09-08, DEGREE_FAMILY_TEST2: the NON-PPI half - same structural family, different domains, independent sources.
+    "jdk":                  {"edgelist": INPUT_DIR / "jdk.edgelist", "labels": LABELS_DIR / "jdk.labels"},  # Java class dependencies; label = top-level package
+    "spanish_highschool_6": {"edgelist": INPUT_DIR / "spanish_highschool_6.edgelist", "labels": LABELS_DIR / "spanish_highschool_6.labels"},  # school friendship network; label = binary gender
 }
 # webkb / webkb_wisc removed 2026-07-02: input edgelists deleted deliberately (recoverable from git history if ever needed).
 
@@ -148,6 +158,26 @@ DEGREE_TEST = ["celegans_neural", "messal_shale", "plant_pol_robertson", "escort
 # scored on them anyway. Two pairs are NOT independent: foursquare_* share a population, ppi_* are homologous.
 DEGREE_BATCH2 = ["plant_pol_kato", "board_directors", "foursquare_checkin", "foursquare_tips", "ppi_rat",
                  "ppi_mouse", "bag_of_words_nips"]
+# 2026-09-07, DEGREE_FAMILY_TEST: the validation set for the FAMILY-SCOPED question (Module 14) - does the already-fixed
+# cut `nbr_label_entropy < 0.6724 => degree` hold on graphs STRUCTURALLY SIMILAR to the nine it was discovered on?
+# Selected by frozen_rules.FAMILY, an envelope drawn from those nine and from nothing else, applied to Netzschleuder's
+# full 286-network catalogue: 139 subnetworks clear the numeric axes and exactly ONE source survives the requirement of
+# a usable single-label node column (see make_netzschleuder for the four rejections). Interolog subnetworks are excluded
+# deliberately - they are INFERRED by homology from other species' networks, so they are not independent graphs.
+# DISCLOSURE, and it must travel with any result: all four come from one database and share a label scheme with
+# ppi_rat/ppi_mouse, which are already in the study; and their entropy is expected LOW, so this tests the cut's
+# degree side only. That is the half FROZEN_DEGREE's own note calls defensible, and a one-sided test is reported as one.
+DEGREE_FAMILY_TEST = ["genetic_fission_yeast", "ppi_yeast", "ppi_fly", "ppi_human"]   # cheapest-first
+# 2026-09-08, the NON-PPI extension of the same test (user): the four above are one database with one label scheme, so
+# they cannot separate "holds in this family" from "holds on protein networks". These two are in-family by the same
+# envelope, in unrelated domains, and independent of each other. They are all the catalogue has - see make_netzschleuder.
+# DISCLOSURE on the label choice, declared BEFORE measuring: spanish_highschool_6 ships Sexo (binary gender), Curso
+# (4 school years) and Grupo (5 classrooms), all 534/534 labelled. `Sexo` is chosen because it is the same KIND of label
+# as the discovery family's binary graphs (Twitch mature-content, Facebook100 gender) and because a gender label in a
+# friendship network should sit ABOVE the entropy cut - the side the rule has never been tested on in-family. That is
+# selection on the PREDICTOR, which this study's protocol allows; `Curso` is the homophilous alternative and would
+# almost certainly have landed below the cut, i.e. on the side already covered four times.
+DEGREE_FAMILY_TEST2 = ["spanish_highschool_6", "jdk"]   # cheapest-first
 assert not (set(DEGREE_RULE_CORPUS) & set(DEGREE_RULE_VALIDATION)), "a dataset is in BOTH the degree corpus and its validation set - it must be in exactly one"
 
 BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)

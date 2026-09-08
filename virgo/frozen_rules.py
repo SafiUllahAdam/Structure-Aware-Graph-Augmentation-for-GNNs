@@ -193,3 +193,89 @@ def predict_degree(props):
     if v is None or v != v:
         return "n/a"
     return FROZEN_DEGREE.signal if v < FROZEN_DEGREE.point else "psi"
+
+
+# --- Module 14: the FAMILY-SCOPED degree candidate, frozen 2026-09-07 --------------------------------------------------
+# Module 10 fitted `nbr_label_entropy < 0.6724 => degree` on nine cells and Module 11 falsified it as a UNIVERSAL rule
+# (1/3 on six pre-registered graphs, beaten 3/3 by a constant "always psi"). The user's 2026-09-07 instruction is not to
+# refit it - the cut stays EXACTLY where it was - but to ask the narrower question it was never asked:
+#     does it hold on graphs STRUCTURALLY SIMILAR to the nine it was discovered on?
+# A rule that survives that is a FAMILY rule, valid for a type of graph, and must never be reported as a universal one.
+# Nothing here is refitted. The cut is Module 10's to four decimals; the envelope is a mechanical min/max description of
+# the discovery nine, rounded outward, and is a DEFINITION, not a fit - it contains all nine by construction.
+Candidate = namedtuple("Candidate", "name signal predictor op point interval fitted_on record")
+FROZEN_ENTROPY = Candidate("entropy1", "degree", "nbr_label_entropy", "<", 0.6724, (0.6296, 0.7151), "DISCOVERY_9",
+                           "falsified as a universal rule: 1/3 on DEGREE_RULE_VALIDATION, a constant 'always psi' scores 3/3")
+
+# The nine cells the cut was fitted on (Module 10, paired band, degree-or-psi sole winners). A FIXED LITERAL: any graph
+# here can never test the rule, and the envelope below is derived from these nine and from nothing else.
+DISCOVERY_9 = ["actor", "airports_europe", "amazon_computers", "questions", "twitch_engb",     # degree wins
+               "blogcatalog", "tolokers", "twitch_de", "twitch_es"]                             # psi wins
+
+# Cells already SPENT testing this cut - Module 10's single held-out graph and Module 11's pre-registered six. Scoring
+# them again would recycle a used test as if it were new evidence.
+ENTROPY_SPENT = ["twitch_ptbr"] + ["wiki_attr", "crocodile", "cora_full", "penn94", "genius", "twitch_gamers"]
+
+# THE FAMILY, declared before any candidate graph was measured: the discovery nine's own envelope on seven axes, all
+# read off the ORIGINAL graph. The axes are the ones the nine are TIGHT on - every one of them is single-mode, near
+# connected, disassortative, sparse and few-class - so the envelope describes what they are, not what separates them.
+# `nbr_label_entropy` is deliberately EXCLUDED: it is the predictor, and a family defined on it would hand the rule its
+# own answer instead of testing it on graphs that straddle the cut naturally.
+FAMILY = {"largest_component_frac": (0.97, 1.0),        # 9/9 in 0.973-1.000; 8 of the 9 are a single component
+          "degree_assortativity":   (-0.30, 0.00),      # 9/9 in -0.2252..-0.0200 - disassortative WITHOUT exception
+          "avg_degree":             (5.0, 100.0),       # 9/9 in 6.28-88.28
+          "density":                (0.0, 0.10),        # 9/9 in 0.0001-0.0755
+          "n_classes":              (2, 10),            # 9/9 in 2-10, median 2
+          "nodes":                  (300, 60000)}       # 9/9 in 399-48921
+# One negative condition, and the reason it is needed: the 14 Netzschleuder graphs ingested for Module 12 are BIPARTITE,
+# a class absent from the discovery nine, and the study already knows degree wins there for a family reason of its own.
+# Letting them in would answer a different question with this rule's name on it.
+FAMILY_EXCLUDE_BIPARTITE = True
+
+
+def in_family(props):
+    '''Which FAMILY axes a graph satisfies, and whether it is in the family at all: (bool, list of failing axes).'''
+    bad = [k for k, (lo, hi) in FAMILY.items()
+           if props.get(k) is None or props.get(k) != props.get(k) or not lo <= float(props[k]) <= hi]
+    if FAMILY_EXCLUDE_BIPARTITE and props.get("bipartite"):
+        bad.append("bipartite")
+    return not bad, bad
+
+
+def predict_entropy(props):
+    '''Which of degree or psi the FROZEN_ENTROPY cut names, or "n/a" when the property is missing.'''
+    v = props.get(FROZEN_ENTROPY.predictor)
+    if v is None or v != v:
+        return "n/a"
+    return FROZEN_ENTROPY.signal if v < FROZEN_ENTROPY.point else "psi"
+
+
+# --- Module 14: the ONE-SIDED degree rule, frozen 2026-09-08 -----------------------------------------------------------
+# The user's decision after the family test: freeze the DEGREE side and claim nothing above the cut. FROZEN_ENTROPY was
+# a two-sided rule ("below => degree, else psi") and its psi half failed repeatedly; this artifact keeps only the half
+# the evidence supports. Above the cut it returns "no claim", NOT psi - that is the whole point of the change.
+#     nbr_label_entropy < 0.6724  =>  degree
+#     nbr_label_entropy >= 0.6724 =>  no claim
+# The cut is Module 10's, unchanged to four decimals. Nothing here was refitted.
+#
+# HOW A ONE-SIDED RULE MUST BE SCORED, because the obvious way is wrong: below the cut it always answers "degree", so on
+# below-cut cells alone it IS the constant "always degree" and can never beat it. Its content is entirely in WHICH graphs
+# fall below the cut, so the evidence is ENRICHMENT - the degree win rate below the cut against the rate above it.
+#   all 40 augmenting cells (argmax labels)   below 17/29 = 0.586   above 2/11 = 0.182   base 0.475   Fisher p = 0.0248
+#   out-of-sample (discovery 9 removed, n=31) below 12/24 = 0.500   above  2/7 = 0.286   base 0.452   Fisher p = 0.2874
+# So the enrichment is significant over the whole pool and is NOT significant once the cells it was fitted on are
+# removed. That is why this is frozen as a CANDIDATE to be tested, exactly as FROZEN_DEGREE was, and never reported as
+# an established selector.
+OneSided = namedtuple("OneSided", "name signal predictor op point interval fitted_on claims record")
+FROZEN_DEGREE_ONESIDED = OneSided(
+    "degree_onesided", "degree", "nbr_label_entropy", "<", 0.6724, (0.6296, 0.7151), "DISCOVERY_9",
+    "below the cut only - above it the rule makes NO CLAIM",
+    "below-cut calls out of sample 6/9; enrichment p=0.0248 over all 40 augmenting cells, p=0.2874 out of sample")
+
+
+def predict_degree_onesided(props):
+    '''"degree" below the cut, "no claim" above it, "n/a" when the property is missing. Never returns psi.'''
+    v = props.get(FROZEN_DEGREE_ONESIDED.predictor)
+    if v is None or v != v:
+        return "n/a"
+    return FROZEN_DEGREE_ONESIDED.signal if v < FROZEN_DEGREE_ONESIDED.point else "no claim"
