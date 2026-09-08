@@ -114,6 +114,14 @@ STUDY = {
     "foursquare_tips":     {"domain": "check-in",        "tasks": "NC+LP", "scope": "full"},
     "ppi_rat":             {"domain": "protein",         "tasks": "NC+LP", "scope": "full"},
     "ppi_mouse":           {"domain": "protein",         "tasks": "NC+LP", "scope": "full"},
+    # 2026-09-07, cfg.DEGREE_FAMILY_TEST: the Module-14 family validation set (mist PPI / genetic interaction networks).
+    "ppi_human":            {"domain": "protein",         "tasks": "NC+LP", "scope": "full"},
+    "ppi_fly":              {"domain": "protein",         "tasks": "NC+LP", "scope": "full"},
+    "ppi_yeast":            {"domain": "protein",         "tasks": "NC+LP", "scope": "full"},
+    "genetic_fission_yeast": {"domain": "protein",        "tasks": "NC+LP", "scope": "full"},
+    # 2026-09-08, cfg.DEGREE_FAMILY_TEST2: the non-PPI half of the family test.
+    "jdk":                  {"domain": "software",        "tasks": "NC+LP", "scope": "full"},
+    "spanish_highschool_6": {"domain": "social",          "tasks": "NC+LP", "scope": "full"},
     "bag_of_words_nips":   {"domain": "document-word",   "tasks": "NC+LP", "scope": "full"},
 }
 

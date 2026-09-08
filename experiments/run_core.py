@@ -41,8 +41,11 @@ STRATEGY_HELDOUT = ["reed98", "amherst41", "johnshopkins55", "cornell5"]
 DEGREE_BATCH = ["twitch_de", "deezer_europe", "wisconsin", "cornell_webkb", "chameleon", "chameleon_filtered", "texas"]
 # The 2026-09-03 degree VALIDATION set: same discipline once more - the pipeline is unchanged, and the candidate rule's
 # prediction for each graph is written to results/degree_validation_prereg.csv before any of them is trained.
+# The 2026-09-07 FAMILY validation set (Module 14): same discipline once more - the pipeline is unchanged, and the
+# already-fixed cut's prediction for each graph is on disk in results/degree_family_prereg.csv before any of them trains.
 RUNNABLE = (CORE + HELDOUT + STRATEGY_HELDOUT + DEGREE_BATCH + cfg.DEGREE_RULE_CORPUS
-            + cfg.DEGREE_RULE_VALIDATION + cfg.DEGREE_TEST + cfg.DEGREE_BATCH2)
+            + cfg.DEGREE_RULE_VALIDATION + cfg.DEGREE_TEST + cfg.DEGREE_BATCH2 + cfg.DEGREE_FAMILY_TEST
+            + cfg.DEGREE_FAMILY_TEST2)
 TASKS = {"node_classification": "node classification (weighted F1)", "link_prediction": "link prediction (AUC)"}
 
 
