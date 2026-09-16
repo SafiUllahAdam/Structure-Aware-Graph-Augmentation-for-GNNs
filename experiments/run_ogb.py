@@ -126,8 +126,8 @@ def table(ds, split, better=False):
     unit = UNIT[rows["metric"].iloc[0].split("_", 1)[1]]
     t = rows.pivot(index="graph_variant", columns="encoder", values="mean").reindex(cfg.VG_SIMS).dropna(how="all")
     t = t.reindex(columns=[c for c in ("graphsage_edge", "deepwalk") if c in t.columns]).round(4)
-    t.columns = [f"{LABELS[c]} {'' if split == 'valid' else 'test '}{unit}" for c in t.columns]
-    t.index = [LABELS[i] for i in t.index]
+    t.columns = [f"{LABELS.get(c, c)} {'' if split == 'valid' else 'test '}{unit}" for c in t.columns]
+    t.index = [LABELS.get(i, i) for i in t.index]      # a variant with no display label prints its raw name, never crashes
     if better and t.shape[1] > 1:
         win = t.idxmax(axis=1).str.split().str[0]              # each column header starts with its encoder label
         win[(t.nunique(axis=1) == 1) & t.notna().all(axis=1)] = "tie"   # identical scores -> no winner to name

@@ -180,6 +180,34 @@ DEGREE_FAMILY_TEST = ["genetic_fission_yeast", "ppi_yeast", "ppi_fly", "ppi_huma
 DEGREE_FAMILY_TEST2 = ["spanish_highschool_6", "jdk"]   # cheapest-first
 assert not (set(DEGREE_RULE_CORPUS) & set(DEGREE_RULE_VALIDATION)), "a dataset is in BOTH the degree corpus and its validation set - it must be in exactly one"
 
+# --- Module 15: the ENCODER-GENERALIZATION panels (2026-09-15) ----------------------------------------------------
+# GATv2 is an EXTENSION, never a replacement: GraphSAGE stays the frozen encoder every rule was fitted under, and the
+# only question asked here is whether the stage-1 and stage-2 CALLS survive a change of aggregator. So the panel is the
+# graphs where the framework actually decides something, not the whole corpus - re-running 73 datasets would measure
+# the encoders, which is not the question.
+ENCODER_STAGE1 = ["cora", "enzymes", "ogbn_arxiv", "ogbl_ddi", "roman_empire", "tolokers", "questions",          # discovery
+                  "citeseer_linqs", "proteins", "pubmed", "actor", "minesweeper", "amazon_photo", "lastfm_asia",  # Module 3
+                  "amazon_ratings", "squirrel_filtered",
+                  "reed98", "amherst41", "johnshopkins55", "cornell5", "chameleon_filtered", "texas",             # Module 8 test
+                  "twitch_de", "deezer_europe"]                                                                   # post-freeze
+# The centrality rule's 12-cell validation pool (paper_log 2026-09-15). The rule itself stays SETTLED - it is applied
+# here, never re-scored as right or wrong; what is scored is whether GATv2 names the same winning signal GraphSAGE did.
+ENCODER_STAGE2_CENTRALITY = ["amherst41", "johnshopkins55", "cornell5", "twitch_de",
+                             "airports_europe", "airports_brazil", "airports_usa", "coauthor_physics",
+                             "penn94", "genius", "twitch_es", "twitch_engb"]
+# The one-sided degree cut's whole evidence base: frozen_rules.DISCOVERY_9 (fitted) + ENTROPY_SPENT (already tested on).
+# Every other degree batch is collection, not decision, so it is out of scope for an encoder check.
+ENCODER_STAGE2_DEGREE = ["actor", "airports_europe", "amazon_computers", "questions", "twitch_engb",
+                         "blogcatalog", "tolokers", "twitch_de", "twitch_es",
+                         "twitch_ptbr", "wiki_attr", "crocodile", "cora_full", "penn94", "genius", "twitch_gamers"]
+# ogbn_arxiv is node-classification only and ogbl_ddi is scored under the OGB protocol, so neither carries an LP verdict
+# a second encoder could agree or disagree with. Excluded from the runnable panel, kept above so stage 1 is quotable whole.
+ENCODER_PANEL = [d for d in dict.fromkeys(ENCODER_STAGE1 + ENCODER_STAGE2_CENTRALITY + ENCODER_STAGE2_DEGREE)
+                 if d not in ("ogbn_arxiv", "ogbl_ddi")]
+# The smoke four, one per decision the framework makes: a stage-1 keep, a centrality winner, a degree sole winner, and
+# the decisive-pair member no single-variable split can separate. All four have 10-seed GraphSAGE verdicts on record.
+ENCODER_SMOKE = ["cora", "roman_empire", "actor", "squirrel_filtered"]
+
 BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)
 BENCH_MODELS = ["identity2vec", "deepwalk", "node2vec", "struc2vec"]
 
@@ -196,7 +224,20 @@ VG_SIMS_LOCKED = ["psi", "degree", "centrality", "original", "hybrid"]
 # THE official candidate set. psi = I2V Ψ; degree/centrality = simpler baselines; original = unchanged-graph control (K unused);
 # hybrid = original ∪ psi top-K. hybrid_degree / hybrid_centrality promoted 2026-08-12 out of the notebook-2/3 experiment:
 # same union, role side = degree / eigenvector centrality -> the study now varies WHICH structural augmentation is added.
-VG_SIMS = VG_SIMS_LOCKED + ["hybrid_degree", "hybrid_centrality"]
+# psi_lambda added 2026-09-08: same I2V λ (Eq. 3-4, d dropped, Fix-4A normalizer) used DIRECTLY as the signature.
+# psi wraps λ in Fix-8's log-Poisson, which needs λ>0 and so clamps at 1e-12; λ is negative on 12-67% of nodes
+# (Δ and Ω are not normalized over N(u)), and every clamped node collapses to k*log(1e-12) - log(k!) = a pure degree
+# function. Dropping the wrapper removes the clamp AND the -log(k!) degree term. Kept OUT of VG_SIMS_LOCKED.
+# psi_w_deg / psi_w_ev / psi_w_delta added 2026-09-09: the same Ψ with a different reading of Eq. 3-4's ω
+# ("the structural attributes of v1", never written out in the paper). Open since 2026-06-24, notes.md:152/:209.
+# psi_qnorm / psi_pqnorm / psi_shift added 2026-09-13: the two principled repairs for Fix-8's 1e-12 clamp
+# (supervisor, pre-GATv2). qnorm = Ω normalized over N(u); pqnorm = Δ normalized too, which is what actually
+# guarantees λ >= 0; shift = λ - min(λ), order-preserving. All DIAGNOSTIC, none in VG_SIMS_LOCKED.
+VG_SIMS = VG_SIMS_LOCKED + ["hybrid_degree", "hybrid_centrality", "psi_lambda", "psi_w_deg", "psi_w_ev",
+                            "psi_w_delta", "psi_qnorm", "psi_pqnorm", "psi_shift"]
+# The SEVEN official variants, split out 2026-09-15 because VG_SIMS now also carries the psi diagnostics: a signal
+# verdict must be read off the seven the study publishes, never off a list that grows whenever a diagnostic is added.
+VG_SIMS_OFFICIAL = VG_SIMS_LOCKED + ["hybrid_degree", "hybrid_centrality"]
 # Density-matched controls, kept OUT of VG_SIMS so the Phase-2/3 study is unchanged; opt in with VG_SIMS + VG_CONTROLS.
 # The original graph's density floats per dataset (ddi avg degree 500 vs role graphs 13; cora 3.9 vs 12) and even flips
 # direction, so "role vs original" confounds edge meaning with edge count. These two hold the count fixed.

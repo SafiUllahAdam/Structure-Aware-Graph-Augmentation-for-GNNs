@@ -5,12 +5,14 @@
 from virgo.encoders.base import GNNEncoder, feature_cache, WALKS
 from virgo.encoders.sage import SageEncoder
 from virgo.encoders.gin import GinEncoder
+from virgo.encoders.gatv2 import GATv2Encoder
 
 # Study id (used verbatim in .emb filenames and the scoreboard "encoder" column) -> encoder class.
 # The id carries the ablation-A positives setting; the value itself is read from config.GNN_PARAMS["positives"].
 ENCODERS = {
     "graphsage_edge": SageEncoder,
     "gin_edge": GinEncoder,
+    "gatv2_edge": GATv2Encoder,
 }
 
-__all__ = ["GNNEncoder", "SageEncoder", "GinEncoder", "ENCODERS", "feature_cache", "WALKS"]
+__all__ = ["GNNEncoder", "SageEncoder", "GinEncoder", "GATv2Encoder", "ENCODERS", "feature_cache", "WALKS"]
