@@ -13,6 +13,21 @@ from virgo import graph_io
 from virgo import identity2vec_cached
 
 
+# Ψ arms: sim -> (Poisson wrapper?, reading of Eq. 3-4's ω, how p/q are normalized over N(u), shift λ so min=0?).
+# `psi` is the published one; every other arm is a diagnostic and none of them is in cfg.VG_SIMS_LOCKED.
+#   ω        OPEN item from 2026-06-24 (notes.md:152, :209) - the paper says only "the structural attributes of v1".
+#   norm     the supervisor's fix (a). 'q' normalizes Ω over N(u); 'pq' normalizes Δ too, which is what actually makes
+#            λ a true KL and so λ >= 0 by Gibbs. 'q' ALONE DOES NOT: with Σq=1 but Σp=S, the bound is S·log(S) < 0
+#            whenever S < 1, and Δ = n_d/n is small, so Ω-only normalization drives λ negative rather than fixing it.
+#   shift    the supervisor's fix (b). λ -> λ - min(λ) over the graph's non-isolated nodes: order-preserving, and the
+#            1e-12 floor then bites ONE node (the minimum) instead of a third of them.
+PSI_ARMS = {'psi': (True, 'deg_ev', 'none', False), 'psi_lambda': (False, 'deg_ev', 'none', False),
+            'psi_w_deg': (True, 'deg', 'none', False), 'psi_w_ev': (True, 'ev', 'none', False),
+            'psi_w_delta': (True, 'delta_ev', 'none', False),
+            'psi_qnorm': (True, 'deg_ev', 'q', False), 'psi_pqnorm': (True, 'deg_ev', 'pq', False),
+            'psi_shift': (True, 'deg_ev', 'none', True)}
+
+
 class VirtualGraph():
     '''Connects each node to its top-K structurally most-similar nodes under a chosen similarity.'''
 
@@ -22,35 +37,57 @@ class VirtualGraph():
         self.G = nx_Graph
         self.core = identity2vec_cached.Graph(nx_Graph, e, per_component=self.policy["centrality"] == "per_component")
 
-    # Reference-free I2V identity score: KL(Δ_neigh || Ω_neigh) -> Poisson, dropping the walk shortest-path term.
-    def psi_signature(self, node, neigh_map, deg_dist, ev, deg):
-        '''Per-node I2V KL->Poisson structural fingerprint (context-free; path factor dropped, no walk reference).'''
+    # Reference-free I2V KL rate λ: KL(Δ_neigh || Ω_neigh), dropping the walk shortest-path term.
+    def psi_lambda_of(self, node, neigh_map, deg_dist, ev, deg, omega='deg_ev', norm='none'):
+        '''I2V's divergence rate λ for one node: signed, unclamped, no Poisson wrapper (Eq. 3-4 with d dropped).'''
         neigh = neigh_map[node]
         if len(neigh) == 0:
             return 0.0
-        rt = 0.0
-        for w in neigh:
-            p, q = deg_dist[w], ev[w]                         # I2V p=Δ (degree-dist), q=Ω (eigenvector centrality)
-            if p > 0 and q > 0:
-                rt += p * np.log(p / q)                       # KL divergence rate λ
-        k = len(neigh)
-        drt = max(rt / (deg[node] + ev[node]), 1e-12)         # I2V Fix 4A normalizer; node has neighbors so deg>=1
-        return k * np.log(drt) - drt - gammaln(k + 1)         # I2V Fix 8 Poisson log-score Ψ
+        ps = [deg_dist[w] for w in neigh]                     # I2V p=Δ (degree-dist)
+        qs = [ev[w] for w in neigh]                           # I2V q=Ω (eigenvector centrality)
+        if norm in ('q', 'pq'):                               # supervisor's fix (a): Ω as a distribution over N(u)
+            t = sum(qs)
+            qs = [q / t for q in qs] if t > 0 else qs
+        if norm == 'pq':                                      # ...and Δ too, which is what makes λ a true KL -> λ >= 0
+            t = sum(ps)
+            ps = [p / t for p in ps] if t > 0 else ps
+        rt = sum(p * np.log(p / q) for p, q in zip(ps, qs) if p > 0 and q > 0)
+        # Eq. 3-4 divide by ω, "the structural attributes of v1", which the paper never writes out; these are the readings.
+        # ω > 0 in every arm, so the ω ARM CANNOT CHANGE WHICH NODES CLAMP - sign(λ/ω) = sign(λ). It changes magnitude only.
+        w_node = {'deg_ev': deg[node] + ev[node],             # Fix 4A as shipped: raw degree + Ω
+                  'deg': deg[node],                           # degree alone
+                  'ev': ev[node],                             # Ω alone
+                  'delta_ev': deg_dist[node] + ev[node]}[omega]   # Δ + Ω: the paper's OWN two named structural properties (3.2.1)
+        return rt / w_node                                    # I2V Fix 4A normalizer; node has neighbors so deg>=1
+
+    # I2V Fix 8: the Poisson score in log space. The 1e-12 floor is the clamp under audit - see paper_log 2026-09-08.
+    def poisson_score(self, lam, k):
+        '''Ψ = k·log(λ) − λ − log(k!), evaluated in log space; λ is floored at 1e-12 because log needs λ > 0.'''
+        if k == 0:
+            return 0.0
+        return k * np.log(max(lam, 1e-12)) - max(lam, 1e-12) - gammaln(k + 1)
 
     # Per-node 1-D structural signature for a similarity variant (add a variant = add one branch here).
     def signatures(self, sim):
         '''node -> structural signature vector; distance in this space defines "structurally similar".'''
         nodes = list(self.G.nodes)
-        if sim == 'psi':
+        if sim in PSI_ARMS:                                   # every Ψ arm: the wrapper, the ω reading and the λ repair vary
+            poisson, omega, norm, shift = PSI_ARMS[sim]
             neigh_map, deg_dist = self.core.node_neighbors(), self.core.degree_distribution()
             ev, deg = self.core.eigenvector_centrality(), self.core.degree_node()
-            vals = {n: self.psi_signature(n, neigh_map, deg_dist, ev, deg) for n in nodes}
+            vals = {n: self.psi_lambda_of(n, neigh_map, deg_dist, ev, deg, omega, norm) for n in nodes}
+            if shift:                                         # fix (b): slide λ up so its minimum is 0, keeping every node's ORDER
+                live = [vals[n] for n in nodes if len(neigh_map[n])]   # isolated nodes are defined as 0.0, not measured -> excluded
+                lo = min(live) if live else 0.0
+                vals = {n: (vals[n] - lo if len(neigh_map[n]) else 0.0) for n in nodes}
+            if poisson:
+                vals = {n: self.poisson_score(vals[n], len(neigh_map[n])) for n in nodes}
         elif sim == 'degree':
             vals = self.core.degree_node()
         elif sim == 'centrality':
             vals = self.core.eigenvector_centrality()
         else:
-            raise ValueError(f"Unknown sim '{sim}'. Use: psi, degree, centrality, original, hybrid, hybrid_degree, hybrid_centrality.")
+            raise ValueError(f"Unknown sim '{sim}'. Use: {', '.join(PSI_ARMS)}, degree, centrality, original, hybrid, hybrid_degree, hybrid_centrality.")
         X = np.array([[float(vals[n])] for n in nodes])
         return nodes, np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)   # guard: no NaN/inf signatures
 
@@ -159,8 +196,8 @@ def parse_args():
     parser.add_argument('--output', nargs='?', default=None,
                         help='Output virtual edgelist (default: output/notebook2_create_vir_graph/virtual_graphs/<ds>/k<K>/<sim>/virtual_graph.edgelist)')
     parser.add_argument('--sim', default='psi',
-                        choices=['psi', 'degree', 'centrality', 'original', 'hybrid', 'hybrid_degree', 'hybrid_centrality', 'original_k', 'random_k'],
-                        help='Structural similarity: psi=I2V KL/Poisson, degree-only, centrality-only, '
+                        choices=list(PSI_ARMS) + ['degree', 'centrality', 'original', 'hybrid', 'hybrid_degree', 'hybrid_centrality', 'original_k', 'random_k'],
+                        help='Structural similarity: psi=I2V KL/Poisson, psi_lambda=I2V KL rate only (unclamped), degree-only, centrality-only, '
                              'original=exact copy of input graph (control, K unused), hybrid[_degree|_centrality]=original + psi/degree/centrality top-K union, '
                              'original_k/random_k=density-matched controls (K real / K arbitrary neighbors per node). Default psi.')
     parser.add_argument('--k', type=int, default=10, help='Top-K structural neighbors per node. Default 10.')
