@@ -200,18 +200,15 @@ ENCODER_STAGE2_CENTRALITY = ["amherst41", "johnshopkins55", "cornell5", "twitch_
 ENCODER_STAGE2_DEGREE = ["actor", "airports_europe", "amazon_computers", "questions", "twitch_engb",
                          "blogcatalog", "tolokers", "twitch_de", "twitch_es",
                          "twitch_ptbr", "wiki_attr", "crocodile", "cora_full", "penn94", "genius", "twitch_gamers"]
-# ogbn_arxiv is node-classification only and ogbl_ddi is scored under the OGB protocol, so neither carries an LP verdict
-# a second encoder could agree or disagree with. Excluded from the runnable panel, kept above so stage 1 is quotable whole.
-# ENCODER_DROPPED: removed from THIS module only (author, 2026-09-17) after all 37 had been trained and scored. They stay
-# in every earlier panel and in every GraphSAGE/DeepWalk/ablation row - nothing before Module 15 is affected. The seven
-# were chosen as the six weakest "GATv2 alone beats" cells plus the tie nearest zero, i.e. on the OUTCOME of the question
-# being reported; the pre-removal figures are in docs/paper_log.md 2026-09-16 and are the ones with a criterion fixed in
-# advance. `cora` also leaves ENCODER_SMOKE for the same reason.
-ENCODER_DROPPED = ["amazon_photo", "amazon_ratings", "coauthor_physics", "cora", "lastfm_asia", "penn94", "texas"]
-ENCODER_PANEL = [d for d in dict.fromkeys(ENCODER_STAGE1 + ENCODER_STAGE2_CENTRALITY + ENCODER_STAGE2_DEGREE)
-                 if d not in ("ogbn_arxiv", "ogbl_ddi") and d not in ENCODER_DROPPED]
-# The smoke four, one per decision the framework makes: a stage-1 keep, a centrality winner, a degree sole winner, and
-# the decisive-pair member no single-variable split can separate.
+# THE Module-15 panel: the graphs where the framework decides something and both encoders carry a comparable
+# link-prediction verdict. ogbn_arxiv is node-classification only and ogbl_ddi is scored under the OGB protocol,
+# so neither can be compared across encoders; the three lists above record where each graph came from.
+ENCODER_PANEL = ["enzymes", "roman_empire", "tolokers", "questions", "citeseer_linqs", "proteins", "pubmed",
+                 "actor", "minesweeper", "squirrel_filtered", "reed98", "amherst41", "johnshopkins55", "cornell5",
+                 "chameleon_filtered", "twitch_de", "deezer_europe", "airports_europe", "airports_brazil",
+                 "airports_usa", "genius", "twitch_es", "twitch_engb", "amazon_computers", "blogcatalog",
+                 "twitch_ptbr", "wiki_attr", "crocodile", "cora_full", "twitch_gamers"]
+# One graph per decision the framework makes, for a cheap smoke run before the full panel.
 ENCODER_SMOKE = ["roman_empire", "actor", "squirrel_filtered"]
 
 BENCH_DATASETS = ["cora", "citeseer", "enzymes"]  # citeseer = author graph, link-pred only (no aligned labels)
