@@ -1,36 +1,28 @@
 # Structure Aware Graph Augmentation for Graph Neural Networks
 
-*A characterization-guided, two-stage pre-training decision framework for structural role-graph augmentation.*
+*A two-stage framework that decides, before any encoder is trained, whether to add structural-role edges to a graph and which structural signal to build them from.*
 
-Structural-role augmentation adds edges between nodes that occupy **similar topological positions** - two hubs, two bridges, two peripheral nodes - even when no path connects them. A standard GNN can only pass messages along real edges, so role-twins never interact; a **role graph** gives them a channel.
+Structural-role augmentation adds edges between nodes that play **similar topological roles** - two hubs, two bridges, two peripheral nodes - even when no path connects them. A GNN only passes messages along real edges, so these role twins never meet; a **role graph** gives them a channel.
 
-The problem is that this does not always help. Measured across 19 graphs, role augmentation improves link prediction on some and actively damages others, and it never once improves node classification. So the useful question is not *"does rewiring work?"* but **"for this graph, should I rewire at all - and if so, with which structural signal?"**
-
-This project answers both, **before any encoder is trained**, with a two-stage decision framework read off the graph's own properties. A follow-up check with an attention encoder (§4) clarifies what the added edges actually contribute: they connect nodes that are too far apart in the original graph for a GNN to reach, so they help only when a node's nearby neighbours do not already supply the information it needs.
-
-The Identity2Vec walker underneath is reproduced and cached: on a 265-node graph it drops from 916.6 s to 4.4 s (~207× faster), with byte-identical embeddings.
+That channel does not always help. The question is therefore not *"does rewiring work?"* but **"for this graph, should I rewire, and with which signal?"** - answered from the graph's own properties.
 
 ---
 
-## 1 · The headline result
+## 1 · Headline
 
-GraphSAGE, K = 10, 10 seeds (42–51), five locked graph variants, one frozen pipeline.
+GraphSAGE, K = 10, 10 seeds, one frozen pipeline.
 
-| task | augment | tie | keep original | datasets |
-|---|---|---|---|---|
-| **link prediction** | **9** | 4 | 6 | 19 |
-| **node classification** | **0** | 2 | 13 | 15 |
+| task | augment | tie | keep original |
+|---|---|---|---|
+| **link prediction** (19 graphs) | **9** | 4 | 6 |
+| **node classification** (15 graphs) | **0** | 2 | 13 |
 
-Two things follow, and they are the reason the framework exists:
-
-1. **Node classification has a boundary, not a rule.** No dataset, in any panel, at any seed count, has ever shown a significant node-classification gain from role augmentation. The reportable finding is *"never augment for NC"*.
-2. **Link prediction genuinely splits.** Roughly half the graphs benefit and half are hurt, so the decision is worth making - and worth predicting.
+- **Node classification: never augment.** No graph, in any panel or at any seed count, has shown a significant gain. This is a boundary to report, not a rule to predict.
+- **Link prediction genuinely splits**, so the decision is worth making, and worth predicting.
 
 ---
 
-## 2 · The two-stage framework
-
-Everything below is computable **before training an encoder**.
+## 2 · The framework
 
 ```
 graph ──► STAGE 1: augment, or keep the original?
@@ -42,157 +34,141 @@ graph ──► STAGE 1: augment, or keep the original?
    train on the original      build that role graph, then train
 ```
 
-**Stage 1 - whether to augment** (`virgo.frozen_rules.predict_gated`), applied in order:
+Both stages read properties of the **original graph** only, so nothing is built or trained before the call. The rules are frozen in `virgo/frozen_rules.py`. Each cut is the midpoint of a fitted interval, so read it as a range rather than a constant.
 
-| step | rule | cut | any cut in | needs labels |
-|---|---|---|---|---|
-| 1 | **adjusted homophily** - *the decision*: high ⇒ keep the original, low ⇒ normally augment | `< 0.227` | (0.0926, 0.3613) | yes |
-| 2 | **average clustering** - *the exception*, inside the low-homophily zone only: high clustering ⇒ keep the original after all | `< 0.5573` | (0.5329, 0.5769) | no |
-| 3 | **largest-component fraction** - fallback for unlabelled graphs | `> 0.9588` | (0.9177, 1.0) | no |
+### Stage 1 - augment or not? *(locked)*
 
-**One characteristic with one safety check**, not two equal conditions. Adjusted homophily makes the call and is a **veto on its high side**; low homophily is necessary but not sufficient, and clustering catches the shortfall - a label-scrambled graph with dense neighbourhoods gains nothing from role edges. The decisive pair is `minesweeper` (0.0094, keeps) against `squirrel_filtered` (0.0086, augments): 0.0008 apart, opposite outcomes, so **no single-variable split can separate them**. Both properties are read off the **original graph**, so a verdict needs nothing built and nothing trained.
-
-**Stage 2 - which structural signal**, consulted only when stage 1 says augment:
-
-| rule | cut | any cut in | fitted on |
-|---|---|---|---|
-| **adjusted neighbour-label predictability** high ⇒ use **eigenvector centrality** | `> 0.0092` | (0.006, 0.0123) | 14 datasets, 7 of them augmenting |
-
-Plainly: **when a node's class can be read off the labels around it, centrality-based rewiring is right.** Below the cut the rule returns `"psi or degree (undetermined)"` - it claims nothing about Ψ versus degree.
-
-**Status.** Locked 2026-09-01, replacing a Module-4 gate that needed the role graph built first and did not transfer. Still open: the 0.5573 cut is a **candidate, not a proven threshold**, its negative side rests on two graphs, and `minesweeper` remains an unexplained low-homophily keep (§7).
-
----
-
-## 3 · What is validated, and what is not
-
-The distinction is kept in the code: `characterize.py`, `gate_rules.py` and `strategy_select.py` **fit** and are panel-guarded; `predict_module3.py`, `predict_gate.py` and `predict_strategy.py` only ever **read** `virgo/frozen_rules.py`. A prediction script that imported a fitting function would make the validation circular.
-
-| component | fitted on | held-out test | result |
-|---|---|---|---|
-| adjusted homophily (stage 1) | 7 datasets | 9 unseen, pre-registered | **4/6** decided |
-| largest-component fraction (fallback) | same 7 | same 9 | **4/6** decided |
-| **clustering exception** (low-homophily zone) | 13-dataset zone | 6 unseen, 4 decided | **4/4**, against rule 1 alone at 3/4 |
-| centrality rule (stage 2) | 14 datasets, 10 seeds, nothing held out | 3 LINKX, `twitch_de`, 9 corpus cells, 4 validation cells | **8/17** — still near the base rate |
-
-Adding the clustering exception takes stage 1 from **10/14** to **12/14** across panel and held-out test.
-
-Four cautions travel with those numbers:
-
-- **The clustering cut is a candidate, not a universal constant.** Its negative side rests on two graphs, and the six-graph test was retrospective - transfer evidence, not a pre-registration.
-- **Stage 1 has unexplained misses.** `minesweeper` and `deezer_europe` are low-homophily graphs that keep the original, and no condition catches either. Running total **13/16** decided cells.
-- **Stage 2 has not clearly beaten the base rate out of sample.** Cumulative **8/17**, close to a constant "always centrality" predictor - because no held-out graph has fallen below the 0.0092 cut, so the rule never fires negative. The cut is untested, not shown to be wrong.
-- **Seed counts matter.** The published 5/7 and 4/7 for stage 1 are **3-seed** figures; on the current 10-seed board they are **4/6 and 4/6**. No frozen cut moved. Always name the seed count.
-
----
-
-## 4 · Does it hold with a stronger encoder?
-
-Every rule above was fitted under GraphSAGE. To check they are not an artifact of that one choice, the study was re-run with **GATv2** - an attention model that decides for itself how much each neighbour matters. Same graphs, same splits, same seeds; only the convolution changed. 30 graphs.
-
-| question | answer |
-|---|---|
-| Does augmentation still help? | Yes, but on fewer graphs - **13/30** under GATv2 against **21/30** under GraphSAGE |
-| Can the stronger encoder alone replace augmentation? | On **14/30**, yes |
-| Where the stronger encoder alone fails, does augmentation rescue it? | **8 of 9** - mean AUC 0.51 → 0.66 |
-| Do the framework's calls survive? | Stage 1 **22/30**, and every disagreement runs one way only: GATv2 makes augmentation *unnecessary*, never newly necessary |
-
-**The finding: augmentation and a stronger encoder are substitutes, not complements.** Where attention alone already wins, rewiring adds almost nothing (2 of 14). Where attention alone fails, rewiring is the whole rescue (8 of 9). In other words, the added edges supply information that a stronger encoder can often work out on its own. On the graphs where even a stronger encoder cannot work it out, the added edges are the only thing that helps.
-
-**Which graphs need it?** Comparing the two groups:
-
-| | needs augmentation | does not |
+| step | rule | reading |
 |---|---|---|
-| degree spread | a few very large hubs | fairly even |
-| wiring | hubs attach to leaves | similar nodes attach to each other |
-| triangles | few - open neighbourhoods | many - dense, closed neighbourhoods |
-| density | sparse | denser |
+| **decision** | adjusted homophily **< 0.227** ⇒ augment | When edges follow the labels, the original graph is the better guide - a reliable **veto**. Low homophily is necessary, not sufficient. |
+| **exception** *(low-homophily graphs only)* | average clustering **≥ 0.5573** ⇒ keep original | Dense, triangle-rich neighbourhoods already carry the local structure. |
+| **fallback** *(unlabelled graphs)* | largest-component fraction **> 0.9588** ⇒ augment | The weakest step: it mainly flags fragmented graphs, which keep the original. |
 
-**Homophily, graph size and class count do not separate the two groups at all.** This is about how a graph spreads its edges, not about its labels.
+Read it as **one characteristic plus a safety check**, not two equal conditions. `minesweeper` and `squirrel_filtered` have near-identical homophily and opposite outcomes, so no single cut can be enough. The clustering exception closes part of that gap; `minesweeper` itself stays unexplained.
 
-The reason is distance. The edges a role graph adds connect nodes that are a median of **3-6 steps** apart in the original graph. A 2-layer network only sees two steps out, and stacking more layers to see further makes every node's representation look alike. So when a node's immediate neighbours already carry the information it needs, the added edges are redundant; when they do not, the added edges are the only way that information reaches it.
+### Stage 2 - which signal? *(only when stage 1 says augment)*
 
-This is a **description of the graphs measured**, not a further rule: no threshold is proposed and nothing here is frozen.
+| signal | rule | reading |
+|---|---|---|
+| **centrality** | adjusted neighbour-label predictability **> 0.0092** | A node's neighbours' label mix predicts its class better than chance. *Settled.* |
+| **degree** | neighbour-label entropy **< 0.6724**; no claim above the cut | The labels around each node are concentrated, not mixed. *Candidate.* |
+| **Ψ** | none | No graph property predicts it, on the study's largest sample. *Measured negative.* |
+
+The pattern: **whether to augment is predictable; which signal to use mostly is not.** Degree wins on a *family* of graphs - bipartite, heterophilous, bounded-degree - rather than past a threshold. Ψ and degree often tie because they build near-identical role graphs: Ψ is computed from degree-based signatures, and on about a third of nodes its numerical floor reduces it to a pure function of degree (§5).
+
+---
+
+## 3 · How far to trust it
+
+Fitting and prediction are separated in code: prediction scripts only read `frozen_rules.py`, and every prediction is written to disk before the encoder runs.
+
+| rule | status | what the tests say |
+|---|---|---|
+| stage 1 | locked | Right on 23 of 27 graphs, across the fitting panel and later held-out tests. The misses are mostly low-homophily graphs that still prefer the original. |
+| clustering exception | cut is a candidate | Beat homophily alone on unseen graphs, but that test was retrospective and its keep side rests on two graphs. |
+| centrality | settled | Out of sample it scores like "always centrality", because almost every graph clears its cut. The one graph below the cut was called correctly. |
+| degree | candidate | Degree wins more often below the cut in every round; out of sample the gap is not yet significant. |
+
+*Tests ran at 3 or 10 seeds; every figure with its seed count is in `docs/paper_log.md`.*
+
+**Retired, and kept on record as negative results:**
+
+- **Retention gate** (old stage 1): needed the role graph built first and did not transfer. Its in-sample direction is still a finding - the less of the original graph the rewiring kept, the more augmentation helped.
+- **Distinct-degree threshold** (degree): failed, in the wrong direction.
+- **Ψ half of the entropy rule**: failed out of sample; dropped.
+- **First hypotheses** (homophily → NC gains, density → LP gains): both failed; homophily matters for LP instead.
+- **Six more degree screens, one Ψ screen**: all negative - measurements, not data gaps.
+
+---
+
+## 4 · With a stronger encoder: GATv2
+
+Every rule was fitted under GraphSAGE. Swapping in **GATv2** (attention) with the same graphs, splits and hyperparameters - only the convolution changes - on 30 graphs, 3 seeds:
+
+- **Augmentation still helps, on fewer graphs:** 13 of 30, against 21 of 30 under GraphSAGE.
+- **Augmentation and a stronger encoder are substitutes, not complements.** Where GATv2 alone already wins, rewiring adds almost nothing; where it fails, rewiring rescues 8 of 9 graphs.
+- **Stage 1 misses in one direction only.** Every disagreement is a graph where the stronger encoder made augmentation unnecessary - never one where it made augmentation newly necessary.
+
+**Which graphs still need it** - a description, not a rule:
+
+| still needs augmentation | does not |
+|---|---|
+| sparse, dominated by a few hubs | denser, evenly spread degrees |
+| hubs attached to leaves | similar nodes attached to each other |
+| few triangles | many triangles |
+
+Homophily, size and class count do not separate the groups: it is about how a graph spreads its edges, not its labels. Role edges mostly join nodes 3-6 hops apart, beyond a 2-layer receptive field, and reaching them by depth would oversmooth. They are not chosen *for* distance (random pairs are as far apart); what they add is **reach** to structurally similar nodes - redundant when a node's neighbourhood already holds what it needs, the rescue when it does not.
+
+So the contribution is a **budget claim**: augmentation is an alternative to a stronger encoder, not a bonus on top of one. *(GATv2 runs on GraphSAGE's hyperparameters by design, so a GATv2 loss means "worse at these settings", not "attention is worse". GIN ran once as a plumbing check and is not interpreted.)*
 
 ---
 
 ## 5 · Method
 
-The variable under study is **the graph**, not the encoder. One fixed GNN sees every variant.
+The variable under study is **the graph**; one fixed encoder sees every variant.
 
 ```
 input graph → structural signals → role graph → encoder → embeddings → evaluation
-              (degree, eigenvector  (top-K most   (GraphSAGE  (64-dim    (NC weighted F1,
-               centrality, Ψ,        role-similar  or DeepWalk) per node)  LP AUC)
-               clustering; cached)   nodes)
+              (degree, eigenvector  (top-K most   (GraphSAGE; (64-dim    (NC weighted F1,
+               centrality, Ψ,        similar       GATv2,      per node)  LP AUC)
+               clustering; cached)   nodes, K=10)  DeepWalk)
 ```
 
-- **Signals** - degree and eigenvector centrality, computed once per graph and cached (Identity2Vec recomputes them inside its walk loop).
-- **Similarity** - KL divergence λ → Poisson Ψ, exactly as Identity2Vec defines it.
-- **Role graph** - `virgo/virtual_graph.py` links each node to its top-K most structurally similar nodes; K = 10 throughout, ties broken by seeded sampling.
-- **Encoder** - 2-layer GraphSAGE, mean aggregation, unsupervised Skipgram-style loss. DeepWalk on the same graph is the walk-based comparison.
-- **Evaluation** - node classification by logistic regression on the embeddings (weighted F1); link prediction by AUC over a 70/30 edge split, with the role graph **rebuilt from the 70% training edges** so no test edge leaks.
+- **Signals** - computed once and cached; they are also the encoder's input features (an ablation shows they are necessary).
+- **Ψ** - Identity2Vec's Poisson/KL score, used as published. On about a third of nodes its numerical floor reduces it to a function of degree; a normalised repair removes the floor but lowers performance, so it is reported, not adopted.
+- **Role graph** - each node linked to its K most similar nodes (`virgo/virtual_graph.py`), ties broken by seeded sampling.
+- **Evaluation** - NC: logistic regression on the embeddings. LP: AUC on a 70/30 split, role graph rebuilt from training edges only (no leakage).
+- **Identity2Vec** - reproduced and cached: byte-identical embeddings, ~200× faster.
 
-| variant | role signal | construction | locked |
-|---|---|---|---|
-| `original` | - | the input graph, unchanged (the control) | ✓ |
-| `psi` | Identity2Vec Poisson/KL score Ψ | replaces the edges | ✓ |
-| `degree` | degree | replaces the edges | ✓ |
-| `centrality` | eigenvector centrality | replaces the edges | ✓ |
-| `hybrid` | Ψ | original ∪ role edges | ✓ |
-| `hybrid_degree` | degree | original ∪ role edges | |
-| `hybrid_centrality` | eigenvector centrality | original ∪ role edges | |
+| variant | edges | signal |
+|---|---|---|
+| `original` | the input graph (the control) | - |
+| `psi` · `degree` · `centrality` | role edges **replace** the original | Ψ · degree · eigenvector centrality |
+| `hybrid` · `hybrid_degree` · `hybrid_centrality` | role edges **added to** the original | Ψ · degree · eigenvector centrality |
 
-The five *locked* variants are the ones every frozen rule was fitted against, and the analysis scripts read that fixed list, so promoting a variant can never silently refit a locked rule. Hybrids vote for the signal they **add**, so a stage-2 answer names a signal rather than one of seven files.
+The frozen rules were fitted on the five locked variants (`original`, the three replacements, `hybrid`). Hybrids vote for the signal they add.
 
 ---
 
 ## 6 · Datasets
 
-51 registered graphs - the 27-graph study corpus plus the separate 20-graph `DEGREE_RULE_CORPUS` used only for the stage-2 degree question - spanning citation, molecular, co-purchase, crowdsourcing, linguistic, social, Wikipedia, web, streaming, coauthorship, email, air-transport and drug-interaction domains, with adjusted homophily from −0.294 to 0.856 and average degree from 2.8 to 88.3. Which panel each one belongs to, where it came from, and the full citations are in **[DATASETS.md](DATASETS.md)**.
-
-Every graph is used **structurally only**: published node features are ignored by design, so a gain cannot be credited to attributes instead of to the rewiring under test.
+72 graphs trained (83 registered): citation, social, web, co-purchase, biological, molecular, transport and more, ranging from strongly homophilous to strongly heterophilous. Every graph is used **structurally only**. Published node features are ignored, so a gain cannot be credited to attributes instead of to the rewiring. Panels, sources and citations: **[DATASETS.md](DATASETS.md)**.
 
 ---
 
 ## 7 · Repository
 
-Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`virgo/` is an internal package name the project title no longer matches.)
+Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`virgo/` is an internal package name.)
 
 ```
-├── input/ labels/ splits/     # graphs, labels, saved 70/30 LP splits - input/ is read-only
-├── output/ results/           # embeddings; scoreboard.csv, graph_health.csv, module*.csv
-├── notebooks/ 1-8             # the narrative version: reproduce → role graphs → encoder → OGB
-│                              #   → characterization → stage-1 validation → stage-2 → encoders
-├── virgo/                     # ── the library ──
-│   ├── config.py              # THE settings: paths, dataset registry, variants, GNN params, seed=42
-│   ├── frozen_rules.py        # THE frozen artifacts: panels, stage-1 rules + exception, stage-2 rule
-│   ├── graph_io.py            # THE graph policy + the single loader every stage reads through
-│   ├── identity2vec*.py       # original walk algorithm + the cached rewrite (identical output)
-│   ├── virtual_graph.py       # the top-K role-graph builder (all seven variants)
-│   ├── encoders/              # base.GNNEncoder + sage · gin · gatv2 · walk, behind an ENCODERS registry
-│   ├── data/ eval/            # dataset builders; nodeclass (F1) · linkpred (AUC) · ogb · runner
-│
-└── experiments/               # ── the entry points, one argparse CLI each ──
-    ├── run_core.py run_ogb.py # the frozen sweeps
-    ├── characterize.py gate_rules.py strategy_select.py stage1_pairs.py degree_rule.py   # FIT (panel-guarded)
-    ├── tie_break.py            # paired per-seed re-scoring of cached embeddings (never trains)
-    ├── encoder_transfer.py encoder_profile.py   # the GATv2 comparison and the two-group profile
-    └── predict_module3.py score_module3.py predict_gate.py predict_strategy.py   # READ frozen_rules only
+├── input/ labels/ splits/     # graphs, labels, saved LP splits - input/ is read-only
+├── output/ results/           # embeddings; scoreboard.csv, graph_health.csv, module tables
+├── notebooks/ 1-8             # the narrative: reproduce → role graphs → encoder → … → encoders
+├── virgo/
+│   ├── config.py              # THE settings: paths, datasets, variants, GNN params, seed
+│   ├── frozen_rules.py        # THE frozen rules
+│   ├── graph_io.py            # THE graph policy + the single loader
+│   ├── identity2vec*.py       # original walk + the cached rewrite
+│   ├── virtual_graph.py       # the top-K role-graph builder
+│   ├── encoders/              # GNNEncoder base + sage · gin · gatv2 · walk (ENCODERS registry)
+│   └── data/ eval/            # dataset builders; NC · LP · OGB evaluation
+└── experiments/               # one argparse CLI each
+    ├── run_core.py run_ogb.py                             # the frozen sweeps
+    ├── characterize.py gate_rules.py strategy_select.py …   # FIT (panel-guarded)
+    ├── predict_*.py score_module3.py                      # READ frozen_rules only
+    └── encoder_transfer.py encoder_profile.py             # GATv2 comparison + profile
 ```
 
-**Adding an encoder**: write `virgo/encoders/<name>.py` with a `GNNEncoder` subclass defining `build_convs()`, then add one line to `ENCODERS` in `virgo/encoders/__init__.py`. Every driver, CLI and scoreboard row picks it up with no further edit.
+**Adding an encoder:** one `GNNEncoder` subclass defining `build_convs()` in `virgo/encoders/<name>.py`, plus one line in `ENCODERS`. Every driver picks it up.
 
 ---
 
 ## 8 · What is left
 
-1. **Stage 1 is locked.** Both things it looks at are read straight off the input graph, so no training is needed to get an answer. The one open item is a pre-registered re-test of the clustering cut on graphs not yet trained.
-2. **Stage 2 beyond centrality.** We can predict when to use **centrality** (right 8 times out of 17 on new graphs). We still cannot predict when to use **degree**, and not for lack of trying: we searched every graph property we have, twice, over 48 graphs, and froze two candidate rules that both failed when tested. Every rule we found was no better than guessing. What we did learn is that degree does not win at some threshold - it wins on a *type* of graph: bipartite, heterophilous, low-degree ones. There are 9 such wins out of 48 graphs. The only way forward is to collect more graphs of that type, which is slow.
-3. **Anomaly detection as a third task.** So far we only test on node classification and link prediction. Anomaly detection looks for nodes that sit in an odd position in the graph - which is exactly what role information describes - so this is where augmentation should help most. We will create the odd nodes ourselves by changing the structure, not by using ready-made fraud datasets, because those depend on node attributes and this project uses structure only. Then both stages get checked again on the new results.
-4. **Other encoders - done for GATv2 (§4).** The framework was re-checked under an attention encoder and the calls largely hold. GIN is coded and has been run once as a plumbing check only; its numbers are not interpreted.
+1. **Anomaly detection** as a third task - where role information should matter most, since structural outliers are the target. Anomalies are injected structurally, then both stages are re-checked.
+2. **Degree-adaptive K** *(idea)* - gains concentrate on high-degree endpoints while low-degree ones lose, consistent with a fixed K = 10 swamping a node's few real edges.
 
-**Out of scope, deliberately:** external node attributes; non-Euclidean / hyperbolic latent spaces (separate work); learnable per-dataset blending of original and role edges (needs many, likely synthetic, datasets).
+**Out of scope, deliberately:** external node attributes, hyperbolic latent spaces, learnable blending of original and role edges.
 
 ---
 
@@ -219,33 +195,28 @@ python experiments/predict_strategy.py --datasets <ds> --step score
 
 # --- refit the analyses (panel-guarded) ---
 python experiments/characterize.py --step all      # stage-1 rule screen
-python experiments/stage1_pairs.py                  # the stage-1 second-condition screen
+python experiments/stage1_pairs.py                  # the stage-1 exception screen
 python experiments/strategy_select.py              # the stage-2 screen
 ```
 
-Reproducibility conventions: seed 42 everywhere (split, init, sampling); frozen-rule fitting used 42/43/44, the strategy work and every held-out test 42–51; every scoreboard row comes from one frozen pipeline; link prediction retrains on the 70% graph alone; a paper number counts as reproduced only within ±0.05. Notebooks are the narrative version of the same commands - run them in order on the "Python (i2v)" kernel.
+Seed 42 everywhere (split, init, sampling); multi-seed runs use 42-44 or 42-51. A paper number counts as reproduced within ±0.05. The notebooks are the narrative version of the same commands; run them in order on the "Python (i2v)" kernel.
 
 ---
 
 ## Conclusion
 
-Four things this project establishes.
+1. **Rewiring is not a free win.** It helps link prediction on some graphs, hurts it on others, and never helps node classification. Role information helps predict links, not labels.
+2. **Whether to augment can be decided before training.** Adjusted homophily makes the call and clustering is the safety check, both read straight off the input graph.
+3. **Which signal to use mostly cannot.** Centrality has a rule, degree has a candidate and a family pattern, and Ψ has nothing - partly because Ψ and degree so often build the same role graph.
+4. **Augmentation substitutes for encoder strength.** A stronger encoder makes it unnecessary on dense, clustered graphs; on sparse, hub-dominated ones it remains the rescue.
 
-**1. Rewiring is not a free win.** Across 19 graphs, role augmentation helps link prediction on some and hurts others, and it has never once improved node classification. "Always augment" is the wrong default; so is "never".
-
-**2. The decision can be made before training.** Two numbers read straight off the input graph - adjusted homophily, with average clustering as a safety check - call it correctly on 12 of 14 graphs. No encoder needs to run first, which is the practical point of the whole framework.
-
-**3. *Whether* to augment is predictable; *which signal* to use is mostly not.** Stage 1 works. Stage 2 can pick centrality when neighbour labels are predictable, but it is right about as often as always guessing centrality. Repeated searches for a rule separating the other two signals found nothing on 48 graphs - reported as a measured negative, not a gap awaiting more data.
-
-**4. Augmentation and a stronger encoder often do the same job.** Replace GraphSAGE with an attention encoder and augmentation stops making a difference on graphs whose neighbourhoods are already informative - dense, clustered, evenly connected. It still makes a large difference, and accounts for almost all of the result, on sparse graphs dominated by a few hubs, where the useful nodes are too far away for a practical number of layers to reach.
-
-Taken together: **role augmentation is a way of connecting nodes a GNN cannot otherwise reach.** It helps when the information a node needs sits too far away in the original graph, and it is redundant when that information is already nearby - and the graph's own structure tells you which of the two you are dealing with.
+**In one line:** role augmentation gives a GNN reach to structurally similar nodes it cannot otherwise see. It pays off when a node's own neighbourhood does not already hold what it needs, and the graph's structure largely tells you in advance which case you are in.
 
 ---
 
 ## Credits
 
-- **Identity2Vec** - Oluigbo et al., *Learning mesoscopic structural identity representations via a Poisson probability metric*. Provides the Ψ score and the walk baseline (`virgo/identity2vec.py`, frozen).
+- **Identity2Vec** - Oluigbo et al., *Learning mesoscopic structural identity representations via a Poisson probability metric*. Provides Ψ and the walk baseline (`virgo/identity2vec.py`, frozen).
 - **Heterophilous benchmarks** - Platonov et al., 2023. **LINKX / Facebook100** - Lim et al., 2021. **struc2vec** - vendored in `third_party/`, used as published.
 
-This project contributes the cached Identity2Vec walker, the seven-variant role-graph builder, the GraphSAGE encoder over role graphs, and the two-stage decision framework above.
+This project contributes the cached Identity2Vec walker, the seven-variant role-graph builder, the GraphSAGE encoder over role graphs, and the two-stage decision framework.
