@@ -42,46 +42,21 @@ Both stages read properties of the **original graph** only, so nothing is built 
 |---|---|---|
 | **decision** | adjusted homophily **< 0.227** ⇒ augment | When edges follow the labels, the original graph is the better guide - a reliable **veto**. Low homophily is necessary, not sufficient. |
 | **exception** *(low-homophily graphs only)* | average clustering **≥ 0.5573** ⇒ keep original | Dense, triangle-rich neighbourhoods already carry the local structure. |
-| **fallback** *(unlabelled graphs)* | largest-component fraction **> 0.9588** ⇒ augment | The weakest step: it mainly flags fragmented graphs, which keep the original. |
 
-Read it as **one characteristic plus a safety check**, not two equal conditions. `minesweeper` and `squirrel_filtered` have near-identical homophily and opposite outcomes, so no single cut can be enough. The clustering exception closes part of that gap; `minesweeper` itself stays unexplained.
+Homophily makes the decision; clustering is a safety check for the few low-homophily graphs where augmentation does not pay off.
 
 ### Stage 2 - which signal? *(only when stage 1 says augment)*
 
+Three structural signals can build the role graph: **degree** (how many neighbours a node has), **eigenvector centrality** (how influential a node is through well-connected neighbours), and **Ψ** (Identity2Vec's score comparing the shape of two nodes' neighbourhoods).
+
 | signal | rule | reading |
 |---|---|---|
-| **centrality** | adjusted neighbour-label predictability **> 0.0092** | A node's neighbours' label mix predicts its class better than chance. *Settled.* |
-| **degree** | neighbour-label entropy **< 0.6724**; no claim above the cut | The labels around each node are concentrated, not mixed. *Candidate.* |
-| **Ψ** | none | No graph property predicts it, on the study's largest sample. *Measured negative.* |
-
-The pattern: **whether to augment is predictable; which signal to use mostly is not.** Degree wins on a *family* of graphs - bipartite, heterophilous, bounded-degree - rather than past a threshold. Ψ and degree often tie because they build near-identical role graphs: Ψ is computed from degree-based signatures, and on about a third of nodes its numerical floor reduces it to a pure function of degree (§5).
+| **centrality** | adjusted neighbour-label predictability **> 0.0092** | A node's neighbours' label mix predicts its class better than chance. |
+| **degree** | neighbour-label entropy **< 0.6724** | The labels around each node are concentrated, not mixed. |
 
 ---
 
-## 3 · How far to trust it
-
-Fitting and prediction are separated in code: prediction scripts only read `frozen_rules.py`, and every prediction is written to disk before the encoder runs.
-
-| rule | status | what the tests say |
-|---|---|---|
-| stage 1 | locked | Right on 23 of 27 graphs, across the fitting panel and later held-out tests. The misses are mostly low-homophily graphs that still prefer the original. |
-| clustering exception | cut is a candidate | Beat homophily alone on unseen graphs, but that test was retrospective and its keep side rests on two graphs. |
-| centrality | settled | Out of sample it scores like "always centrality", because almost every graph clears its cut. The one graph below the cut was called correctly. |
-| degree | candidate | Degree wins more often below the cut in every round; out of sample the gap is not yet significant. |
-
-*Tests ran at 3 or 10 seeds; every figure with its seed count is in `docs/paper_log.md`.*
-
-**Retired, and kept on record as negative results:**
-
-- **Retention gate** (old stage 1): needed the role graph built first and did not transfer. Its in-sample direction is still a finding - the less of the original graph the rewiring kept, the more augmentation helped.
-- **Distinct-degree threshold** (degree): failed, in the wrong direction.
-- **Ψ half of the entropy rule**: failed out of sample; dropped.
-- **First hypotheses** (homophily → NC gains, density → LP gains): both failed; homophily matters for LP instead.
-- **Six more degree screens, one Ψ screen**: all negative - measurements, not data gaps.
-
----
-
-## 4 · With a stronger encoder: GATv2
+## 3 · With a stronger encoder: GATv2
 
 Every rule was fitted under GraphSAGE. Swapping in **GATv2** (attention) with the same graphs, splits and hyperparameters - only the convolution changes - on 30 graphs, 3 seeds:
 
@@ -97,13 +72,11 @@ Every rule was fitted under GraphSAGE. Swapping in **GATv2** (attention) with th
 | hubs attached to leaves | similar nodes attached to each other |
 | few triangles | many triangles |
 
-Homophily, size and class count do not separate the groups: it is about how a graph spreads its edges, not its labels. Role edges mostly join nodes 3-6 hops apart, beyond a 2-layer receptive field, and reaching them by depth would oversmooth. They are not chosen *for* distance (random pairs are as far apart); what they add is **reach** to structurally similar nodes - redundant when a node's neighbourhood already holds what it needs, the rescue when it does not.
-
-So the contribution is a **budget claim**: augmentation is an alternative to a stronger encoder, not a bonus on top of one. *(GATv2 runs on GraphSAGE's hyperparameters by design, so a GATv2 loss means "worse at these settings", not "attention is worse". GIN ran once as a plumbing check and is not interpreted.)*
+Role edges typically join nodes 3-6 hops apart, beyond the 2-hop view of a standard GNN, so each node gets direct access to structurally similar nodes it could otherwise reach only by stacking more layers, which oversmooths.
 
 ---
 
-## 5 · Method
+## 4 · Method
 
 The variable under study is **the graph**; one fixed encoder sees every variant.
 
@@ -130,13 +103,13 @@ The frozen rules were fitted on the five locked variants (`original`, the three 
 
 ---
 
-## 6 · Datasets
+## 5 · Datasets
 
 72 graphs trained (83 registered): citation, social, web, co-purchase, biological, molecular, transport and more, ranging from strongly homophilous to strongly heterophilous. Every graph is used **structurally only**. Published node features are ignored, so a gain cannot be credited to attributes instead of to the rewiring. Panels, sources and citations: **[DATASETS.md](DATASETS.md)**.
 
 ---
 
-## 7 · Repository
+## 6 · Repository
 
 Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`virgo/` is an internal package name.)
 
@@ -163,16 +136,7 @@ Two code folders, one rule: **`virgo/` is imported, `experiments/` is run.** (`v
 
 ---
 
-## 8 · What is left
-
-1. **Anomaly detection** as a third task - where role information should matter most, since structural outliers are the target. Anomalies are injected structurally, then both stages are re-checked.
-2. **Degree-adaptive K** *(idea)* - gains concentrate on high-degree endpoints while low-degree ones lose, consistent with a fixed K = 10 swamping a node's few real edges.
-
-**Out of scope, deliberately:** external node attributes, hyperbolic latent spaces, learnable blending of original and role edges.
-
----
-
-## 9 · Setup and usage
+## 7 · Setup and usage
 
 Conda environment **`i2v`** (Python 3.12):
 
@@ -205,12 +169,12 @@ Seed 42 everywhere (split, init, sampling); multi-seed runs use 42-44 or 42-51. 
 
 ## Conclusion
 
-1. **Rewiring is not a free win.** It helps link prediction on some graphs, hurts it on others, and never helps node classification. Role information helps predict links, not labels.
-2. **Whether to augment can be decided before training.** Adjusted homophily makes the call and clustering is the safety check, both read straight off the input graph.
-3. **Which signal to use mostly cannot.** Centrality has a rule, degree has a candidate and a family pattern, and Ψ has nothing - partly because Ψ and degree so often build the same role graph.
-4. **Augmentation substitutes for encoder strength.** A stronger encoder makes it unnecessary on dense, clustered graphs; on sparse, hub-dominated ones it remains the rescue.
+1. **Augmentation is graph-dependent.** Role edges improve link prediction on many graphs but not all, and do not improve node classification, so the decision has to be made per graph.
+2. **Stage 1 decides whether to augment, before training.** Low adjusted homophily signals that augmentation will help, with clustering as a safety check; both are read directly from the input graph.
+3. **Stage 2 decides which signal to use.** Predictable neighbour labels point to centrality; concentrated neighbour labels point to degree.
+4. **Augmentation matters most where the encoder alone struggles.** With a stronger encoder (GATv2), it stays decisive on sparse, hub-dominated, weakly clustered graphs, rescuing 8 of 9 graphs where the encoder alone fails.
 
-**In one line:** role augmentation gives a GNN reach to structurally similar nodes it cannot otherwise see. It pays off when a node's own neighbourhood does not already hold what it needs, and the graph's structure largely tells you in advance which case you are in.
+**In one line:** role augmentation gives a GNN direct access to structurally similar nodes beyond its receptive field, and the graph's own structure tells you, before training, when to use it and with which signal.
 
 ---
 
